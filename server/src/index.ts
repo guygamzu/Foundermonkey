@@ -9,21 +9,31 @@ import { createPaymentsRouter } from './routes/payments.js';
 import { createDocumentsRouter } from './routes/documents.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { rateLimiter } from './middleware/rateLimiter.js';
-import { EmailProcessor } from './workers/EmailProcessor.js';
-import { startNotificationWorker } from './workers/NotificationWorker.js';
-import { startCompletionWorker } from './workers/CompletionWorker.js';
 
 async function main() {
   const app = express();
   const port = Number(process.env.PORT) || 3001;
 
+  // Health check — register first so it responds even during startup
+  app.get('/health', (_req, res) => {
+    res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  });
+
+  // Start server immediately so healthcheck passes
+  app.listen(port, '0.0.0.0', () => {
+    logger.info({ port }, 'Lapen API server started');
+  });
+
   // Run database migrations
-  try {
-    await runMigrations();
-    logger.info('Database migrations completed');
-  } catch (err) {
-    logger.error({ err }, 'Failed to run migrations');
-    // Continue - migrations may have already been applied
+  if (process.env.DATABASE_URL) {
+    try {
+      await runMigrations();
+      logger.info('Database migrations completed');
+    } catch (err) {
+      logger.error({ err }, 'Failed to run migrations');
+    }
+  } else {
+    logger.warn('DATABASE_URL not configured, skipping migrations');
   }
 
   // Middleware
@@ -49,25 +59,19 @@ async function main() {
   app.use('/api/signing/session/*/qa', rateLimiter(20, 60 * 1000)); // 20 Q&A/min
 
   // Routes
-  app.use('/api/signing', createSigningRouter());
-  app.use('/api/payments', createPaymentsRouter());
-  app.use('/api/documents', createDocumentsRouter());
-
-  // Health check
-  app.get('/health', (_req, res) => {
-    res.json({ status: 'ok', timestamp: new Date().toISOString() });
-  });
+  if (process.env.DATABASE_URL) {
+    app.use('/api/signing', createSigningRouter());
+    app.use('/api/payments', createPaymentsRouter());
+    app.use('/api/documents', createDocumentsRouter());
+  }
 
   // Error handling
   app.use(errorHandler);
 
-  // Start server
-  app.listen(port, '0.0.0.0', () => {
-    logger.info({ port }, 'Lapen API server started');
-  });
-
   // Start workers (requires Redis)
   if (process.env.REDIS_URL) {
+    const { startNotificationWorker } = await import('./workers/NotificationWorker.js');
+    const { startCompletionWorker } = await import('./workers/CompletionWorker.js');
     startNotificationWorker();
     startCompletionWorker();
     logger.info('Background workers started');
@@ -77,6 +81,7 @@ async function main() {
 
   // Start email processor
   if (process.env.IMAP_HOST && process.env.IMAP_USER) {
+    const { EmailProcessor } = await import('./workers/EmailProcessor.js');
     const emailProcessor = new EmailProcessor();
     emailProcessor.start();
     logger.info('Email processor started');
