@@ -92,5 +92,4 @@ async function main() {
 
 main().catch((err) => {
   logger.error({ err }, 'Fatal error starting server');
-  process.exit(1);
 });
