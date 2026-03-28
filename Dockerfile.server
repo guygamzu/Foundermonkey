@@ -1,0 +1,37 @@
+FROM node:22-alpine AS builder
+
+WORKDIR /app
+
+# Copy workspace config
+COPY package.json tsconfig.base.json ./
+COPY shared/package.json shared/tsconfig.json ./shared/
+COPY server/package.json server/tsconfig.json ./server/
+
+# Install dependencies
+RUN npm install --workspaces
+
+# Copy source
+COPY shared/ ./shared/
+COPY server/ ./server/
+
+# Build
+RUN npm run build --workspace=shared
+RUN npm run build --workspace=server
+
+# Production image
+FROM node:22-alpine
+
+WORKDIR /app
+
+COPY --from=builder /app/package.json ./
+COPY --from=builder /app/shared/package.json ./shared/
+COPY --from=builder /app/server/package.json ./server/
+COPY --from=builder /app/shared/dist ./shared/dist
+COPY --from=builder /app/server/dist ./server/dist
+COPY --from=builder /app/server/migrations ./server/migrations
+
+RUN npm install --workspaces --omit=dev
+
+EXPOSE 3001
+
+CMD ["node", "server/dist/index.js"]
