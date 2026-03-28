@@ -28,8 +28,12 @@ async function main() {
 
   // Middleware
   app.use(helmet());
+  const allowedOrigins = [
+    process.env.APP_URL,
+    'http://localhost:3000',
+  ].filter(Boolean) as string[];
   app.use(cors({
-    origin: process.env.APP_URL || 'http://localhost:3000',
+    origin: allowedOrigins,
     credentials: true,
   }));
   app.use(pinoHttp({ logger }));
@@ -58,13 +62,18 @@ async function main() {
   app.use(errorHandler);
 
   // Start server
-  app.listen(port, () => {
+  app.listen(port, '0.0.0.0', () => {
     logger.info({ port }, 'Lapen API server started');
   });
 
-  // Start workers
-  startNotificationWorker();
-  startCompletionWorker();
+  // Start workers (requires Redis)
+  if (process.env.REDIS_URL) {
+    startNotificationWorker();
+    startCompletionWorker();
+    logger.info('Background workers started');
+  } else {
+    logger.warn('REDIS_URL not configured, background workers not started');
+  }
 
   // Start email processor
   if (process.env.IMAP_HOST && process.env.IMAP_USER) {
