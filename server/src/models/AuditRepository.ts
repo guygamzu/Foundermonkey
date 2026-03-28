@@ -15,7 +15,7 @@ export interface AuditEventRow {
 export class AuditRepository {
   constructor(private db: Knex) {}
 
-  async log(event: Omit<AuditEventRow, 'id' | 'created_at'>): Promise<AuditEventRow> {
+  async log(event: Omit<AuditEventRow, 'id' | 'created_at' | 'geolocation' | 'metadata'> & { geolocation?: string | null; metadata?: Record<string, unknown> | null }): Promise<AuditEventRow> {
     const [row] = await this.db('audit_events').insert(event).returning('*');
     return row;
   }

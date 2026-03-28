@@ -13,7 +13,7 @@ export function createDocumentsRouter(): Router {
   const storageService = new StorageService();
 
   // Get document status
-  router.get('/status/:documentId', async (req: Request, res: Response) => {
+  router.get('/status/:documentId', async (req: Request<{ documentId: string }>, res: Response) => {
     try {
       const doc = await documentRepo.findById(req.params.documentId);
       if (!doc) {
@@ -43,7 +43,7 @@ export function createDocumentsRouter(): Router {
   });
 
   // Get document preview (for sender confirmation)
-  router.get('/preview/:documentId', async (req: Request, res: Response) => {
+  router.get('/preview/:documentId', async (req: Request<{ documentId: string }>, res: Response) => {
     try {
       const doc = await documentRepo.findById(req.params.documentId);
       if (!doc) {
@@ -83,7 +83,7 @@ export function createDocumentsRouter(): Router {
   });
 
   // Get completed document archive
-  router.get('/archive/:documentId', async (req: Request, res: Response) => {
+  router.get('/archive/:documentId', async (req: Request<{ documentId: string }>, res: Response) => {
     try {
       const doc = await documentRepo.findById(req.params.documentId);
       if (!doc || doc.status !== 'completed') {

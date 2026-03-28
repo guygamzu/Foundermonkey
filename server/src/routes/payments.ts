@@ -45,7 +45,7 @@ export function createPaymentsRouter(): Router {
   });
 
   // Get user credit balance
-  router.get('/credits/:userId', async (req: Request, res: Response) => {
+  router.get('/credits/:userId', async (req: Request<{ userId: string }>, res: Response) => {
     try {
       const user = await userRepo.findById(req.params.userId);
       if (!user) {

@@ -16,7 +16,7 @@ export function createSigningRouter(): Router {
   const aiService = new AIService();
 
   // Get signing session data by token
-  router.get('/session/:token', async (req: Request, res: Response) => {
+  router.get('/session/:token', async (req: Request<{ token: string }>, res: Response) => {
     try {
       const signer = await documentRepo.findSignerByToken(req.params.token);
       if (!signer) {
@@ -95,7 +95,7 @@ export function createSigningRouter(): Router {
   });
 
   // Submit field value
-  router.post('/session/:token/fields/:fieldId', async (req: Request, res: Response) => {
+  router.post('/session/:token/fields/:fieldId', async (req: Request<{ token: string; fieldId: string }>, res: Response) => {
     try {
       const signer = await documentRepo.findSignerByToken(req.params.token);
       if (!signer || signer.status === 'signed') {
@@ -128,7 +128,7 @@ export function createSigningRouter(): Router {
   });
 
   // Complete signing (consent + finalize)
-  router.post('/session/:token/complete', async (req: Request, res: Response) => {
+  router.post('/session/:token/complete', async (req: Request<{ token: string }>, res: Response) => {
     try {
       const signer = await documentRepo.findSignerByToken(req.params.token);
       if (!signer || signer.status === 'signed') {
@@ -209,7 +209,7 @@ export function createSigningRouter(): Router {
   });
 
   // Decline signing
-  router.post('/session/:token/decline', async (req: Request, res: Response) => {
+  router.post('/session/:token/decline', async (req: Request<{ token: string }>, res: Response) => {
     try {
       const signer = await documentRepo.findSignerByToken(req.params.token);
       if (!signer) {
@@ -259,7 +259,7 @@ export function createSigningRouter(): Router {
   });
 
   // AI Document Q&A
-  router.post('/session/:token/qa', async (req: Request, res: Response) => {
+  router.post('/session/:token/qa', async (req: Request<{ token: string }>, res: Response) => {
     try {
       const signer = await documentRepo.findSignerByToken(req.params.token);
       if (!signer) {
