@@ -122,7 +122,8 @@ export class EmailProcessor {
     const subject = parsed.subject || '';
     const messageId = parsed.messageId || '';
 
-    logger.info({ senderEmail, subject, bodyLength: body.length }, 'Processing incoming email');
+    const firstLine = body.split(/\r?\n/)[0].trim();
+    logger.info(`Processing incoming email: from=${senderEmail} subject="${subject}" bodyLen=${body.length} firstLine="${firstLine}"`);
 
     // Check if this is a Y/N reply to a pending request
     if (this.isConfirmationReply(body)) {

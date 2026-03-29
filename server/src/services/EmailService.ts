@@ -53,8 +53,12 @@ export class EmailService {
     }
 
     try {
+      // Reply-To must point to the monitored IMAP inbox so replies come back to us
+      const replyTo = (process.env.IMAP_USER || '').replace(/@@/g, '@');
+
       const payload: any = {
         from: `Lapen <${this.fromEmail}>`,
+        reply_to: replyTo || undefined,
         to: [options.to],
         subject: options.subject,
         text: options.text,
