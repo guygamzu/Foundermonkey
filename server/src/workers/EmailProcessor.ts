@@ -68,9 +68,20 @@ export class EmailProcessor {
   }
 
   private processUnseenMessages(): void {
-    this.imap.search(['UNSEEN'], (err, results) => {
-      if (err || !results?.length) return;
+    // Only search for recent unseen emails (last 24 hours)
+    const since = new Date();
+    since.setDate(since.getDate() - 1);
+    this.imap.search(['UNSEEN', ['SINCE', since]], (err, results) => {
+      if (err) {
+        logger.error({ err: err.message }, 'IMAP search error');
+        return;
+      }
+      if (!results?.length) {
+        logger.info('No unseen recent emails found');
+        return;
+      }
 
+      logger.info({ count: results.length }, 'Found unseen emails to process');
       const fetch = this.imap.fetch(results, { bodies: '', markSeen: true });
 
       fetch.on('message', (msg) => {
@@ -78,8 +89,10 @@ export class EmailProcessor {
         msg.on('body', (stream) => {
           stream.on('data', (chunk: Buffer) => { buffer += chunk.toString(); });
           stream.on('end', () => {
-            this.handleEmail(buffer).catch((err) => {
-              logger.error({ err }, 'Failed to process email');
+            this.handleEmail(buffer).catch((handleErr) => {
+              const errMsg = handleErr instanceof Error ? handleErr.message : String(handleErr);
+              const errStack = handleErr instanceof Error ? handleErr.stack : undefined;
+              logger.error({ error: errMsg, stack: errStack }, 'Failed to process email');
             });
           });
         });
