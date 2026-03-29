@@ -24,8 +24,8 @@ export class EmailProcessor {
     this.emailService = new EmailService();
 
     this.imap = new Imap({
-      user: process.env.IMAP_USER!,
-      password: process.env.IMAP_PASS!,
+      user: (process.env.IMAP_USER || '').replace(/@@/g, '@'),
+      password: (process.env.IMAP_PASS || '').replace(/@@/g, '@'),
       host: process.env.IMAP_HOST!,
       port: Number(process.env.IMAP_PORT) || 993,
       tls: true,

@@ -21,13 +21,15 @@ export class EmailService {
   constructor() {
     const port = Number(process.env.SMTP_PORT) || 587;
     const secure = port === 465;
+    // Railway may double the @ in email addresses — normalize it
+    const smtpUser = (process.env.SMTP_USER || '').replace(/@@/g, '@');
 
     this.transporter = nodemailer.createTransport({
       host: process.env.SMTP_HOST,
       port,
       secure,
       auth: {
-        user: process.env.SMTP_USER,
+        user: smtpUser,
         pass: process.env.SMTP_PASS,
       },
       tls: {
@@ -37,7 +39,7 @@ export class EmailService {
       greetingTimeout: 10000,
       socketTimeout: 15000,
     });
-    logger.info(`SMTP transport configured: host=${process.env.SMTP_HOST}, port=${port}, secure=${secure}, user=${process.env.SMTP_USER}`);
+    logger.info(`SMTP transport configured: host=${process.env.SMTP_HOST}, port=${port}, secure=${secure}, user=${smtpUser}`);
   }
 
   async verify(): Promise<boolean> {
@@ -55,7 +57,7 @@ export class EmailService {
   async sendEmail(options: SendEmailOptions): Promise<string> {
     try {
       const info = await this.transporter.sendMail({
-        from: `"Lapen" <${process.env.SMTP_USER || 'agent@lapen.com'}>`,
+        from: `"Lapen" <${(process.env.SMTP_USER || 'agent@lapen.com').replace(/@@/g, '@')}>`,
         to: options.to,
         subject: options.subject,
         text: options.text,
