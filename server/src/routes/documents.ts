@@ -1,4 +1,5 @@
 import { Router, Request, Response } from 'express';
+import { randomUUID } from 'crypto';
 import { getDatabase } from '../config/database.js';
 import { DocumentRepository } from '../models/DocumentRepository.js';
 import { AuditRepository } from '../models/AuditRepository.js';
@@ -11,6 +12,90 @@ export function createDocumentsRouter(): Router {
   const documentRepo = new DocumentRepository(db);
   const auditRepo = new AuditRepository(db);
   const storageService = new StorageService();
+
+  // Create a document request with signers
+  router.post('/create', async (req: Request, res: Response) => {
+    try {
+      const { fileName, senderEmail, signerEmail, signerName, signerPhone } = req.body;
+
+      if (!fileName || !senderEmail || (!signerEmail && !signerPhone)) {
+        res.status(400).json({ error: 'fileName, senderEmail, and signerEmail or signerPhone are required' });
+        return;
+      }
+
+      // Find or create sender user
+      let sender = await db('users').where({ email: senderEmail }).first();
+      if (!sender) {
+        [sender] = await db('users').insert({
+          email: senderEmail,
+          name: senderEmail.split('@')[0],
+          credits: 5,
+          is_provisional: true,
+        }).returning('*');
+      }
+
+      // Create document request
+      const signingToken = randomUUID();
+      const doc = await documentRepo.create({
+        sender_id: sender.id,
+        status: 'sent',
+        file_name: fileName,
+        file_size: 0,
+        page_count: 1,
+        mime_type: 'application/pdf',
+        document_hash: randomUUID(),
+        s3_key: `documents/${randomUUID()}.pdf`,
+        is_sequential: false,
+        credits_required: 1,
+        expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
+      });
+
+      // Create signer
+      const signer = await documentRepo.createSigner({
+        document_request_id: doc.id,
+        email: signerEmail || null,
+        phone: signerPhone || null,
+        name: signerName || signerEmail?.split('@')[0] || 'Signer',
+        status: 'pending',
+        delivery_channel: signerEmail ? 'email' : 'sms',
+        signing_order: 1,
+        signing_token: signingToken,
+      });
+
+      // Create a default signature field
+      await documentRepo.createFields([{
+        document_request_id: doc.id,
+        signer_id: signer.id,
+        type: 'signature',
+        page: 1,
+        x: 50,
+        y: 700,
+        width: 200,
+        height: 50,
+        required: true,
+      }]);
+
+      await auditRepo.log({
+        document_request_id: doc.id,
+        signer_id: signer.id,
+        action: 'document_created',
+        ip_address: req.ip || 'unknown',
+        user_agent: req.headers['user-agent'] || 'unknown',
+      });
+
+      const appUrl = process.env.APP_URL || 'http://localhost:3000';
+
+      res.json({
+        documentId: doc.id,
+        signingToken,
+        signingUrl: `${appUrl}/sign/${signingToken}`,
+        statusUrl: `${appUrl}/status/${doc.id}`,
+      });
+    } catch (err) {
+      logger.error({ err }, 'Error creating document');
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
 
   // Get document status
   router.get('/status/:documentId', async (req: Request<{ documentId: string }>, res: Response) => {
