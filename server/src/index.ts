@@ -14,6 +14,11 @@ async function main() {
   const app = express();
   const port = Number(process.env.PORT) || 3001;
 
+  // Root route
+  app.get('/', (_req, res) => {
+    res.json({ name: 'Lapen API', version: '1.0.0', status: 'running' });
+  });
+
   // Health check — register first so it responds even during startup
   app.get('/health', (_req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
