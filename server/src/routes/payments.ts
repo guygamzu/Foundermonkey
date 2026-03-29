@@ -1,24 +1,29 @@
 import { Router, Request, Response } from 'express';
 import { getDatabase } from '../config/database.js';
 import { UserRepository } from '../models/UserRepository.js';
-import { PaymentService } from '../services/PaymentService.js';
 import { logger } from '../config/logger.js';
 
 export function createPaymentsRouter(): Router {
   const router = Router();
   const db = getDatabase();
   const userRepo = new UserRepository(db);
-  const paymentService = new PaymentService(userRepo);
 
   // Create checkout session
   router.post('/checkout', async (req: Request, res: Response) => {
     try {
+      if (!process.env.STRIPE_SECRET_KEY) {
+        res.status(503).json({ error: 'Payment processing is not configured' });
+        return;
+      }
+
       const { userId, packageIndex } = req.body;
       if (!userId || packageIndex === undefined) {
         res.status(400).json({ error: 'userId and packageIndex are required' });
         return;
       }
 
+      const { PaymentService } = await import('../services/PaymentService.js');
+      const paymentService = new PaymentService(userRepo);
       const url = await paymentService.createCheckoutSession(userId, packageIndex);
       res.json({ url });
     } catch (err) {
@@ -30,12 +35,19 @@ export function createPaymentsRouter(): Router {
   // Stripe webhook
   router.post('/webhook', async (req: Request, res: Response) => {
     try {
+      if (!process.env.STRIPE_SECRET_KEY) {
+        res.status(503).json({ error: 'Payment processing is not configured' });
+        return;
+      }
+
       const signature = req.headers['stripe-signature'] as string;
       if (!signature) {
         res.status(400).json({ error: 'Missing stripe-signature header' });
         return;
       }
 
+      const { PaymentService } = await import('../services/PaymentService.js');
+      const paymentService = new PaymentService(userRepo);
       await paymentService.handleWebhook(req.body, signature);
       res.json({ received: true });
     } catch (err) {

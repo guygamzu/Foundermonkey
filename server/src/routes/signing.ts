@@ -1,10 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { getDatabase } from '../config/database.js';
-import { getQueue, QUEUE_NAMES } from '../config/queue.js';
 import { DocumentRepository } from '../models/DocumentRepository.js';
 import { AuditRepository } from '../models/AuditRepository.js';
-import { StorageService } from '../services/StorageService.js';
-import { AIService } from '../services/AIService.js';
 import { logger } from '../config/logger.js';
 
 export function createSigningRouter(): Router {
@@ -12,8 +9,6 @@ export function createSigningRouter(): Router {
   const db = getDatabase();
   const documentRepo = new DocumentRepository(db);
   const auditRepo = new AuditRepository(db);
-  const storageService = new StorageService();
-  const aiService = new AIService();
 
   // Get signing session data by token
   router.get('/session/:token', async (req: Request<{ token: string }>, res: Response) => {
@@ -57,9 +52,6 @@ export function createSigningRouter(): Router {
         });
       }
 
-      // Get document download URL
-      const documentUrl = await storageService.getSignedDownloadUrl(doc.s3_key);
-
       // Get fields for this signer
       const fields = await documentRepo.findFieldsBySignerId(signer.id);
 
@@ -68,7 +60,7 @@ export function createSigningRouter(): Router {
           id: doc.id,
           fileName: doc.file_name,
           pageCount: doc.page_count,
-          documentUrl,
+          documentUrl: null, // S3 not configured yet
         },
         signer: {
           id: signer.id,
@@ -175,25 +167,38 @@ export function createSigningRouter(): Router {
       const allSigned = allSigners.every((s) => s.status === 'signed');
 
       if (allSigned) {
-        // Queue document completion
-        const completionQueue = getQueue(QUEUE_NAMES.DOCUMENT_COMPLETION);
-        await completionQueue.add('complete-document', {
-          documentRequestId: signer.document_request_id,
-        });
+        // Queue document completion if Redis is available
+        if (process.env.REDIS_URL) {
+          try {
+            const { getQueue, QUEUE_NAMES } = await import('../config/queue.js');
+            const completionQueue = getQueue(QUEUE_NAMES.DOCUMENT_COMPLETION);
+            await completionQueue.add('complete-document', {
+              documentRequestId: signer.document_request_id,
+            });
+          } catch (qErr) {
+            logger.warn({ err: qErr }, 'Could not queue document completion');
+          }
+        }
+        await documentRepo.updateStatus(signer.document_request_id, 'completed');
       } else {
         // For sequential signing, notify next signer
         const doc = await documentRepo.findById(signer.document_request_id);
-        if (doc?.is_sequential) {
-          const nextSigner = await documentRepo.getNextPendingSigner(signer.document_request_id);
-          if (nextSigner) {
-            const notificationQueue = getQueue(QUEUE_NAMES.NOTIFICATION);
-            const sender = await db('users').where({ id: doc.sender_id }).first();
-            await notificationQueue.add('send-signing-notification', {
-              signerId: nextSigner.id,
-              documentRequestId: doc.id,
-              senderName: sender?.name || sender?.email?.split('@')[0] || 'Someone',
-              fileName: doc.file_name,
-            });
+        if (doc?.is_sequential && process.env.REDIS_URL) {
+          try {
+            const nextSigner = await documentRepo.getNextPendingSigner(signer.document_request_id);
+            if (nextSigner) {
+              const { getQueue, QUEUE_NAMES } = await import('../config/queue.js');
+              const notificationQueue = getQueue(QUEUE_NAMES.NOTIFICATION);
+              const sender = await db('users').where({ id: doc.sender_id }).first();
+              await notificationQueue.add('send-signing-notification', {
+                signerId: nextSigner.id,
+                documentRequestId: doc.id,
+                senderName: sender?.name || sender?.email?.split('@')[0] || 'Someone',
+                fileName: doc.file_name,
+              });
+            }
+          } catch (qErr) {
+            logger.warn({ err: qErr }, 'Could not queue notification');
           }
         }
 
@@ -236,18 +241,24 @@ export function createSigningRouter(): Router {
       // Update document status
       await documentRepo.updateStatus(signer.document_request_id, 'declined');
 
-      // Notify sender
-      const doc = await documentRepo.findById(signer.document_request_id);
-      if (doc) {
-        const sender = await db('users').where({ id: doc.sender_id }).first();
-        if (sender) {
-          const emailService = await import('../services/EmailService.js');
-          const service = new emailService.EmailService();
-          await service.sendEmail({
-            to: sender.email,
-            subject: `Signing declined: ${doc.file_name}`,
-            text: `${signer.name || signer.email || 'A signer'} has declined to sign ${doc.file_name}.${reason ? `\n\nReason: ${reason}` : ''}`,
-          });
+      // Notify sender via email if configured
+      if (process.env.SMTP_HOST) {
+        try {
+          const doc = await documentRepo.findById(signer.document_request_id);
+          if (doc) {
+            const sender = await db('users').where({ id: doc.sender_id }).first();
+            if (sender) {
+              const emailService = await import('../services/EmailService.js');
+              const service = new emailService.EmailService();
+              await service.sendEmail({
+                to: sender.email,
+                subject: `Signing declined: ${doc.file_name}`,
+                text: `${signer.name || signer.email || 'A signer'} has declined to sign ${doc.file_name}.${reason ? `\n\nReason: ${reason}` : ''}`,
+              });
+            }
+          }
+        } catch (emailErr) {
+          logger.warn({ err: emailErr }, 'Could not send decline notification email');
         }
       }
 
@@ -261,6 +272,11 @@ export function createSigningRouter(): Router {
   // AI Document Q&A
   router.post('/session/:token/qa', async (req: Request<{ token: string }>, res: Response) => {
     try {
+      if (!process.env.ANTHROPIC_API_KEY) {
+        res.status(503).json({ error: 'AI Q&A is not configured' });
+        return;
+      }
+
       const signer = await documentRepo.findSignerByToken(req.params.token);
       if (!signer) {
         res.status(404).json({ error: 'Invalid signing session' });
@@ -279,9 +295,8 @@ export function createSigningRouter(): Router {
         return;
       }
 
-      // Get document content for Q&A
-      const pdfBuffer = await storageService.getDocument(doc.s3_key);
-      // In production, extract text properly; using placeholder for now
+      const { AIService } = await import('../services/AIService.js');
+      const aiService = new AIService();
       const documentText = `Document: ${doc.file_name}, ${doc.page_count} pages`;
 
       const answer = await aiService.answerDocumentQuestion(
