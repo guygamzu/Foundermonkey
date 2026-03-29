@@ -16,7 +16,7 @@ async function main() {
 
   // Root route
   app.get('/', (_req, res) => {
-    res.json({ name: 'Lapen API', version: '1.0.0', status: 'running' });
+    res.json({ name: 'Lapen API', version: '1.0.1', status: 'running', routes: ['/health', '/api/documents/create', '/api/signing', '/api/payments'] });
   });
 
   // Health check — register first so it responds even during startup
