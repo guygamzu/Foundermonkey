@@ -3,7 +3,6 @@ import { randomUUID } from 'crypto';
 import { getDatabase } from '../config/database.js';
 import { DocumentRepository } from '../models/DocumentRepository.js';
 import { AuditRepository } from '../models/AuditRepository.js';
-import { StorageService } from '../services/StorageService.js';
 import { logger } from '../config/logger.js';
 
 export function createDocumentsRouter(): Router {
@@ -11,7 +10,6 @@ export function createDocumentsRouter(): Router {
   const db = getDatabase();
   const documentRepo = new DocumentRepository(db);
   const auditRepo = new AuditRepository(db);
-  const storageService = new StorageService();
 
   // Create a document request with signers
   router.post('/create', async (req: Request, res: Response) => {
@@ -136,7 +134,6 @@ export function createDocumentsRouter(): Router {
         return;
       }
 
-      const documentUrl = await storageService.getSignedDownloadUrl(doc.s3_key);
       const fields = await documentRepo.findFieldsByDocumentId(doc.id);
       const signers = await documentRepo.findSignersByDocumentId(doc.id);
 
@@ -144,7 +141,6 @@ export function createDocumentsRouter(): Router {
         id: doc.id,
         fileName: doc.file_name,
         pageCount: doc.page_count,
-        documentUrl,
         fields: fields.map((f) => ({
           id: f.id,
           type: f.type,
@@ -176,21 +172,12 @@ export function createDocumentsRouter(): Router {
         return;
       }
 
-      const signedUrl = doc.signed_s3_key
-        ? await storageService.getSignedDownloadUrl(doc.signed_s3_key)
-        : null;
-      const certificateUrl = doc.certificate_s3_key
-        ? await storageService.getSignedDownloadUrl(doc.certificate_s3_key)
-        : null;
-
       const auditTrail = await auditRepo.findByDocumentId(doc.id);
 
       res.json({
         id: doc.id,
         fileName: doc.file_name,
         completedAt: doc.completed_at,
-        signedDocumentUrl: signedUrl,
-        certificateUrl,
         documentHash: doc.document_hash,
         auditTrail: auditTrail.map((e) => ({
           action: e.action,
