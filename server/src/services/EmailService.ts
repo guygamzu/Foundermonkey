@@ -1,5 +1,10 @@
 import { logger } from '../config/logger.js';
 
+interface ResendApiResponse {
+  id: string;
+  [key: string]: unknown;
+}
+
 interface SendEmailOptions {
   to: string;
   subject: string;
@@ -83,7 +88,7 @@ export class EmailService {
         body: JSON.stringify(payload),
       });
 
-      const result: any = await res.json();
+      const result = await res.json() as ResendApiResponse;
 
       if (!res.ok) {
         logger.error(`Resend API error (${res.status}): ${JSON.stringify(result)} to=${options.to}`);
