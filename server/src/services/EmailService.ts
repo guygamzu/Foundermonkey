@@ -22,7 +22,7 @@ export class EmailService {
   constructor() {
     this.resendApiKey = process.env.RESEND_API_KEY || '';
     this.useResend = !!this.resendApiKey;
-    this.fromEmail = (process.env.SMTP_USER || process.env.FROM_EMAIL || 'onboarding@resend.dev').replace(/@@/g, '@');
+    this.fromEmail = (process.env.FROM_EMAIL || process.env.SMTP_USER || 'onboarding@resend.dev').replace(/@@/g, '@');
 
     if (this.useResend) {
       logger.info(`Email service configured: Resend HTTP API, from=${this.fromEmail}`);
