@@ -19,39 +19,63 @@ export class EmailService {
   private transporter: nodemailer.Transporter;
 
   constructor() {
+    const port = Number(process.env.SMTP_PORT) || 587;
+    const secure = port === 465;
+
     this.transporter = nodemailer.createTransport({
       host: process.env.SMTP_HOST,
-      port: Number(process.env.SMTP_PORT) || 587,
-      secure: Number(process.env.SMTP_PORT) === 465,
+      port,
+      secure,
       auth: {
         user: process.env.SMTP_USER,
         pass: process.env.SMTP_PASS,
+      },
+      tls: {
+        rejectUnauthorized: false,
       },
       connectionTimeout: 10000,
       greetingTimeout: 10000,
       socketTimeout: 15000,
     });
-    logger.info({ host: process.env.SMTP_HOST, port: process.env.SMTP_PORT, user: process.env.SMTP_USER }, 'SMTP transport configured');
+    logger.info({ host: process.env.SMTP_HOST, port, secure, user: process.env.SMTP_USER }, 'SMTP transport configured');
+  }
+
+  async verify(): Promise<boolean> {
+    try {
+      await this.transporter.verify();
+      logger.info('SMTP connection verified successfully');
+      return true;
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      logger.error({ error: errMsg }, 'SMTP connection verification failed');
+      return false;
+    }
   }
 
   async sendEmail(options: SendEmailOptions): Promise<string> {
-    const info = await this.transporter.sendMail({
-      from: `"Lapen" <${process.env.SMTP_USER || 'agent@lapen.com'}>`,
-      to: options.to,
-      subject: options.subject,
-      text: options.text,
-      html: options.html,
-      attachments: options.attachments?.map(a => ({
-        filename: a.filename,
-        content: a.content,
-        contentType: a.contentType,
-      })),
-      inReplyTo: options.inReplyTo,
-      references: options.references,
-    });
+    try {
+      const info = await this.transporter.sendMail({
+        from: `"Lapen" <${process.env.SMTP_USER || 'agent@lapen.com'}>`,
+        to: options.to,
+        subject: options.subject,
+        text: options.text,
+        html: options.html,
+        attachments: options.attachments?.map(a => ({
+          filename: a.filename,
+          content: a.content,
+          contentType: a.contentType,
+        })),
+        inReplyTo: options.inReplyTo,
+        references: options.references,
+      });
 
-    logger.info({ messageId: info.messageId, to: options.to }, 'Email sent');
-    return info.messageId;
+      logger.info({ messageId: info.messageId, to: options.to }, 'Email sent');
+      return info.messageId;
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      logger.error({ error: errMsg, to: options.to, subject: options.subject }, 'Failed to send email');
+      throw err;
+    }
   }
 
   async sendConfirmationEmail(
