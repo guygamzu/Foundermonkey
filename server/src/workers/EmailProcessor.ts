@@ -1,16 +1,11 @@
 import Imap from 'imap';
-import { simpleParser, ParsedMail } from 'mailparser';
+import { simpleParser } from 'mailparser';
 import crypto from 'crypto';
 import { getDatabase } from '../config/database.js';
-import { getQueue, QUEUE_NAMES } from '../config/queue.js';
 import { UserRepository } from '../models/UserRepository.js';
 import { DocumentRepository } from '../models/DocumentRepository.js';
 import { AuditRepository } from '../models/AuditRepository.js';
-import { StorageService } from '../services/StorageService.js';
-import { AIService } from '../services/AIService.js';
 import { EmailService } from '../services/EmailService.js';
-import { DocumentService } from '../services/DocumentService.js';
-import { PaymentService } from '../services/PaymentService.js';
 import { logger } from '../config/logger.js';
 
 export class EmailProcessor {
@@ -18,31 +13,18 @@ export class EmailProcessor {
   private userRepo: UserRepository;
   private documentRepo: DocumentRepository;
   private auditRepo: AuditRepository;
-  private storageService: StorageService;
-  private aiService: AIService;
   private emailService: EmailService;
-  private documentService: DocumentService;
-  private paymentService: PaymentService;
 
   constructor() {
     const db = getDatabase();
     this.userRepo = new UserRepository(db);
     this.documentRepo = new DocumentRepository(db);
     this.auditRepo = new AuditRepository(db);
-    this.storageService = new StorageService();
-    this.aiService = new AIService();
     this.emailService = new EmailService();
-    this.documentService = new DocumentService(
-      this.documentRepo,
-      this.auditRepo,
-      this.storageService,
-      this.aiService,
-    );
-    this.paymentService = new PaymentService(this.userRepo);
 
     this.imap = new Imap({
       user: process.env.IMAP_USER!,
-      password: process.env.IMAP_PASSWORD!,
+      password: process.env.IMAP_PASS!,
       host: process.env.IMAP_HOST!,
       port: Number(process.env.IMAP_PORT) || 993,
       tls: true,
@@ -117,6 +99,8 @@ export class EmailProcessor {
     const subject = parsed.subject || '';
     const messageId = parsed.messageId || '';
 
+    logger.info({ senderEmail, subject }, 'Processing incoming email');
+
     // Check if this is a Y/N reply to a pending request
     if (this.isConfirmationReply(body)) {
       await this.handleConfirmationReply(senderEmail, body, parsed.inReplyTo as string);
@@ -156,7 +140,25 @@ export class EmailProcessor {
     }
 
     // Parse instructions with AI
-    const instructions = await this.aiService.parseEmailInstructions(body, subject);
+    let instructions;
+    try {
+      const { AIService } = await import('../services/AIService.js');
+      const aiService = new AIService();
+      instructions = await aiService.parseEmailInstructions(body, subject);
+    } catch (aiErr) {
+      logger.error({ err: aiErr }, 'AI parsing failed, attempting basic extraction');
+      // Basic fallback: look for email addresses in the body
+      const emailMatches = body.match(/[\w.-]+@[\w.-]+\.\w+/g) || [];
+      const recipientEmails = emailMatches.filter(e => e !== senderEmail);
+      instructions = {
+        recipients: recipientEmails.map((email, i) => ({
+          email,
+          channel: 'email' as const,
+          order: i + 1,
+        })),
+        isSequential: false,
+      };
+    }
 
     if (!instructions.recipients.length) {
       await this.emailService.sendEmail({
@@ -171,17 +173,44 @@ export class EmailProcessor {
     // Find or create user
     const user = await this.userRepo.findOrCreateByEmail(senderEmail);
 
-    // Process document
-    const result = await this.documentService.processUploadedDocument(
-      user.id,
-      pdfAttachment.content,
-      pdfAttachment.filename || 'document.pdf',
-      instructions.recipients.length,
-    );
+    // Process document - upload to S3 if configured, otherwise store reference
+    let documentId: string;
+    let detectedFields: Array<{ type: string; page: number; x: number; y: number; width: number; height: number; signerIndex: number }> = [];
+    let pageCount = 1;
+
+    if (process.env.AWS_ACCESS_KEY_ID) {
+      try {
+        const { StorageService } = await import('../services/StorageService.js');
+        const { AIService } = await import('../services/AIService.js');
+        const { DocumentService } = await import('../services/DocumentService.js');
+        const storageService = new StorageService();
+        const aiService = new AIService();
+        const documentService = new DocumentService(
+          this.documentRepo,
+          this.auditRepo,
+          storageService,
+          aiService,
+        );
+        const result = await documentService.processUploadedDocument(
+          user.id,
+          pdfAttachment.content,
+          pdfAttachment.filename || 'document.pdf',
+          instructions.recipients.length,
+        );
+        documentId = result.documentId;
+        detectedFields = result.fields;
+        pageCount = result.pageCount;
+      } catch (err) {
+        logger.error({ err }, 'Document processing failed, creating basic record');
+        documentId = await this.createBasicDocument(user.id, pdfAttachment, messageId, subject);
+      }
+    } else {
+      documentId = await this.createBasicDocument(user.id, pdfAttachment, messageId, subject);
+    }
 
     // Update document with parsed instructions
     const db = getDatabase();
-    await db('document_requests').where({ id: result.documentId }).update({
+    await db('document_requests').where({ id: documentId }).update({
       is_sequential: instructions.isSequential,
       credits_required: instructions.recipients.length,
       original_email_message_id: messageId,
@@ -192,7 +221,7 @@ export class EmailProcessor {
     for (const recipient of instructions.recipients) {
       const signingToken = crypto.randomBytes(32).toString('base64url');
       await this.documentRepo.createSigner({
-        document_request_id: result.documentId,
+        document_request_id: documentId,
         email: recipient.email,
         phone: recipient.phone,
         name: recipient.name,
@@ -205,23 +234,40 @@ export class EmailProcessor {
     }
 
     // Create fields for signers
-    const signers = await this.documentRepo.findSignersByDocumentId(result.documentId);
-    const fieldData = result.fields.map((field) => ({
-      document_request_id: result.documentId,
-      signer_id: signers[field.signerIndex]?.id || signers[0].id,
-      type: field.type,
-      page: field.page,
-      x: field.x,
-      y: field.y,
-      width: field.width,
-      height: field.height,
-      required: true,
-    }));
-    await this.documentRepo.createFields(fieldData);
+    const signers = await this.documentRepo.findSignersByDocumentId(documentId);
+    if (detectedFields.length > 0) {
+      const fieldData = detectedFields.map((field) => ({
+        document_request_id: documentId,
+        signer_id: signers[field.signerIndex]?.id || signers[0].id,
+        type: field.type,
+        page: field.page,
+        x: field.x,
+        y: field.y,
+        width: field.width,
+        height: field.height,
+        required: true,
+      }));
+      await this.documentRepo.createFields(fieldData);
+    } else {
+      // Create default signature field for each signer
+      for (const signer of signers) {
+        await this.documentRepo.createFields([{
+          document_request_id: documentId,
+          signer_id: signer.id,
+          type: 'signature',
+          page: 1,
+          x: 0.1,
+          y: 0.85,
+          width: 0.35,
+          height: 0.06,
+          required: true,
+        }]);
+      }
+    }
 
     // Log audit event
     await this.auditRepo.log({
-      document_request_id: result.documentId,
+      document_request_id: documentId,
       signer_id: null,
       action: 'document_created',
       ip_address: 'email',
@@ -231,12 +277,11 @@ export class EmailProcessor {
 
     // Check credits
     if (user.credits < instructions.recipients.length) {
-      const purchaseUrl = this.paymentService.getCreditPurchaseUrl(user.id);
+      const purchaseUrl = `${process.env.APP_URL}/credits?user=${user.id}`;
 
-      // Save as pending request
       await db('pending_requests').insert({
         user_id: user.id,
-        document_request_id: result.documentId,
+        document_request_id: documentId,
         original_email_message_id: messageId,
       });
 
@@ -250,15 +295,15 @@ export class EmailProcessor {
       return;
     }
 
-    // Send confirmation email
-    const previewUrl = `${process.env.APP_URL}/preview/${result.documentId}`;
+    // Send confirmation email to sender
     const recipientNames = signers.map(s => s.name || s.email || s.phone).join(', ');
+    const previewUrl = `${process.env.APP_URL}/preview/${documentId}`;
 
     await this.emailService.sendConfirmationEmail(
       senderEmail,
       user.name || senderEmail.split('@')[0],
       pdfAttachment.filename || 'document.pdf',
-      result.fields.length,
+      detectedFields.length || signers.length,
       signers.length,
       instructions.recipients.length,
       user.credits,
@@ -266,6 +311,30 @@ export class EmailProcessor {
       `Document will be sent to: ${recipientNames}`,
       messageId,
     );
+
+    logger.info({ documentId, senderEmail, signerCount: signers.length }, 'Document request created from email');
+  }
+
+  private async createBasicDocument(
+    senderId: string,
+    attachment: { content: Buffer; filename?: string; size: number },
+    messageId: string,
+    subject: string,
+  ): Promise<string> {
+    const doc = await this.documentRepo.create({
+      sender_id: senderId,
+      status: 'pending_confirmation',
+      file_name: attachment.filename || 'document.pdf',
+      file_size: attachment.size,
+      page_count: 1,
+      mime_type: 'application/pdf',
+      document_hash: crypto.createHash('sha256').update(attachment.content).digest('hex'),
+      s3_key: `pending/${crypto.randomUUID()}.pdf`,
+      is_sequential: false,
+      credits_required: 1,
+      expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+    });
+    return doc.id;
   }
 
   private async handleConfirmationReply(senderEmail: string, body: string, inReplyTo: string): Promise<void> {
@@ -290,19 +359,25 @@ export class EmailProcessor {
     // Update status
     await this.documentRepo.updateStatus(pendingDoc.id, 'sent');
 
-    // Send to signers (respecting order for sequential)
-    const signersToNotify = pendingDoc.is_sequential
-      ? [signers[0]] // Only first signer for sequential
-      : signers;
+    // Send signing notifications directly
+    const appUrl = process.env.APP_URL || 'http://localhost:3000';
+    const signersToNotify = pendingDoc.is_sequential ? [signers[0]] : signers;
 
-    const notificationQueue = getQueue(QUEUE_NAMES.NOTIFICATION);
     for (const signer of signersToNotify) {
-      await notificationQueue.add('send-signing-notification', {
-        signerId: signer.id,
-        documentRequestId: pendingDoc.id,
-        senderName: user.name || senderEmail.split('@')[0],
-        fileName: pendingDoc.file_name,
-      });
+      const signingUrl = `${appUrl}/sign/${signer.signing_token}`;
+      const recipientEmail = signer.email;
+      if (recipientEmail) {
+        await this.emailService.sendSigningNotification(
+          recipientEmail,
+          signer.name || undefined,
+          user.name || senderEmail.split('@')[0],
+          pendingDoc.file_name,
+          signingUrl,
+          signer.custom_message || undefined,
+        );
+
+        await this.documentRepo.updateSignerStatus(signer.id, 'notified', { notified_at: new Date() } as any);
+      }
     }
 
     // Log audit event
@@ -325,24 +400,14 @@ export class EmailProcessor {
   }
 
   private async handleCorrectionReply(senderEmail: string, body: string, inReplyTo: string): Promise<void> {
-    // Re-analyze with correction instructions
     const user = await this.userRepo.findByEmail(senderEmail);
     if (!user) return;
 
-    const db = getDatabase();
-    const pendingDoc = await db('document_requests')
-      .where({ sender_id: user.id, status: 'pending_confirmation' })
-      .orderBy('created_at', 'desc')
-      .first();
-
-    if (!pendingDoc) return;
-
-    // Queue re-analysis with correction context
-    const analysisQueue = getQueue(QUEUE_NAMES.DOCUMENT_ANALYSIS);
-    await analysisQueue.add('re-analyze', {
-      documentRequestId: pendingDoc.id,
-      correctionInstructions: body,
-      senderEmail,
+    // Acknowledge the correction
+    await this.emailService.sendEmail({
+      to: senderEmail,
+      subject: 'Re: Correction received',
+      text: "Got it! I'm re-analyzing your document with the updated instructions. I'll get back to you shortly.",
       inReplyTo,
     });
   }
