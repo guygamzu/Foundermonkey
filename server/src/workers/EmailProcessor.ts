@@ -140,23 +140,25 @@ export class EmailProcessor {
 
     // New document request
     const attachments = parsed.attachments || [];
-    logger.info({
-      attachmentCount: attachments.length,
-      attachments: attachments.map(a => ({
-        name: a.filename,
-        type: a.contentType,
-        size: a.size,
-      })),
-    }, 'Email attachments');
+    const attachmentSummary = attachments.map(a => `${a.filename || 'unnamed'}(${a.contentType}, ${a.size}b)`).join(', ');
+    logger.info(`Email has ${attachments.length} attachment(s): ${attachmentSummary || 'none'}`);
 
-    const pdfAttachment = attachments.find(
-      (a) => a.contentType === 'application/pdf' ||
-             a.contentType === 'application/octet-stream' ||
-             a.filename?.toLowerCase().endsWith('.pdf'),
-    );
+    // Broad PDF detection: match known PDF types, octet-stream, or .pdf extension
+    const pdfAttachment = attachments.find((a) => {
+      const type = (a.contentType || '').toLowerCase();
+      const name = (a.filename || '').toLowerCase();
+      return type === 'application/pdf' ||
+             type === 'application/x-pdf' ||
+             type === 'application/octet-stream' ||
+             type.includes('pdf') ||
+             name.endsWith('.pdf');
+    });
 
-    if (!pdfAttachment) {
-      logger.warn('No PDF attachment found');
+    // If no PDF found, take the first attachment if it's the only one (likely a PDF with wrong mime type)
+    const selectedAttachment = pdfAttachment || (attachments.length === 1 ? attachments[0] : null);
+
+    if (!selectedAttachment) {
+      logger.warn(`No usable attachment found among: ${attachmentSummary}`);
       await this.trySendEmail({
         to: senderEmail,
         subject: `Re: ${subject}`,
@@ -166,9 +168,13 @@ export class EmailProcessor {
       return;
     }
 
-    logger.info({ fileName: pdfAttachment.filename, size: pdfAttachment.size }, 'PDF attachment found');
+    if (!pdfAttachment && selectedAttachment) {
+      logger.info(`No PDF mime type match, but using single attachment: ${selectedAttachment.filename}(${selectedAttachment.contentType})`);
+    }
 
-    if (pdfAttachment.size > 25 * 1024 * 1024) {
+    logger.info(`PDF attachment found: ${selectedAttachment.filename} (${selectedAttachment.size}b, ${selectedAttachment.contentType})`);
+
+    if (selectedAttachment.size > 25 * 1024 * 1024) {
       await this.trySendEmail({
         to: senderEmail,
         subject: `Re: ${subject}`,
@@ -239,8 +245,8 @@ export class EmailProcessor {
         );
         const result = await documentService.processUploadedDocument(
           user.id,
-          pdfAttachment.content,
-          pdfAttachment.filename || 'document.pdf',
+          selectedAttachment.content,
+          selectedAttachment.filename || 'document.pdf',
           instructions.recipients.length,
         );
         documentId = result.documentId;
@@ -249,11 +255,11 @@ export class EmailProcessor {
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err);
         logger.error({ error: errMsg }, 'S3 processing failed, creating basic record');
-        documentId = await this.createBasicDocument(user.id, pdfAttachment, messageId, subject);
+        documentId = await this.createBasicDocument(user.id, selectedAttachment, messageId, subject);
       }
     } else {
       logger.info('No AWS configured, creating basic document record');
-      documentId = await this.createBasicDocument(user.id, pdfAttachment, messageId, subject);
+      documentId = await this.createBasicDocument(user.id, selectedAttachment, messageId, subject);
     }
     logger.info({ documentId }, 'Step 3 done');
 
@@ -356,7 +362,7 @@ export class EmailProcessor {
       await this.emailService.sendConfirmationEmail(
         senderEmail,
         user.name || senderEmail.split('@')[0],
-        pdfAttachment.filename || 'document.pdf',
+        selectedAttachment.filename || 'document.pdf',
         detectedFields.length || signers.length,
         signers.length,
         instructions.recipients.length,
