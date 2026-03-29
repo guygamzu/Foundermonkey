@@ -37,7 +37,7 @@ export class EmailService {
       greetingTimeout: 10000,
       socketTimeout: 15000,
     });
-    logger.info({ host: process.env.SMTP_HOST, port, secure, user: process.env.SMTP_USER }, 'SMTP transport configured');
+    logger.info(`SMTP transport configured: host=${process.env.SMTP_HOST}, port=${port}, secure=${secure}, user=${process.env.SMTP_USER}`);
   }
 
   async verify(): Promise<boolean> {
@@ -47,7 +47,7 @@ export class EmailService {
       return true;
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      logger.error({ error: errMsg }, 'SMTP connection verification failed');
+      logger.error(`SMTP connection verification failed: ${errMsg}`);
       return false;
     }
   }
