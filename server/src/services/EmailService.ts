@@ -97,7 +97,7 @@ export class EmailService {
         body: JSON.stringify(payload),
       });
 
-      const result = await res.json();
+      const result: any = await res.json();
 
       if (!res.ok) {
         logger.error(`Resend API error (${res.status}): ${JSON.stringify(result)} to=${options.to}`);
