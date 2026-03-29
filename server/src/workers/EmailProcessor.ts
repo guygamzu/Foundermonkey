@@ -476,13 +476,14 @@ export class EmailProcessor {
   }
 
   private isConfirmationReply(body: string): boolean {
-    const normalized = body.trim().toLowerCase();
-    return normalized === 'y' || normalized === 'yes' || normalized === 'proceed';
+    // Gmail replies include quoted text — only check the first line
+    const firstLine = body.trim().split(/\r?\n/)[0].trim().toLowerCase();
+    return firstLine === 'y' || firstLine === 'yes' || firstLine === 'proceed';
   }
 
   private isCorrectionReply(body: string): boolean {
-    const normalized = body.trim().toLowerCase();
-    return normalized.startsWith('n') && normalized.length > 2;
+    const firstLine = body.trim().split(/\r?\n/)[0].trim().toLowerCase();
+    return firstLine.startsWith('n') && firstLine.length > 1;
   }
 
   private extractEmail(fromText: string): string | null {
