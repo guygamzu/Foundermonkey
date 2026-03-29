@@ -219,17 +219,18 @@ export class EmailProcessor {
 
     // Create signers
     for (const recipient of instructions.recipients) {
+      const r = recipient as any;
       const signingToken = crypto.randomBytes(32).toString('base64url');
       await this.documentRepo.createSigner({
         document_request_id: documentId,
-        email: recipient.email,
-        phone: recipient.phone,
-        name: recipient.name,
+        email: r.email || null,
+        phone: r.phone || null,
+        name: r.name || null,
         status: 'pending',
-        delivery_channel: recipient.channel,
-        signing_order: recipient.order,
+        delivery_channel: r.channel || 'email',
+        signing_order: r.order || 1,
         signing_token: signingToken,
-        custom_message: recipient.customMessage,
+        custom_message: r.customMessage || null,
       });
     }
 
