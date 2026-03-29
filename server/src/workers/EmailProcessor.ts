@@ -116,12 +116,14 @@ export class EmailProcessor {
 
     // Check if this is a Y/N reply to a pending request
     if (this.isConfirmationReply(body)) {
+      logger.info('Detected confirmation reply');
       await this.handleConfirmationReply(senderEmail, body, parsed.inReplyTo as string);
       return;
     }
 
     // Check if this is a correction (N + instructions)
     if (this.isCorrectionReply(body)) {
+      logger.info('Detected correction reply');
       await this.handleCorrectionReply(senderEmail, body, parsed.inReplyTo as string);
       return;
     }
@@ -133,6 +135,7 @@ export class EmailProcessor {
     );
 
     if (!pdfAttachment) {
+      logger.info('No PDF attachment found, sending reply');
       await this.emailService.sendEmail({
         to: senderEmail,
         subject: `Re: ${subject}`,
@@ -141,6 +144,8 @@ export class EmailProcessor {
       });
       return;
     }
+
+    logger.info({ fileName: pdfAttachment.filename, size: pdfAttachment.size }, 'PDF attachment found');
 
     if (pdfAttachment.size > 25 * 1024 * 1024) {
       await this.emailService.sendEmail({
@@ -153,13 +158,16 @@ export class EmailProcessor {
     }
 
     // Parse instructions with AI
+    logger.info('Step 1: Parsing email instructions...');
     let instructions;
     try {
       const { AIService } = await import('../services/AIService.js');
       const aiService = new AIService();
       instructions = await aiService.parseEmailInstructions(body, subject);
+      logger.info({ recipientCount: instructions.recipients.length }, 'Step 1 complete: AI parsed instructions');
     } catch (aiErr) {
-      logger.error({ err: aiErr }, 'AI parsing failed, attempting basic extraction');
+      const errMsg = aiErr instanceof Error ? aiErr.message : String(aiErr);
+      logger.error({ error: errMsg }, 'AI parsing failed, attempting basic extraction');
       // Basic fallback: look for email addresses in the body
       const emailMatches = body.match(/[\w.-]+@[\w.-]+\.\w+/g) || [];
       const recipientEmails = emailMatches.filter(e => e !== senderEmail);
@@ -171,9 +179,11 @@ export class EmailProcessor {
         })),
         isSequential: false,
       };
+      logger.info({ recipientCount: instructions.recipients.length }, 'Step 1 complete: Fallback extraction');
     }
 
     if (!instructions.recipients.length) {
+      logger.info('No recipients found, asking sender');
       await this.emailService.sendEmail({
         to: senderEmail,
         subject: `Re: ${subject}`,
@@ -184,15 +194,19 @@ export class EmailProcessor {
     }
 
     // Find or create user
+    logger.info('Step 2: Finding/creating user...');
     const user = await this.userRepo.findOrCreateByEmail(senderEmail);
+    logger.info({ userId: user.id, credits: user.credits }, 'Step 2 complete: User ready');
 
     // Process document - upload to S3 if configured, otherwise store reference
+    logger.info('Step 3: Creating document record...');
     let documentId: string;
     let detectedFields: Array<{ type: string; page: number; x: number; y: number; width: number; height: number; signerIndex: number }> = [];
     let pageCount = 1;
 
     if (process.env.AWS_ACCESS_KEY_ID) {
       try {
+        logger.info('Step 3a: Processing with S3 + AI...');
         const { StorageService } = await import('../services/StorageService.js');
         const { AIService } = await import('../services/AIService.js');
         const { DocumentService } = await import('../services/DocumentService.js');
@@ -213,15 +227,19 @@ export class EmailProcessor {
         documentId = result.documentId;
         detectedFields = result.fields;
         pageCount = result.pageCount;
+        logger.info({ documentId }, 'Step 3a complete: Document processed with S3');
       } catch (err) {
-        logger.error({ err }, 'Document processing failed, creating basic record');
+        const errMsg = err instanceof Error ? err.message : String(err);
+        logger.error({ error: errMsg }, 'Document processing failed, creating basic record');
         documentId = await this.createBasicDocument(user.id, pdfAttachment, messageId, subject);
       }
     } else {
       documentId = await this.createBasicDocument(user.id, pdfAttachment, messageId, subject);
     }
+    logger.info({ documentId }, 'Step 3 complete: Document record created');
 
     // Update document with parsed instructions
+    logger.info('Step 4: Updating document and creating signers...');
     const db = getDatabase();
     await db('document_requests').where({ id: documentId }).update({
       is_sequential: instructions.isSequential,
@@ -279,7 +297,10 @@ export class EmailProcessor {
       }
     }
 
+    logger.info({ signerCount: signers.length }, 'Step 4 complete: Signers and fields created');
+
     // Log audit event
+    logger.info('Step 5: Logging audit event...');
     await this.auditRepo.log({
       document_request_id: documentId,
       signer_id: null,
@@ -290,6 +311,7 @@ export class EmailProcessor {
     });
 
     // Check credits
+    logger.info({ userCredits: user.credits, required: instructions.recipients.length }, 'Step 6: Checking credits...');
     if (user.credits < instructions.recipients.length) {
       const purchaseUrl = `${process.env.APP_URL}/credits?user=${user.id}`;
 
@@ -310,6 +332,7 @@ export class EmailProcessor {
     }
 
     // Send confirmation email to sender
+    logger.info('Step 7: Sending confirmation email to sender...');
     const recipientNames = signers.map(s => s.name || s.email || s.phone).join(', ');
     const previewUrl = `${process.env.APP_URL}/preview/${documentId}`;
 
