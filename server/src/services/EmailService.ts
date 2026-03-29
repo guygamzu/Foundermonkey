@@ -36,23 +36,9 @@ export class EmailService {
       logger.warn('No RESEND_API_KEY — email sending disabled');
       return false;
     }
-    try {
-      // Quick test: list API keys to verify the key works
-      const res = await fetch('https://api.resend.com/api-keys', {
-        headers: { Authorization: `Bearer ${this.resendApiKey}` },
-      });
-      if (res.ok) {
-        logger.info('Resend API key verified successfully');
-        return true;
-      }
-      const body = await res.text();
-      logger.error(`Resend API verification failed (${res.status}): ${body}`);
-      return false;
-    } catch (err) {
-      const errMsg = err instanceof Error ? err.message : String(err);
-      logger.error(`Resend API verification failed: ${errMsg}`);
-      return false;
-    }
+    // Send-only keys can't list API keys, so just verify the key format is present
+    logger.info(`Resend API key configured (${this.resendApiKey.substring(0, 8)}...), from=${this.fromEmail}`);
+    return true;
   }
 
   async sendEmail(options: SendEmailOptions): Promise<string> {
