@@ -19,27 +19,35 @@ export class EmailService {
   private transporter: nodemailer.Transporter;
 
   constructor() {
-    const port = Number(process.env.SMTP_PORT) || 587;
-    const secure = port === 465;
     // Railway may double the @ in email addresses — normalize it
     const smtpUser = (process.env.SMTP_USER || '').replace(/@@/g, '@');
 
-    this.transporter = nodemailer.createTransport({
-      host: process.env.SMTP_HOST,
-      port,
-      secure,
+    // Try Gmail service shorthand first (handles ports/TLS automatically),
+    // fall back to manual host config if SMTP_HOST is not Gmail
+    const isGmail = !process.env.SMTP_HOST || process.env.SMTP_HOST.includes('gmail');
+
+    const transportConfig: any = {
       auth: {
         user: smtpUser,
         pass: process.env.SMTP_PASS,
       },
-      tls: {
-        rejectUnauthorized: false,
-      },
-      connectionTimeout: 10000,
-      greetingTimeout: 10000,
-      socketTimeout: 15000,
-    });
-    logger.info(`SMTP transport configured: host=${process.env.SMTP_HOST}, port=${port}, secure=${secure}, user=${smtpUser}`);
+      connectionTimeout: 15000,
+      greetingTimeout: 15000,
+      socketTimeout: 20000,
+    };
+
+    if (isGmail) {
+      transportConfig.service = 'gmail';
+    } else {
+      const port = Number(process.env.SMTP_PORT) || 587;
+      transportConfig.host = process.env.SMTP_HOST;
+      transportConfig.port = port;
+      transportConfig.secure = port === 465;
+      transportConfig.tls = { rejectUnauthorized: false };
+    }
+
+    this.transporter = nodemailer.createTransport(transportConfig);
+    logger.info(`SMTP transport configured: gmail=${isGmail}, user=${smtpUser}`);
   }
 
   async verify(): Promise<boolean> {
