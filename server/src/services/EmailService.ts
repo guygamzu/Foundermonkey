@@ -1,4 +1,3 @@
-import nodemailer from 'nodemailer';
 import { logger } from '../config/logger.js';
 
 interface SendEmailOptions {
@@ -16,74 +15,100 @@ interface SendEmailOptions {
 }
 
 export class EmailService {
-  private transporter: nodemailer.Transporter;
+  private useResend: boolean;
+  private resendApiKey: string;
+  private fromEmail: string;
 
   constructor() {
-    // Railway may double the @ in email addresses — normalize it
-    const smtpUser = (process.env.SMTP_USER || '').replace(/@@/g, '@');
+    this.resendApiKey = process.env.RESEND_API_KEY || '';
+    this.useResend = !!this.resendApiKey;
+    this.fromEmail = (process.env.SMTP_USER || process.env.FROM_EMAIL || 'onboarding@resend.dev').replace(/@@/g, '@');
 
-    // Try Gmail service shorthand first (handles ports/TLS automatically),
-    // fall back to manual host config if SMTP_HOST is not Gmail
-    const isGmail = !process.env.SMTP_HOST || process.env.SMTP_HOST.includes('gmail');
-
-    const transportConfig: any = {
-      auth: {
-        user: smtpUser,
-        pass: process.env.SMTP_PASS,
-      },
-      connectionTimeout: 15000,
-      greetingTimeout: 15000,
-      socketTimeout: 20000,
-    };
-
-    if (isGmail) {
-      transportConfig.service = 'gmail';
+    if (this.useResend) {
+      logger.info(`Email service configured: Resend HTTP API, from=${this.fromEmail}`);
     } else {
-      const port = Number(process.env.SMTP_PORT) || 587;
-      transportConfig.host = process.env.SMTP_HOST;
-      transportConfig.port = port;
-      transportConfig.secure = port === 465;
-      transportConfig.tls = { rejectUnauthorized: false };
+      logger.info('Email service: No RESEND_API_KEY set, emails will be logged only');
     }
-
-    this.transporter = nodemailer.createTransport(transportConfig);
-    logger.info(`SMTP transport configured: gmail=${isGmail}, user=${smtpUser}`);
   }
 
   async verify(): Promise<boolean> {
+    if (!this.useResend) {
+      logger.warn('No RESEND_API_KEY — email sending disabled');
+      return false;
+    }
     try {
-      await this.transporter.verify();
-      logger.info('SMTP connection verified successfully');
-      return true;
+      // Quick test: list API keys to verify the key works
+      const res = await fetch('https://api.resend.com/api-keys', {
+        headers: { Authorization: `Bearer ${this.resendApiKey}` },
+      });
+      if (res.ok) {
+        logger.info('Resend API key verified successfully');
+        return true;
+      }
+      const body = await res.text();
+      logger.error(`Resend API verification failed (${res.status}): ${body}`);
+      return false;
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      logger.error(`SMTP connection verification failed: ${errMsg}`);
+      logger.error(`Resend API verification failed: ${errMsg}`);
       return false;
     }
   }
 
   async sendEmail(options: SendEmailOptions): Promise<string> {
+    if (!this.useResend) {
+      logger.info(`[DRY RUN] Would send email to=${options.to} subject="${options.subject}"`);
+      return 'dry-run-no-api-key';
+    }
+
     try {
-      const info = await this.transporter.sendMail({
-        from: `"Lapen" <${(process.env.SMTP_USER || 'agent@lapen.com').replace(/@@/g, '@')}>`,
-        to: options.to,
+      const payload: any = {
+        from: `Lapen <${this.fromEmail}>`,
+        to: [options.to],
         subject: options.subject,
         text: options.text,
-        html: options.html,
-        attachments: options.attachments?.map(a => ({
+      };
+
+      if (options.html) {
+        payload.html = options.html;
+      }
+
+      if (options.inReplyTo) {
+        payload.headers = {
+          'In-Reply-To': options.inReplyTo,
+          'References': options.references || options.inReplyTo,
+        };
+      }
+
+      if (options.attachments?.length) {
+        payload.attachments = options.attachments.map(a => ({
           filename: a.filename,
-          content: a.content,
-          contentType: a.contentType,
-        })),
-        inReplyTo: options.inReplyTo,
-        references: options.references,
+          content: a.content.toString('base64'),
+          content_type: a.contentType,
+        }));
+      }
+
+      const res = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${this.resendApiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
       });
 
-      logger.info({ messageId: info.messageId, to: options.to }, 'Email sent');
-      return info.messageId;
+      const result = await res.json();
+
+      if (!res.ok) {
+        logger.error(`Resend API error (${res.status}): ${JSON.stringify(result)} to=${options.to}`);
+        throw new Error(`Resend API error: ${JSON.stringify(result)}`);
+      }
+
+      logger.info(`Email sent via Resend: id=${result.id} to=${options.to}`);
+      return result.id;
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      logger.error({ error: errMsg, to: options.to, subject: options.subject }, 'Failed to send email');
+      logger.error(`Failed to send email: ${errMsg} to=${options.to} subject="${options.subject}"`);
       throw err;
     }
   }
