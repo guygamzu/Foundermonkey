@@ -27,7 +27,11 @@ export class EmailService {
         user: process.env.SMTP_USER,
         pass: process.env.SMTP_PASS,
       },
+      connectionTimeout: 10000,
+      greetingTimeout: 10000,
+      socketTimeout: 15000,
     });
+    logger.info({ host: process.env.SMTP_HOST, port: process.env.SMTP_PORT, user: process.env.SMTP_USER }, 'SMTP transport configured');
   }
 
   async sendEmail(options: SendEmailOptions): Promise<string> {

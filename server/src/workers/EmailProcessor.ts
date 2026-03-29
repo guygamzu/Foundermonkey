@@ -130,18 +130,26 @@ export class EmailProcessor {
 
     // New document request
     const attachments = parsed.attachments || [];
+    logger.info({ attachmentCount: attachments.length, types: attachments.map(a => ({ name: a.filename, type: a.contentType, size: a.size })) }, 'Email attachments');
     const pdfAttachment = attachments.find(
-      (a) => a.contentType === 'application/pdf' || a.filename?.endsWith('.pdf'),
+      (a) => a.contentType === 'application/pdf' ||
+             a.contentType === 'application/octet-stream' ||
+             a.filename?.toLowerCase().endsWith('.pdf'),
     );
 
     if (!pdfAttachment) {
       logger.info('No PDF attachment found, sending reply');
-      await this.emailService.sendEmail({
-        to: senderEmail,
-        subject: `Re: ${subject}`,
-        text: "I didn't find any PDF attachment. Please forward the document you'd like me to send for signature.",
-        inReplyTo: messageId,
-      });
+      try {
+        await this.emailService.sendEmail({
+          to: senderEmail,
+          subject: `Re: ${subject}`,
+          text: "I didn't find any PDF attachment. Please forward the document you'd like me to send for signature.",
+          inReplyTo: messageId,
+        });
+      } catch (sendErr) {
+        const errMsg = sendErr instanceof Error ? sendErr.message : String(sendErr);
+        logger.error({ error: errMsg }, 'Failed to send "no PDF" reply email');
+      }
       return;
     }
 
