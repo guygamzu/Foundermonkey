@@ -359,7 +359,8 @@ export function createSigningRouter(): Router {
       if (process.env.AWS_ACCESS_KEY_ID && doc.s3_key && !doc.s3_key.startsWith('pending/')) {
         try {
           const { StorageService } = await import('../services/StorageService.js');
-          const pdfParse = (await import('pdf-parse')).default;
+          const pdfParseModule: any = await import('pdf-parse');
+          const pdfParse = pdfParseModule.default || pdfParseModule;
           const storageService = new StorageService();
           const pdfBuffer = await storageService.getDocument(doc.s3_key);
           const parsed = await pdfParse(pdfBuffer);

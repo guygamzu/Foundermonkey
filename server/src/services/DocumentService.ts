@@ -1,6 +1,5 @@
 import crypto from 'crypto';
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
-import pdfParse from 'pdf-parse';
 import { DocumentRepository } from '../models/DocumentRepository.js';
 import { AuditRepository } from '../models/AuditRepository.js';
 import { StorageService } from './StorageService.js';
@@ -86,6 +85,8 @@ export class DocumentService {
 
   private async extractTextFromPdf(fileBuffer: Buffer, pageCount: number): Promise<string> {
     try {
+      const pdfParseModule: any = await import('pdf-parse');
+      const pdfParse = pdfParseModule.default || pdfParseModule;
       const result = await pdfParse(fileBuffer);
       if (result.text && result.text.trim().length > 0) {
         return result.text;
