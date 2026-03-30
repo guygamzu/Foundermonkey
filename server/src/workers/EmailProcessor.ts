@@ -64,8 +64,14 @@ export class EmailProcessor {
       this.processUnseenMessages();
 
       this.imap.on('mail', () => {
+        logger.info('IMAP mail event received');
         this.processUnseenMessages();
       });
+
+      // Poll every 60 seconds as fallback (IMAP IDLE can be unreliable)
+      setInterval(() => {
+        this.processUnseenMessages();
+      }, 60000);
     });
   }
 
