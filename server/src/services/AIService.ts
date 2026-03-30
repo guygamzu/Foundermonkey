@@ -2,7 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { logger } from '../config/logger.js';
 
 interface DetectedField {
-  type: 'signature' | 'initial' | 'date' | 'text';
+  type: 'signature' | 'initial' | 'date' | 'text' | 'name' | 'title';
   page: number;
   x: number;
   y: number;
@@ -89,42 +89,64 @@ Rules:
     pageCount: number,
     signerCount: number,
     pdfBuffer?: Buffer,
+    signerDescriptions?: string[],
   ): Promise<DetectedField[]> {
-    const prompt = `You are an AI assistant for an e-signature platform. Analyze this document and detect EXACTLY where signature fields, initial fields, date fields, and text fields should be placed.
+    const signerInfo = signerDescriptions && signerDescriptions.length > 0
+      ? `\nSigners:\n${signerDescriptions.map((d, i) => `  ${i}: ${d}`).join('\n')}`
+      : '';
 
-Document has ${pageCount} pages and ${signerCount} signer(s).
+    const prompt = `You are a document analysis expert for an e-signature platform. Your job is to find EVERY field in this document that requires human input — signatures, dates, names, titles, initials, and any blank line or space meant to be filled in.
 
-${pdfBuffer ? 'I have attached the actual PDF document. LOOK at each page carefully to find signature lines, date blanks, and other fields that need filling.' : `Document text:\n${documentText.substring(0, 15000)}`}
+Document: ${pageCount} page(s), ${signerCount} signer(s).${signerInfo}
 
-Identify all fields that need to be filled/signed. Return JSON array:
+${pdfBuffer ? 'I have attached the actual PDF. Examine each page visually. Focus on:' : `Document text:\n${documentText.substring(0, 15000)}\n\nBased on this text, identify:`}
+1. Signature lines — underscores (____), "Sign here", "Signature:" labels, any blank line preceded by or near a signature label
+2. Date fields — "Date:", "Dated:", blank lines near date labels
+3. Name/title fields — "Print Name:", "Name:", "Title:", "By:" followed by a blank
+4. Initial fields — small boxes or lines labeled "Initial" or "Initials"
+5. Any other fill-in-the-blank text fields
+
+COORDINATE SYSTEM (critical for correct placement):
+- The page is a rectangle. The origin (0,0) is the TOP-LEFT corner.
+- x goes from 0.0 (left edge) to 1.0 (right edge)
+- y goes from 0.0 (top edge) to 1.0 (bottom edge)
+- Typical US Letter page: content starts around x=0.08, ends around x=0.92
+- A field at the BOTTOM of the page has y ≈ 0.85-0.95
+- A field at the MIDDLE of the page has y ≈ 0.45-0.55
+- A field on the LEFT half has x ≈ 0.08-0.45
+- A field on the RIGHT half has x ≈ 0.50-0.70
+
+SIZING guidelines:
+- Signature: width=0.30-0.35, height=0.04-0.05
+- Date: width=0.15-0.20, height=0.03-0.04
+- Name/text: width=0.25-0.35, height=0.03-0.04
+- Initial: width=0.08-0.10, height=0.03-0.04
+- Title: width=0.20-0.30, height=0.03-0.04
+
+SIGNER ASSIGNMENT:
+- Analyze the document context to determine WHO each field belongs to
+- Look for labels like "Buyer", "Seller", "Company", "Investor", "Director", party names
+- If there are signature blocks for different parties, assign the correct signerIndex to each
+- signerIndex is 0-based. If only 1 signer, all fields get signerIndex=0
+
+Return ONLY a JSON array (no markdown, no explanation):
 [
   {
-    "type": "signature|initial|date|text",
-    "page": number (1-based),
-    "x": number (0-1, relative position from left edge of page),
-    "y": number (0-1, relative position from top edge of page),
-    "width": number (0-1, relative width),
-    "height": number (0-1, relative height),
-    "signerIndex": number (0-based),
-    "label": "optional description"
+    "type": "signature|initial|date|text|name|title",
+    "page": <1-based page number>,
+    "x": <0-1 from left>,
+    "y": <0-1 from top>,
+    "width": <0-1>,
+    "height": <0-1>,
+    "signerIndex": <0-based>,
+    "label": "<what this field is, e.g. 'Director Signature', 'Date of Signing'>"
   }
 ]
 
-CRITICAL positioning rules:
-- x=0 is the LEFT edge, x=1 is the RIGHT edge
-- y=0 is the TOP edge, y=1 is the BOTTOM edge
-- Position fields PRECISELY over the blank lines, boxes, or spaces where the user should write
-- For signature lines (____), place the field directly on top of the line
-- Signature fields should typically be about width=0.3, height=0.05
-- Date fields should typically be about width=0.15, height=0.04
-- Text fields should match the blank space size
-- Look for: signature lines (____), "Sign here", "Signature:", "Date:", blank lines after labels, checkbox areas
-- If multiple signers, assign each field to the correct signer based on context (e.g., "Buyer" vs "Seller")
-- If no explicit fields found, add a signature and date field at the bottom of the last page`;
+IMPORTANT: Every signature line MUST have a corresponding date field. If you see a signature without a nearby date, add one. Be thorough — missing a field means the signer won't be asked to fill it.`;
 
     const content: Anthropic.MessageParam['content'] = [];
 
-    // If we have the actual PDF, send it as a document for visual analysis
     if (pdfBuffer) {
       content.push({
         type: 'document',
@@ -146,30 +168,71 @@ CRITICAL positioning rules:
     const text = response.content[0].type === 'text' ? response.content[0].text : '';
     const jsonMatch = text.match(/\[[\s\S]*\]/);
     if (!jsonMatch) {
-      logger.warn('AI could not detect fields, adding default signature field');
-      return [{
-        type: 'signature',
-        page: pageCount,
-        x: 0.1,
-        y: 0.8,
-        width: 0.3,
-        height: 0.05,
-        signerIndex: 0,
-        label: 'Signature',
-      }, {
-        type: 'date',
-        page: pageCount,
-        x: 0.6,
-        y: 0.8,
-        width: 0.15,
-        height: 0.04,
-        signerIndex: 0,
-        label: 'Date',
-      }];
+      logger.warn('AI could not detect fields, adding default signature + date');
+      return this.getDefaultFields(pageCount, signerCount);
     }
 
-    const fields = JSON.parse(jsonMatch[0]) as DetectedField[];
-    logger.info({ fieldCount: fields.length, fields: fields.map(f => `${f.type}@p${f.page}(${f.x.toFixed(2)},${f.y.toFixed(2)})`) }, 'AI field detection results');
+    try {
+      let fields = JSON.parse(jsonMatch[0]) as DetectedField[];
+
+      // Validate and clamp coordinates
+      fields = fields.filter(f => {
+        if (!f.type || !f.page || f.page < 1 || f.page > pageCount) return false;
+        if (typeof f.x !== 'number' || typeof f.y !== 'number') return false;
+        return true;
+      }).map(f => ({
+        ...f,
+        // Normalize type
+        type: (['signature', 'initial', 'date', 'text', 'name', 'title'].includes(f.type) ? f.type : 'text') as DetectedField['type'],
+        // Clamp coordinates to valid range
+        x: Math.max(0, Math.min(0.95, f.x)),
+        y: Math.max(0, Math.min(0.95, f.y)),
+        width: Math.max(0.05, Math.min(0.5, f.width || 0.25)),
+        height: Math.max(0.02, Math.min(0.1, f.height || 0.04)),
+        signerIndex: Math.max(0, Math.min(signerCount - 1, f.signerIndex || 0)),
+      }));
+
+      if (fields.length === 0) {
+        logger.warn('AI returned empty field array after validation, using defaults');
+        return this.getDefaultFields(pageCount, signerCount);
+      }
+
+      logger.info({
+        fieldCount: fields.length,
+        fields: fields.map(f => `${f.type}[${f.label || ''}]@p${f.page}(${f.x.toFixed(2)},${f.y.toFixed(2)}) signer=${f.signerIndex}`),
+      }, 'AI field detection results');
+      return fields;
+    } catch (parseErr) {
+      logger.error({ error: parseErr instanceof Error ? parseErr.message : String(parseErr) }, 'Failed to parse AI field detection response');
+      return this.getDefaultFields(pageCount, signerCount);
+    }
+  }
+
+  private getDefaultFields(pageCount: number, signerCount: number): DetectedField[] {
+    const fields: DetectedField[] = [];
+    for (let i = 0; i < signerCount; i++) {
+      const yOffset = 0.78 + i * 0.08;
+      fields.push({
+        type: 'signature',
+        page: pageCount,
+        x: 0.08,
+        y: Math.min(yOffset, 0.92),
+        width: 0.32,
+        height: 0.045,
+        signerIndex: i,
+        label: `Signer ${i + 1} Signature`,
+      });
+      fields.push({
+        type: 'date',
+        page: pageCount,
+        x: 0.55,
+        y: Math.min(yOffset, 0.92),
+        width: 0.18,
+        height: 0.035,
+        signerIndex: i,
+        label: `Signer ${i + 1} Date`,
+      });
+    }
     return fields;
   }
 

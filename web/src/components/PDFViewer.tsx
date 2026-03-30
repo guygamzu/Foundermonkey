@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { Document, Page, pdfjs } from 'react-pdf';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
@@ -16,18 +16,28 @@ interface PDFViewerProps {
 }
 
 export default function PDFViewer({ url, pageCount, renderOverlay, onError }: PDFViewerProps) {
-  const [pageDimensions, setPageDimensions] = useState<Record<number, { width: number; height: number }>>({});
+  const [renderedSizes, setRenderedSizes] = useState<Record<number, { width: number; height: number }>>({});
   const [loadError, setLoadError] = useState(false);
+  const pageRefs = useRef<Record<number, HTMLDivElement | null>>({});
 
-  const onPageLoadSuccess = useCallback((pageIndex: number, page: { width: number; height: number }) => {
-    setPageDimensions((prev) => ({
-      ...prev,
-      [pageIndex]: { width: page.width, height: page.height },
-    }));
+  // After the Page renders, measure the actual canvas element to get precise dimensions
+  const onPageRenderSuccess = useCallback((pageIndex: number) => {
+    const container = pageRefs.current[pageIndex];
+    if (!container) return;
+    // react-pdf renders a canvas inside the Page component
+    const canvas = container.querySelector('canvas');
+    if (canvas) {
+      setRenderedSizes(prev => ({
+        ...prev,
+        [pageIndex]: { width: canvas.clientWidth, height: canvas.clientHeight },
+      }));
+    }
   }, []);
 
+  const getPageWidth = () => Math.min(typeof window !== 'undefined' ? window.innerWidth - 32 : 800, 800);
+
   if (loadError) {
-    return null; // Caller will handle fallback
+    return null;
   }
 
   return (
@@ -40,38 +50,43 @@ export default function PDFViewer({ url, pageCount, renderOverlay, onError }: PD
         </div>
       }
     >
-      {Array.from({ length: pageCount }, (_, pageIndex) => (
-        <div
-          key={pageIndex}
-          className="document-page"
-          style={{ position: 'relative', background: 'white', borderBottom: '1px solid var(--gray-200)' }}
-        >
-          <Page
-            pageNumber={pageIndex + 1}
-            width={Math.min(typeof window !== 'undefined' ? window.innerWidth - 32 : 800, 800)}
-            onLoadSuccess={(page) =>
-              onPageLoadSuccess(pageIndex, { width: page.width, height: page.height })
-            }
-            renderAnnotationLayer={false}
-            renderTextLayer={true}
-          />
+      {Array.from({ length: pageCount }, (_, pageIndex) => {
+        const size = renderedSizes[pageIndex];
+        return (
           <div
-            style={{
-              position: 'absolute',
-              top: 0,
-              left: 0,
-              width: '100%',
-              height: '100%',
-              zIndex: 10,
-              pointerEvents: 'none',
-            }}
+            key={pageIndex}
+            className="document-page"
+            ref={(el) => { pageRefs.current[pageIndex] = el; }}
+            style={{ position: 'relative', background: 'white', borderBottom: '1px solid var(--gray-200)' }}
           >
-            <div style={{ position: 'relative', width: '100%', height: '100%', pointerEvents: 'auto' }}>
-              {renderOverlay(pageIndex, pageDimensions[pageIndex] || { width: 800, height: 1035 })}
-            </div>
+            <Page
+              pageNumber={pageIndex + 1}
+              width={getPageWidth()}
+              onRenderSuccess={() => onPageRenderSuccess(pageIndex)}
+              renderAnnotationLayer={false}
+              renderTextLayer={false}
+            />
+            {/* Overlay positioned exactly over the rendered canvas */}
+            {size && (
+              <div
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  width: size.width,
+                  height: size.height,
+                  zIndex: 10,
+                  pointerEvents: 'none',
+                }}
+              >
+                <div style={{ position: 'relative', width: '100%', height: '100%', pointerEvents: 'auto' }}>
+                  {renderOverlay(pageIndex, size)}
+                </div>
+              </div>
+            )}
           </div>
-        </div>
-      ))}
+        );
+      })}
     </Document>
   );
 }

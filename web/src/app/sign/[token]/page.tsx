@@ -63,16 +63,18 @@ export default function SigningPage() {
     if (field.type === 'signature' || field.type === 'initial') {
       setShowSignatureModal(true);
     } else if (field.type === 'date') {
-      // Auto-fill with today's date
       const today = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
       setTextInputValue(today);
       setShowTextInput(true);
+    } else if (field.type === 'name') {
+      // Pre-fill with signer's name if available
+      setTextInputValue(session?.signer.name || '');
+      setShowTextInput(true);
     } else {
-      // Text, name, etc.
       setTextInputValue('');
       setShowTextInput(true);
     }
-  }, []);
+  }, [session]);
 
   const handleSignatureSave = useCallback(async (value: string) => {
     if (!activeFieldId) return;
@@ -251,6 +253,8 @@ export default function SigningPage() {
                               {field.type === 'signature' ? 'Click to sign' :
                                field.type === 'initial' ? 'Click to initial' :
                                field.type === 'date' ? 'Click to add date' :
+                               field.type === 'name' ? 'Click to enter name' :
+                               field.type === 'title' ? 'Click to enter title' :
                                'Click to fill'}
                             </span>
                           )}
@@ -342,7 +346,10 @@ export default function SigningPage() {
         >
           {currentField.type === 'signature' ? 'Sign Here' :
            currentField.type === 'initial' ? 'Initial Here' :
-           `Fill ${currentField.type} field`}
+           currentField.type === 'date' ? 'Add Date' :
+           currentField.type === 'name' ? 'Enter Name' :
+           currentField.type === 'title' ? 'Enter Title' :
+           `Fill ${currentField.type}`}
           {` (${incompleteFields.length} remaining)`}
         </button>
       )}
@@ -360,14 +367,22 @@ export default function SigningPage() {
         <div className="modal-overlay" onClick={() => { setShowTextInput(false); setActiveFieldId(null); }}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h2>{fields.find(f => f.id === activeFieldId)?.type === 'date' ? 'Add Date' : 'Enter Value'}</h2>
+              <h2>{{
+                date: 'Add Date',
+                name: 'Enter Your Name',
+                title: 'Enter Your Title',
+              }[fields.find(f => f.id === activeFieldId)?.type || ''] || 'Enter Value'}</h2>
               <button className="modal-close" onClick={() => { setShowTextInput(false); setActiveFieldId(null); }}>&times;</button>
             </div>
             <input
-              type={fields.find(f => f.id === activeFieldId)?.type === 'date' ? 'text' : 'text'}
+              type="text"
               value={textInputValue}
               onChange={(e) => setTextInputValue(e.target.value)}
-              placeholder={fields.find(f => f.id === activeFieldId)?.type === 'date' ? 'Date' : 'Enter value'}
+              placeholder={{
+                date: 'Date',
+                name: 'Your full name',
+                title: 'Your title (e.g. CEO, Director)',
+              }[fields.find(f => f.id === activeFieldId)?.type || ''] || 'Enter value'}
               autoFocus
               style={{
                 width: '100%',

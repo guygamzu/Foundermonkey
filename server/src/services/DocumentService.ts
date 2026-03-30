@@ -19,6 +19,7 @@ export class DocumentService {
     fileBuffer: Buffer,
     fileName: string,
     signerCount: number,
+    signerDescriptions?: string[],
   ): Promise<{
     documentId: string;
     fields: Array<{ type: string; page: number; x: number; y: number; width: number; height: number; signerIndex: number }>;
@@ -50,6 +51,7 @@ export class DocumentService {
       pageCount,
       signerCount,
       fileBuffer,
+      signerDescriptions,
     );
     logger.info({ fieldCount: detectedFields.length, fields: detectedFields.map(f => `${f.type}@p${f.page}(${f.x},${f.y})`) }, 'AI detected fields');
 
@@ -190,16 +192,8 @@ export class DocumentService {
           thickness: 0.5,
           color: rgb(0, 0, 0),
         });
-      } else if (field.type === 'date') {
-        const fontSize = Math.min(height * 0.7, 11);
-        page.drawText(field.value, {
-          x: x + 2,
-          y: y + height * 0.25,
-          size: fontSize,
-          font,
-          color: rgb(0, 0, 0),
-        });
-      } else if (field.type === 'text') {
+      } else {
+        // Date, text, name, title — all render as text
         const fontSize = Math.min(height * 0.7, 11);
         page.drawText(field.value, {
           x: x + 2,

@@ -315,11 +315,17 @@ export class EmailProcessor {
           storageService,
           aiService,
         );
+        // Build signer descriptions so the AI can intelligently assign fields
+        const signerDescriptions = instructions.recipients.map((r: any) =>
+          [r.name, r.email, r.phone].filter(Boolean).join(' — ') || 'Unknown signer'
+        );
+
         const result = await documentService.processUploadedDocument(
           user.id,
           selectedAttachment.content,
           selectedAttachment.filename || 'document.pdf',
           instructions.recipients.length,
+          signerDescriptions,
         );
         documentId = result.documentId;
         detectedFields = result.fields;

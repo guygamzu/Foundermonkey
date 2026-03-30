@@ -35,6 +35,8 @@ const fieldTypeColors: Record<string, string> = {
   initial: '#7c3aed',
   date: '#059669',
   text: '#d97706',
+  name: '#0891b2',
+  title: '#be185d',
 };
 
 export default function PreviewPage() {
