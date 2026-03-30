@@ -353,7 +353,23 @@ export function createSigningRouter(): Router {
 
       const { AIService } = await import('../services/AIService.js');
       const aiService = new AIService();
-      const documentText = `Document: ${doc.file_name}, ${doc.page_count} pages`;
+
+      // Extract actual PDF text content for the AI to answer questions about
+      let documentText = `Document: ${doc.file_name}, ${doc.page_count} pages`;
+      if (process.env.AWS_ACCESS_KEY_ID && doc.s3_key && !doc.s3_key.startsWith('pending/')) {
+        try {
+          const { StorageService } = await import('../services/StorageService.js');
+          const pdfParse = (await import('pdf-parse')).default;
+          const storageService = new StorageService();
+          const pdfBuffer = await storageService.getDocument(doc.s3_key);
+          const parsed = await pdfParse(pdfBuffer);
+          if (parsed.text && parsed.text.trim().length > 0) {
+            documentText = `Document: ${doc.file_name} (${doc.page_count} pages)\n\nContent:\n${parsed.text}`;
+          }
+        } catch (pdfErr) {
+          logger.warn({ error: pdfErr instanceof Error ? pdfErr.message : String(pdfErr) }, 'Could not extract PDF text for Q&A, using metadata only');
+        }
+      }
 
       const answer = await aiService.answerDocumentQuestion(
         documentText,
