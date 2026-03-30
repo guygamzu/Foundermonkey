@@ -55,7 +55,21 @@ export default function PDFViewer({ url, pageCount, renderOverlay, onError }: PD
             renderAnnotationLayer={false}
             renderTextLayer={true}
           />
-          {renderOverlay(pageIndex, pageDimensions[pageIndex] || { width: 800, height: 1035 })}
+          <div
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              width: '100%',
+              height: '100%',
+              zIndex: 10,
+              pointerEvents: 'none',
+            }}
+          >
+            <div style={{ position: 'relative', width: '100%', height: '100%', pointerEvents: 'auto' }}>
+              {renderOverlay(pageIndex, pageDimensions[pageIndex] || { width: 800, height: 1035 })}
+            </div>
+          </div>
         </div>
       ))}
     </Document>
