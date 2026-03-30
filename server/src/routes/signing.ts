@@ -293,7 +293,7 @@ export function createSigningRouter(): Router {
       await documentRepo.updateStatus(signer.document_request_id, 'declined');
 
       // Notify sender via email if configured
-      if (process.env.SMTP_HOST) {
+      if (process.env.RESEND_API_KEY || process.env.SMTP_HOST) {
         try {
           const doc = await documentRepo.findById(signer.document_request_id);
           if (doc) {

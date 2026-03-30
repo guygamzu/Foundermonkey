@@ -422,10 +422,10 @@ export class EmailProcessor {
   }
 
   private async handleConfirmationReply(senderEmail: string, body: string, inReplyTo: string): Promise<void> {
-    logger.info({ senderEmail }, 'Handling confirmation reply');
+    logger.info(`Handling confirmation reply from=${senderEmail}`);
     const user = await this.userRepo.findByEmail(senderEmail);
     if (!user) {
-      logger.warn({ senderEmail }, 'User not found for confirmation reply');
+      logger.warn(`User not found for confirmation reply: ${senderEmail}`);
       return;
     }
 
@@ -436,7 +436,10 @@ export class EmailProcessor {
       .first();
 
     if (!pendingDoc) {
-      logger.warn({ senderEmail }, 'No pending document found for confirmation');
+      logger.warn(`No pending document found for user=${senderEmail} userId=${user.id}`);
+      // Log what documents exist for debugging
+      const allDocs = await db('document_requests').where({ sender_id: user.id }).select('id', 'status', 'file_name').orderBy('created_at', 'desc').limit(5);
+      logger.info(`User's recent documents: ${JSON.stringify(allDocs)}`);
       return;
     }
 
