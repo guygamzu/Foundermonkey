@@ -198,6 +198,18 @@ export class EmailProcessor {
       return;
     }
 
+    // Check if this email was already processed (persisted in DB, survives restarts)
+    if (messageId) {
+      const db = getDatabase();
+      const existingDoc = await db('document_requests')
+        .where({ original_email_message_id: messageId })
+        .first();
+      if (existingDoc) {
+        logger.info(`Skipping already-processed email (found in DB): messageId=${messageId} docId=${existingDoc.id}`);
+        return;
+      }
+    }
+
     // New document request
     const attachments = parsed.attachments || [];
     const attachmentSummary = attachments.map(a => `${a.filename || 'unnamed'}(${a.contentType}, ${a.size}b)`).join(', ');
@@ -405,13 +417,27 @@ export class EmailProcessor {
         document_request_id: documentId,
         original_email_message_id: messageId,
       });
-      await this.trySendEmail({
-        to: senderEmail,
-        subject: 'Insufficient credits - Action needed',
-        text: `This request requires ${instructions.recipients.length} credits, but you only have ${user.credits}.\n\nBuy more: ${purchaseUrl}\n\nOnce purchased, reply "Y" to proceed.`,
-        inReplyTo: messageId,
-      });
-      logger.info('Step 6 done: Insufficient credits, notified sender');
+
+      // Rate limit: only send "insufficient credits" email once per hour per user
+      const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+      const recentCreditEmail = await db('document_requests')
+        .where({ sender_id: user.id, status: 'pending_confirmation' })
+        .where('created_at', '>', oneHourAgo)
+        .count('id as cnt')
+        .first();
+      const recentCount = Number(recentCreditEmail?.cnt || 0);
+
+      if (recentCount <= 1) {
+        await this.trySendEmail({
+          to: senderEmail,
+          subject: 'Insufficient credits - Action needed',
+          text: `This request requires ${instructions.recipients.length} credits, but you only have ${user.credits}.\n\nBuy more: ${purchaseUrl}\n\nOnce purchased, reply "Y" to proceed.`,
+          inReplyTo: messageId,
+        });
+        logger.info('Step 6 done: Insufficient credits, notified sender');
+      } else {
+        logger.info(`Step 6 done: Insufficient credits, suppressed email (${recentCount} pending docs in last hour)`);
+      }
       return;
     }
 
