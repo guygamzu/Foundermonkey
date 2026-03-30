@@ -91,59 +91,51 @@ Rules:
     pdfBuffer?: Buffer,
     signerDescriptions?: string[],
   ): Promise<DetectedField[]> {
-    const signerInfo = signerDescriptions && signerDescriptions.length > 0
-      ? `\nSigners:\n${signerDescriptions.map((d, i) => `  ${i}: ${d}`).join('\n')}`
-      : '';
+    const hasSignerNames = signerDescriptions && signerDescriptions.length > 0;
+    const signerList = hasSignerNames
+      ? signerDescriptions!.map((d, i) => `  Signer ${i} → ${d}`).join('\n')
+      : `  ${signerCount} signer(s) — names not specified`;
 
-    const prompt = `You are a document analysis expert for an e-signature platform. Your job is to find EVERY field in this document that requires human input — signatures, dates, names, titles, initials, and any blank line or space meant to be filled in.
+    const prompt = `You are a document analysis expert for an e-signature platform.
 
-Document: ${pageCount} page(s), ${signerCount} signer(s).${signerInfo}
+TASK: Find the exact signature blocks in this document that belong to the specified signers and return their precise coordinates.
 
-${pdfBuffer ? 'I have attached the actual PDF. Examine each page visually. Focus on:' : `Document text:\n${documentText.substring(0, 15000)}\n\nBased on this text, identify:`}
-1. Signature lines — underscores (____), "Sign here", "Signature:" labels, any blank line preceded by or near a signature label
-2. Date fields — "Date:", "Dated:", blank lines near date labels
-3. Name/title fields — "Print Name:", "Name:", "Title:", "By:" followed by a blank
-4. Initial fields — small boxes or lines labeled "Initial" or "Initials"
-5. Any other fill-in-the-blank text fields
+SIGNERS WHO NEED TO SIGN:
+${signerList}
 
-COORDINATE SYSTEM (critical for correct placement):
-- The page is a rectangle. The origin (0,0) is the TOP-LEFT corner.
-- x goes from 0.0 (left edge) to 1.0 (right edge)
-- y goes from 0.0 (top edge) to 1.0 (bottom edge)
-- Typical US Letter page: content starts around x=0.08, ends around x=0.92
-- A field at the BOTTOM of the page has y ≈ 0.85-0.95
-- A field at the MIDDLE of the page has y ≈ 0.45-0.55
-- A field on the LEFT half has x ≈ 0.08-0.45
-- A field on the RIGHT half has x ≈ 0.50-0.70
+${pdfBuffer ? 'The actual PDF document is attached. LOOK at every page carefully.' : `Document text:\n${documentText.substring(0, 15000)}`}
 
-SIZING guidelines:
-- Signature: width=0.30-0.35, height=0.04-0.05
-- Date: width=0.15-0.20, height=0.03-0.04
-- Name/text: width=0.25-0.35, height=0.03-0.04
-- Initial: width=0.08-0.10, height=0.03-0.04
-- Title: width=0.20-0.30, height=0.03-0.04
+INSTRUCTIONS:
+1. Look through the document for signature blocks — these typically have:
+   - A horizontal line (____) for the signature
+   - A name printed below or near the line
+   - Sometimes "Date:", "Title:", "Name:" fields nearby
 
-SIGNER ASSIGNMENT:
-- Analyze the document context to determine WHO each field belongs to
-- Look for labels like "Buyer", "Seller", "Company", "Investor", "Director", party names
-- If there are signature blocks for different parties, assign the correct signerIndex to each
-- signerIndex is 0-based. If only 1 signer, all fields get signerIndex=0
+2. MATCH each signer to their specific signature block in the document:
+   - Match by name: if Signer 0 is "Guy Gamzu", find the signature line near/above "Guy Gamzu" in the document
+   - If a signer's name appears in the document near a signature line, that is THEIR signature block
+   - Only create fields for the SPECIFIED signers, not for every signature line in the document
 
-Return ONLY a JSON array (no markdown, no explanation):
-[
-  {
-    "type": "signature|initial|date|text|name|title",
-    "page": <1-based page number>,
-    "x": <0-1 from left>,
-    "y": <0-1 from top>,
-    "width": <0-1>,
-    "height": <0-1>,
-    "signerIndex": <0-based>,
-    "label": "<what this field is, e.g. 'Director Signature', 'Date of Signing'>"
-  }
-]
+3. For each matched signer, create fields for:
+   - The signature line itself (type: "signature")
+   - A date field if one exists nearby (type: "date")
+   - A name/title field if one exists nearby (type: "name" or "title")
 
-IMPORTANT: Every signature line MUST have a corresponding date field. If you see a signature without a nearby date, add one. Be thorough — missing a field means the signer won't be asked to fill it.`;
+COORDINATE SYSTEM:
+- Origin (0,0) = TOP-LEFT corner of the page
+- x: 0.0 = left edge, 1.0 = right edge
+- y: 0.0 = top edge, 1.0 = bottom edge
+- Position the field DIRECTLY ON TOP of the blank line/space where the signer writes
+- The field should COVER the signature line, not be next to it
+
+FIELD SIZES:
+- Signature: width ≈ 0.22, height ≈ 0.04
+- Date: width ≈ 0.15, height ≈ 0.03
+- Name: width ≈ 0.22, height ≈ 0.03
+- Title: width ≈ 0.20, height ≈ 0.03
+
+Return ONLY a JSON array (no markdown fences, no explanation):
+[{"type":"signature","page":1,"x":0.55,"y":0.42,"width":0.22,"height":0.04,"signerIndex":0,"label":"Guy Gamzu Signature"}]`;
 
     const content: Anthropic.MessageParam['content'] = [];
 
@@ -166,6 +158,7 @@ IMPORTANT: Every signature line MUST have a corresponding date field. If you see
     });
 
     const text = response.content[0].type === 'text' ? response.content[0].text : '';
+    logger.info({ rawAIResponse: text.substring(0, 500) }, 'AI field detection raw response');
     const jsonMatch = text.match(/\[[\s\S]*\]/);
     if (!jsonMatch) {
       logger.warn('AI could not detect fields, adding default signature + date');

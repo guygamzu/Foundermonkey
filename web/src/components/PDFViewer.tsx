@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback } from 'react';
 import { Document, Page, pdfjs } from 'react-pdf';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
@@ -16,33 +16,26 @@ interface PDFViewerProps {
 }
 
 export default function PDFViewer({ url, pageCount, renderOverlay, onError }: PDFViewerProps) {
-  const [renderedSizes, setRenderedSizes] = useState<Record<number, { width: number; height: number }>>({});
   const [loadError, setLoadError] = useState(false);
-  const pageRefs = useRef<Record<number, HTMLDivElement | null>>({});
+  const [numPages, setNumPages] = useState<number | null>(null);
 
-  // After the Page renders, measure the actual canvas element to get precise dimensions
-  const onPageRenderSuccess = useCallback((pageIndex: number) => {
-    const container = pageRefs.current[pageIndex];
-    if (!container) return;
-    // react-pdf renders a canvas inside the Page component
-    const canvas = container.querySelector('canvas');
-    if (canvas) {
-      setRenderedSizes(prev => ({
-        ...prev,
-        [pageIndex]: { width: canvas.clientWidth, height: canvas.clientHeight },
-      }));
-    }
+  const onDocumentLoadSuccess = useCallback(({ numPages: n }: { numPages: number }) => {
+    setNumPages(n);
   }, []);
 
-  const getPageWidth = () => Math.min(typeof window !== 'undefined' ? window.innerWidth - 32 : 800, 800);
+  const pageWidth = typeof window !== 'undefined' ? Math.min(window.innerWidth - 32, 800) : 800;
 
   if (loadError) {
     return null;
   }
 
+  // Use actual page count from PDF if available, otherwise use provided pageCount
+  const totalPages = numPages || pageCount;
+
   return (
     <Document
       file={url}
+      onLoadSuccess={onDocumentLoadSuccess}
       onLoadError={() => { setLoadError(true); onError?.(); }}
       loading={
         <div style={{ padding: 40, textAlign: 'center', color: 'var(--gray-400)' }}>
@@ -50,43 +43,47 @@ export default function PDFViewer({ url, pageCount, renderOverlay, onError }: PD
         </div>
       }
     >
-      {Array.from({ length: pageCount }, (_, pageIndex) => {
-        const size = renderedSizes[pageIndex];
-        return (
+      {Array.from({ length: totalPages }, (_, pageIndex) => (
+        <div
+          key={pageIndex}
+          className="document-page"
+          style={{
+            position: 'relative',
+            background: 'white',
+            borderBottom: '1px solid var(--gray-200)',
+            // Ensure the page container doesn't overflow
+            overflow: 'hidden',
+          }}
+        >
+          <Page
+            pageNumber={pageIndex + 1}
+            width={pageWidth}
+            renderAnnotationLayer={false}
+            renderTextLayer={false}
+          />
+          {/*
+            Overlay container: positioned absolutely over the entire page.
+            react-pdf's <Page> with a width prop renders a canvas that fills
+            the container, so the parent div's dimensions === canvas dimensions.
+            Percentage-based child positions map correctly to the PDF page.
+          */}
           <div
-            key={pageIndex}
-            className="document-page"
-            ref={(el) => { pageRefs.current[pageIndex] = el; }}
-            style={{ position: 'relative', background: 'white', borderBottom: '1px solid var(--gray-200)' }}
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              zIndex: 10,
+              pointerEvents: 'none',
+            }}
           >
-            <Page
-              pageNumber={pageIndex + 1}
-              width={getPageWidth()}
-              onRenderSuccess={() => onPageRenderSuccess(pageIndex)}
-              renderAnnotationLayer={false}
-              renderTextLayer={false}
-            />
-            {/* Overlay positioned exactly over the rendered canvas */}
-            {size && (
-              <div
-                style={{
-                  position: 'absolute',
-                  top: 0,
-                  left: 0,
-                  width: size.width,
-                  height: size.height,
-                  zIndex: 10,
-                  pointerEvents: 'none',
-                }}
-              >
-                <div style={{ position: 'relative', width: '100%', height: '100%', pointerEvents: 'auto' }}>
-                  {renderOverlay(pageIndex, size)}
-                </div>
-              </div>
-            )}
+            <div style={{ position: 'relative', width: '100%', height: '100%', pointerEvents: 'auto' }}>
+              {renderOverlay(pageIndex, { width: pageWidth, height: 0 })}
+            </div>
           </div>
-        );
-      })}
+        </div>
+      ))}
     </Document>
   );
 }
