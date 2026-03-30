@@ -118,6 +118,26 @@ export class EmailProcessor {
       return;
     }
 
+    // Only process emails addressed directly TO our inbox
+    const imapUser = (process.env.IMAP_USER || '').replace(/@@/g, '@').toLowerCase();
+    const toAddresses = (parsed.to ? (Array.isArray(parsed.to) ? parsed.to : [parsed.to]) : [])
+      .flatMap(addr => 'value' in addr ? addr.value : [addr])
+      .map(a => (a.address || '').toLowerCase());
+
+    if (imapUser && !toAddresses.includes(imapUser)) {
+      logger.info(`Skipping email not addressed to us: from=${senderEmail} to=${toAddresses.join(',')}`);
+      return;
+    }
+
+    // Skip obvious automated/notification emails
+    const senderLower = senderEmail.toLowerCase();
+    if (senderLower.includes('noreply') || senderLower.includes('no-reply') ||
+        senderLower.includes('notification') || senderLower.includes('mailer-daemon') ||
+        senderLower.includes('postmaster')) {
+      logger.info(`Skipping automated email from=${senderEmail}`);
+      return;
+    }
+
     const body = (parsed.text || '').trim();
     const subject = parsed.subject || '';
     const messageId = parsed.messageId || '';
