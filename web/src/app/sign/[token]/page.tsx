@@ -251,9 +251,12 @@ export default function SigningPage() {
           ) : (
             /* Placeholder pages when no PDF is available */
             Array.from({ length: session.document.pageCount }, (_, pageIndex) => (
-              <div key={pageIndex} className="document-page" style={{ position: 'relative', minHeight: 400, background: 'white', borderBottom: '1px solid var(--gray-200)' }}>
-                <div style={{ padding: 40, color: 'var(--gray-300)', textAlign: 'center', fontSize: '0.875rem' }}>
-                  Page {pageIndex + 1} of {session.document.pageCount}
+              <div key={pageIndex} className="document-page" style={{ position: 'relative', minHeight: 700, background: 'white', borderBottom: '1px solid var(--gray-200)' }}>
+                <div style={{ padding: '24px 40px', color: 'var(--gray-400)', fontSize: '0.8125rem', borderBottom: '1px solid var(--gray-100)' }}>
+                  {session.document.fileName} — Page {pageIndex + 1} of {session.document.pageCount}
+                </div>
+                <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', color: 'var(--gray-200)', fontSize: '1.5rem', fontWeight: 600, pointerEvents: 'none' }}>
+                  Document Preview Unavailable
                 </div>
 
                 {/* Field overlays for this page */}

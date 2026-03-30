@@ -275,7 +275,9 @@ export class EmailProcessor {
         logger.info({ documentId }, 'Step 3a done: S3 upload complete');
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err);
-        logger.error({ error: errMsg }, 'S3 processing failed, creating basic record');
+        const errStack = err instanceof Error ? err.stack : undefined;
+        logger.error(`S3 processing failed: ${errMsg}${errStack ? '\n' + errStack : ''}`);
+        logger.info('Falling back to basic record');
         documentId = await this.createBasicDocument(user.id, selectedAttachment, messageId, subject);
       }
     } else {
