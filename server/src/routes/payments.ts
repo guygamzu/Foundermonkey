@@ -40,19 +40,94 @@ export function createPaymentsRouter(): Router {
         return;
       }
 
+      const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+      if (!webhookSecret) {
+        logger.error('STRIPE_WEBHOOK_SECRET is not configured - cannot verify webhook');
+        res.status(500).json({ error: 'Webhook secret not configured' });
+        return;
+      }
+
       const signature = req.headers['stripe-signature'] as string;
       if (!signature) {
+        logger.warn('Stripe webhook received without signature header');
         res.status(400).json({ error: 'Missing stripe-signature header' });
         return;
       }
 
+      logger.info('Stripe webhook received, verifying signature...');
+
       const { PaymentService } = await import('../services/PaymentService.js');
       const paymentService = new PaymentService(userRepo);
       await paymentService.handleWebhook(req.body, signature);
+      logger.info('Stripe webhook processed successfully');
       res.json({ received: true });
     } catch (err) {
-      logger.error({ err }, 'Stripe webhook error');
+      const errMsg = err instanceof Error ? err.message : String(err);
+      logger.error({ error: errMsg }, 'Stripe webhook error');
       res.status(400).json({ error: 'Webhook processing failed' });
+    }
+  });
+
+  // Manual payment verification - recover credits from a completed Stripe payment
+  router.post('/verify-payment', async (req: Request, res: Response) => {
+    try {
+      if (!process.env.STRIPE_SECRET_KEY) {
+        res.status(503).json({ error: 'Payment processing is not configured' });
+        return;
+      }
+
+      const { paymentIntentId } = req.body;
+      if (!paymentIntentId) {
+        res.status(400).json({ error: 'paymentIntentId is required' });
+        return;
+      }
+
+      const Stripe = (await import('stripe')).default;
+      const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
+
+      // Find the checkout session for this payment intent
+      const sessions = await stripe.checkout.sessions.list({
+        payment_intent: paymentIntentId,
+        limit: 1,
+      });
+
+      if (!sessions.data.length) {
+        res.status(404).json({ error: 'No checkout session found for this payment' });
+        return;
+      }
+
+      const session = sessions.data[0];
+      if (session.payment_status !== 'paid') {
+        res.status(400).json({ error: `Payment status is "${session.payment_status}", not "paid"` });
+        return;
+      }
+
+      const userId = session.metadata?.userId;
+      const credits = Number(session.metadata?.credits);
+      if (!userId || !credits) {
+        res.status(400).json({ error: 'Missing userId or credits in session metadata' });
+        return;
+      }
+
+      // Check if credits were already granted for this payment
+      const existing = await db('credit_transactions')
+        .where({ stripe_payment_intent_id: paymentIntentId })
+        .first();
+
+      if (existing) {
+        const user = await userRepo.findById(userId);
+        res.json({ message: 'Credits were already granted for this payment', credits: user?.credits });
+        return;
+      }
+
+      await userRepo.addCredits(userId, credits, paymentIntentId);
+      const user = await userRepo.findById(userId);
+      logger.info({ userId, credits, paymentIntentId }, 'Credits manually verified and added');
+      res.json({ message: `Added ${credits} credits`, newBalance: user?.credits });
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      logger.error({ error: errMsg }, 'Error verifying payment');
+      res.status(500).json({ error: 'Internal server error' });
     }
   });
 
