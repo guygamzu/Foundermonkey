@@ -15,6 +15,7 @@ export class EmailProcessor {
   private auditRepo: AuditRepository;
   private emailService: EmailService;
   private smtpVerified = false;
+  private processedUids = new Set<number>();
 
   constructor() {
     const db = getDatabase();
@@ -76,26 +77,36 @@ export class EmailProcessor {
   }
 
   private processUnseenMessages(): void {
+    // Search recent emails regardless of read status (Gmail may auto-mark as seen)
     const since = new Date();
-    since.setDate(since.getDate() - 1);
-    this.imap.search(['UNSEEN', ['SINCE', since]], (err, results) => {
+    since.setHours(since.getHours() - 2); // Last 2 hours
+    this.imap.search([['SINCE', since]], (err, results) => {
       if (err) {
         logger.error({ error: err.message }, 'IMAP search error');
         return;
       }
       if (!results?.length) {
-        logger.info('No unseen recent emails found');
+        logger.info('No recent emails found');
         return;
       }
 
-      logger.info({ count: results.length }, 'Found unseen emails to process');
-      const fetch = this.imap.fetch(results, { bodies: '', markSeen: true });
+      // Filter out already-processed UIDs
+      const newResults = results.filter(uid => !this.processedUids.has(uid));
+      if (!newResults.length) {
+        return; // All already processed, skip logging to reduce noise
+      }
 
-      fetch.on('message', (msg) => {
+      logger.info(`Found ${newResults.length} new emails to process (${results.length} total recent)`);
+      const fetch = this.imap.fetch(newResults, { bodies: '' });
+
+      fetch.on('message', (msg, seqno) => {
         let buffer = '';
+        let uid = 0;
+        msg.on('attributes', (attrs) => { uid = attrs.uid; });
         msg.on('body', (stream) => {
           stream.on('data', (chunk: Buffer) => { buffer += chunk.toString(); });
           stream.on('end', () => {
+            this.processedUids.add(uid || seqno);
             this.handleEmail(buffer).catch((handleErr) => {
               const errMsg = handleErr instanceof Error ? handleErr.message : String(handleErr);
               const errStack = handleErr instanceof Error ? handleErr.stack : undefined;
@@ -104,6 +115,12 @@ export class EmailProcessor {
           });
         });
       });
+
+      // Cap the processed set to avoid memory growth
+      if (this.processedUids.size > 1000) {
+        const arr = [...this.processedUids];
+        this.processedUids = new Set(arr.slice(-500));
+      }
     });
   }
 
