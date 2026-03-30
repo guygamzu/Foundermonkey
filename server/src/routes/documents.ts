@@ -137,10 +137,23 @@ export function createDocumentsRouter(): Router {
       const fields = await documentRepo.findFieldsByDocumentId(doc.id);
       const signers = await documentRepo.findSignersByDocumentId(doc.id);
 
+      // Generate signed URL if S3 is configured
+      let documentUrl: string | null = null;
+      if (process.env.AWS_ACCESS_KEY_ID && doc.s3_key && !doc.s3_key.startsWith('pending/')) {
+        try {
+          const { StorageService } = await import('../services/StorageService.js');
+          const storageService = new StorageService();
+          documentUrl = await storageService.getSignedDownloadUrl(doc.s3_key);
+        } catch (urlErr) {
+          logger.warn({ err: urlErr }, 'Could not generate preview URL');
+        }
+      }
+
       res.json({
         id: doc.id,
         fileName: doc.file_name,
         pageCount: doc.page_count,
+        documentUrl,
         fields: fields.map((f) => ({
           id: f.id,
           type: f.type,

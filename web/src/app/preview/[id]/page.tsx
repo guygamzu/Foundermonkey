@@ -1,7 +1,9 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, lazy, Suspense } from 'react';
 import { useParams } from 'next/navigation';
+
+const PDFViewer = lazy(() => import('@/components/PDFViewer'));
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
@@ -9,6 +11,7 @@ interface DocumentPreview {
   id: string;
   fileName: string;
   pageCount: number;
+  documentUrl: string | null;
   fields: Array<{
     id: string;
     type: string;
@@ -26,6 +29,13 @@ interface DocumentPreview {
   }>;
 }
 
+const fieldTypeColors: Record<string, string> = {
+  signature: '#2563eb',
+  initial: '#7c3aed',
+  date: '#059669',
+  text: '#d97706',
+};
+
 export default function PreviewPage() {
   const params = useParams();
   const documentId = params.id as string;
@@ -33,6 +43,7 @@ export default function PreviewPage() {
   const [preview, setPreview] = useState<DocumentPreview | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [pdfFailed, setPdfFailed] = useState(false);
 
   useEffect(() => {
     async function load() {
@@ -72,12 +83,39 @@ export default function PreviewPage() {
     );
   }
 
-  const fieldTypeColors: Record<string, string> = {
-    signature: '#2563eb',
-    initial: '#7c3aed',
-    date: '#059669',
-    text: '#d97706',
-  };
+  const renderFieldOverlays = (pageIndex: number) => (
+    <>
+      {preview.fields
+        .filter(f => f.page === pageIndex + 1)
+        .map(field => (
+          <div
+            key={field.id}
+            style={{
+              position: 'absolute',
+              left: `${field.x * 100}%`,
+              top: `${field.y * 100}%`,
+              width: `${field.width * 100}%`,
+              height: `${field.height * 100}%`,
+              border: `2px dashed ${fieldTypeColors[field.type] || '#6b7280'}`,
+              background: `${fieldTypeColors[field.type] || '#6b7280'}20`,
+              borderRadius: 4,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: '0.625rem',
+              color: fieldTypeColors[field.type] || '#6b7280',
+              fontWeight: 600,
+              textTransform: 'uppercase' as const,
+              pointerEvents: 'none' as const,
+            }}
+          >
+            {field.type}
+          </div>
+        ))}
+    </>
+  );
+
+  const showPdf = preview.documentUrl && !pdfFailed;
 
   return (
     <div className="status-page">
@@ -113,7 +151,7 @@ export default function PreviewPage() {
       {/* Document preview with fields */}
       <div className="status-card">
         <h2 style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--gray-500)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 12 }}>
-          Detected Fields
+          Document Preview
         </h2>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
           {Object.entries(fieldTypeColors).map(([type, color]) => {
@@ -128,39 +166,24 @@ export default function PreviewPage() {
           })}
         </div>
 
-        {Array.from({ length: preview.pageCount }, (_, pageIndex) => (
-          <div key={pageIndex} style={{ position: 'relative', minHeight: 300, background: 'var(--gray-50)', border: '1px solid var(--gray-200)', borderRadius: 8, marginBottom: 12, overflow: 'hidden' }}>
-            <div style={{ padding: 16, color: 'var(--gray-400)', textAlign: 'center', fontSize: '0.8125rem' }}>
-              Page {pageIndex + 1}
+        {showPdf ? (
+          <Suspense fallback={<div style={{ padding: 40, textAlign: 'center', color: 'var(--gray-400)' }}>Loading PDF...</div>}>
+            <PDFViewer
+              url={preview.documentUrl!}
+              pageCount={preview.pageCount}
+              renderOverlay={(pageIndex) => renderFieldOverlays(pageIndex)}
+            />
+          </Suspense>
+        ) : (
+          Array.from({ length: preview.pageCount }, (_, pageIndex) => (
+            <div key={pageIndex} style={{ position: 'relative', minHeight: 300, background: 'var(--gray-50)', border: '1px solid var(--gray-200)', borderRadius: 8, marginBottom: 12, overflow: 'hidden' }}>
+              <div style={{ padding: 16, color: 'var(--gray-400)', textAlign: 'center', fontSize: '0.8125rem' }}>
+                Page {pageIndex + 1}
+              </div>
+              {renderFieldOverlays(pageIndex)}
             </div>
-            {preview.fields
-              .filter(f => f.page === pageIndex + 1)
-              .map(field => (
-                <div
-                  key={field.id}
-                  style={{
-                    position: 'absolute',
-                    left: `${field.x * 100}%`,
-                    top: `${field.y * 100}%`,
-                    width: `${field.width * 100}%`,
-                    height: `${field.height * 100}%`,
-                    border: `2px dashed ${fieldTypeColors[field.type] || '#6b7280'}`,
-                    background: `${fieldTypeColors[field.type] || '#6b7280'}15`,
-                    borderRadius: 4,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: '0.625rem',
-                    color: fieldTypeColors[field.type] || '#6b7280',
-                    fontWeight: 600,
-                    textTransform: 'uppercase',
-                  }}
-                >
-                  {field.type}
-                </div>
-              ))}
-          </div>
-        ))}
+          ))
+        )}
       </div>
     </div>
   );
