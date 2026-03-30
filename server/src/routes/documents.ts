@@ -237,5 +237,37 @@ export function createDocumentsRouter(): Router {
     }
   });
 
+  // Admin: grant credits to a user by email (for testing)
+  router.post('/admin/grant-credits', async (req: Request, res: Response) => {
+    try {
+      const { email, amount } = req.body;
+      if (!email || !amount || amount < 1) {
+        res.status(400).json({ error: 'email and amount (>0) are required' });
+        return;
+      }
+
+      const user = await db('users').where({ email: email.toLowerCase() }).first();
+      if (!user) {
+        res.status(404).json({ error: 'User not found' });
+        return;
+      }
+
+      const newBalance = user.credits + amount;
+      await db('users').where({ id: user.id }).update({ credits: newBalance, updated_at: new Date() });
+      await db('credit_transactions').insert({
+        user_id: user.id,
+        amount,
+        balance_after: newBalance,
+        reason: 'admin_grant',
+      });
+
+      logger.info({ email, amount, newBalance }, 'Admin granted credits');
+      res.json({ email, previousBalance: user.credits, newBalance });
+    } catch (err) {
+      logger.error({ err }, 'Error granting credits');
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
   return router;
 }
