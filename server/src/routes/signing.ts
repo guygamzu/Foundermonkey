@@ -55,12 +55,24 @@ export function createSigningRouter(): Router {
       // Get fields for this signer
       const fields = await documentRepo.findFieldsBySignerId(signer.id);
 
+      // Generate signed URL if S3 is configured and document has been uploaded
+      let documentUrl: string | null = null;
+      if (process.env.AWS_ACCESS_KEY_ID && doc.s3_key && !doc.s3_key.startsWith('pending/')) {
+        try {
+          const { StorageService } = await import('../services/StorageService.js');
+          const storageService = new StorageService();
+          documentUrl = await storageService.getSignedDownloadUrl(doc.s3_key);
+        } catch (urlErr) {
+          logger.warn({ err: urlErr }, 'Could not generate signed download URL');
+        }
+      }
+
       res.json({
         document: {
           id: doc.id,
           fileName: doc.file_name,
           pageCount: doc.page_count,
-          documentUrl: null, // S3 not configured yet
+          documentUrl,
         },
         signer: {
           id: signer.id,
@@ -82,6 +94,45 @@ export function createSigningRouter(): Router {
       });
     } catch (err) {
       logger.error({ err, token: req.params.token }, 'Error fetching signing session');
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  // Proxy endpoint to stream PDF content (avoids S3 CORS issues)
+  router.get('/session/:token/document', async (req: Request<{ token: string }>, res: Response) => {
+    try {
+      const signer = await documentRepo.findSignerByToken(req.params.token);
+      if (!signer) {
+        res.status(404).json({ error: 'Signing link not found or expired' });
+        return;
+      }
+
+      const doc = await documentRepo.findById(signer.document_request_id);
+      if (!doc) {
+        res.status(404).json({ error: 'Document not found' });
+        return;
+      }
+
+      if (!process.env.AWS_ACCESS_KEY_ID || !doc.s3_key || doc.s3_key.startsWith('pending/')) {
+        res.status(404).json({ error: 'Document file not available' });
+        return;
+      }
+
+      try {
+        const { StorageService } = await import('../services/StorageService.js');
+        const storageService = new StorageService();
+        const pdfBuffer = await storageService.getDocument(doc.s3_key);
+
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `inline; filename="${doc.file_name}"`);
+        res.setHeader('Content-Length', pdfBuffer.length);
+        res.send(pdfBuffer);
+      } catch (s3Err) {
+        logger.error({ err: s3Err, s3Key: doc.s3_key }, 'Error fetching document from S3');
+        res.status(502).json({ error: 'Could not retrieve document' });
+      }
+    } catch (err) {
+      logger.error({ err, token: req.params.token }, 'Error in document proxy');
       res.status(500).json({ error: 'Internal server error' });
     }
   });

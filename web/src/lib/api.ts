@@ -5,7 +5,7 @@ export interface SigningSession {
     id: string;
     fileName: string;
     pageCount: number;
-    documentUrl: string;
+    documentUrl: string | null;
   };
   signer: {
     id: string;
@@ -24,6 +24,22 @@ export interface SigningSession {
     value: string | null;
     completed: boolean;
   }>;
+}
+
+export interface DocumentSigner {
+  name: string | null;
+  email: string | null;
+  status: 'pending' | 'notified' | 'viewed' | 'signed' | 'declined';
+  signedAt: string | null;
+}
+
+export interface DocumentStatus {
+  id: string;
+  fileName: string;
+  status: 'sent' | 'partially_signed' | 'completed' | 'declined' | 'expired' | 'pending_confirmation';
+  createdAt: string;
+  completedAt: string | null;
+  signers: DocumentSigner[];
 }
 
 export interface QAResponse {
@@ -68,6 +84,10 @@ export async function declineSigning(token: string, reason?: string): Promise<vo
     method: 'POST',
     body: JSON.stringify({ reason }),
   });
+}
+
+export async function getDocumentStatus(documentId: string): Promise<DocumentStatus> {
+  return apiFetch(`/api/documents/status/${documentId}`);
 }
 
 export async function askDocumentQuestion(

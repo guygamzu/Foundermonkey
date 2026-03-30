@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import { useParams } from 'next/navigation';
 import SignatureCanvas from '@/components/SignatureCanvas';
 import ChatWidget from '@/components/ChatWidget';
@@ -11,6 +11,8 @@ import {
   declineSigning,
   type SigningSession,
 } from '@/lib/api';
+
+const PDFViewer = lazy(() => import('@/components/PDFViewer'));
 
 type FieldState = SigningSession['fields'][number];
 
@@ -198,48 +200,97 @@ export default function SigningPage() {
       {/* Document Viewer */}
       <div className="document-viewer">
         <div className="document-container">
-          {/* Document pages with field overlays */}
-          {Array.from({ length: session.document.pageCount }, (_, pageIndex) => (
-            <div key={pageIndex} className="document-page" style={{ position: 'relative', minHeight: 400, background: 'white', borderBottom: '1px solid var(--gray-200)' }}>
-              {/* Page placeholder - in production, render actual PDF pages */}
-              <div style={{ padding: 40, color: 'var(--gray-300)', textAlign: 'center', fontSize: '0.875rem' }}>
-                Page {pageIndex + 1} of {session.document.pageCount}
-              </div>
+          {session.document.documentUrl ? (
+            <Suspense
+              fallback={
+                <div style={{ padding: 40, textAlign: 'center', color: 'var(--gray-400)' }}>
+                  Loading PDF viewer...
+                </div>
+              }
+            >
+              <PDFViewer
+                url={session.document.documentUrl}
+                pageCount={session.document.pageCount}
+                renderOverlay={(pageIndex) => (
+                  <>
+                    {fields
+                      .filter((f) => f.page === pageIndex + 1)
+                      .map((field) => (
+                        <div
+                          key={field.id}
+                          className={`field-overlay ${field.completed ? 'completed' : ''} ${activeFieldId === field.id ? 'active' : ''}`}
+                          style={{
+                            left: `${field.x * 100}%`,
+                            top: `${field.y * 100}%`,
+                            width: `${field.width * 100}%`,
+                            height: `${field.height * 100}%`,
+                          }}
+                          onClick={() => handleFieldClick(field)}
+                          role="button"
+                          tabIndex={0}
+                          aria-label={`${field.type} field${field.completed ? ' (completed)' : ''}`}
+                        >
+                          {field.completed ? (
+                            <span className="field-label" style={{ color: 'var(--success)' }}>
+                              {field.type === 'signature' ? 'Signed' : field.value || 'Done'}
+                            </span>
+                          ) : (
+                            <span className="field-label">
+                              {field.type === 'signature' ? 'Click to sign' :
+                               field.type === 'initial' ? 'Click to initial' :
+                               field.type === 'date' ? 'Click to add date' :
+                               'Click to fill'}
+                            </span>
+                          )}
+                        </div>
+                      ))}
+                  </>
+                )}
+              />
+            </Suspense>
+          ) : (
+            /* Placeholder pages when no PDF is available */
+            Array.from({ length: session.document.pageCount }, (_, pageIndex) => (
+              <div key={pageIndex} className="document-page" style={{ position: 'relative', minHeight: 400, background: 'white', borderBottom: '1px solid var(--gray-200)' }}>
+                <div style={{ padding: 40, color: 'var(--gray-300)', textAlign: 'center', fontSize: '0.875rem' }}>
+                  Page {pageIndex + 1} of {session.document.pageCount}
+                </div>
 
-              {/* Field overlays for this page */}
-              {fields
-                .filter((f) => f.page === pageIndex + 1)
-                .map((field) => (
-                  <div
-                    key={field.id}
-                    className={`field-overlay ${field.completed ? 'completed' : ''} ${activeFieldId === field.id ? 'active' : ''}`}
-                    style={{
-                      left: `${field.x * 100}%`,
-                      top: `${field.y * 100}%`,
-                      width: `${field.width * 100}%`,
-                      height: `${field.height * 100}%`,
-                    }}
-                    onClick={() => handleFieldClick(field)}
-                    role="button"
-                    tabIndex={0}
-                    aria-label={`${field.type} field${field.completed ? ' (completed)' : ''}`}
-                  >
-                    {field.completed ? (
-                      <span className="field-label" style={{ color: 'var(--success)' }}>
-                        {field.type === 'signature' ? 'Signed' : field.value || 'Done'}
-                      </span>
-                    ) : (
-                      <span className="field-label">
-                        {field.type === 'signature' ? 'Click to sign' :
-                         field.type === 'initial' ? 'Click to initial' :
-                         field.type === 'date' ? 'Click to add date' :
-                         'Click to fill'}
-                      </span>
-                    )}
-                  </div>
-                ))}
-            </div>
-          ))}
+                {/* Field overlays for this page */}
+                {fields
+                  .filter((f) => f.page === pageIndex + 1)
+                  .map((field) => (
+                    <div
+                      key={field.id}
+                      className={`field-overlay ${field.completed ? 'completed' : ''} ${activeFieldId === field.id ? 'active' : ''}`}
+                      style={{
+                        left: `${field.x * 100}%`,
+                        top: `${field.y * 100}%`,
+                        width: `${field.width * 100}%`,
+                        height: `${field.height * 100}%`,
+                      }}
+                      onClick={() => handleFieldClick(field)}
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`${field.type} field${field.completed ? ' (completed)' : ''}`}
+                    >
+                      {field.completed ? (
+                        <span className="field-label" style={{ color: 'var(--success)' }}>
+                          {field.type === 'signature' ? 'Signed' : field.value || 'Done'}
+                        </span>
+                      ) : (
+                        <span className="field-label">
+                          {field.type === 'signature' ? 'Click to sign' :
+                           field.type === 'initial' ? 'Click to initial' :
+                           field.type === 'date' ? 'Click to add date' :
+                           'Click to fill'}
+                        </span>
+                      )}
+                    </div>
+                  ))}
+              </div>
+            ))
+          )}
         </div>
       </div>
 
