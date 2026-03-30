@@ -34,6 +34,8 @@ export default function SigningPage() {
   const [declineReason, setDeclineReason] = useState('');
   const [isDeclined, setIsDeclined] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [showTextInput, setShowTextInput] = useState(false);
+  const [textInputValue, setTextInputValue] = useState('');
 
   useEffect(() => {
     async function load() {
@@ -60,6 +62,15 @@ export default function SigningPage() {
 
     if (field.type === 'signature' || field.type === 'initial') {
       setShowSignatureModal(true);
+    } else if (field.type === 'date') {
+      // Auto-fill with today's date
+      const today = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+      setTextInputValue(today);
+      setShowTextInput(true);
+    } else {
+      // Text, name, etc.
+      setTextInputValue('');
+      setShowTextInput(true);
     }
   }, []);
 
@@ -342,6 +353,57 @@ export default function SigningPage() {
           onSave={handleSignatureSave}
           onCancel={() => { setShowSignatureModal(false); setActiveFieldId(null); }}
         />
+      )}
+
+      {/* Text/Date Input Modal */}
+      {showTextInput && activeFieldId && (
+        <div className="modal-overlay" onClick={() => { setShowTextInput(false); setActiveFieldId(null); }}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>{fields.find(f => f.id === activeFieldId)?.type === 'date' ? 'Add Date' : 'Enter Value'}</h2>
+              <button className="modal-close" onClick={() => { setShowTextInput(false); setActiveFieldId(null); }}>&times;</button>
+            </div>
+            <input
+              type={fields.find(f => f.id === activeFieldId)?.type === 'date' ? 'text' : 'text'}
+              value={textInputValue}
+              onChange={(e) => setTextInputValue(e.target.value)}
+              placeholder={fields.find(f => f.id === activeFieldId)?.type === 'date' ? 'Date' : 'Enter value'}
+              autoFocus
+              style={{
+                width: '100%',
+                padding: 12,
+                border: '1px solid var(--gray-200)',
+                borderRadius: 'var(--radius)',
+                marginBottom: 12,
+                fontSize: '1rem',
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && textInputValue.trim()) {
+                  handleTextFieldSubmit(activeFieldId, textInputValue.trim());
+                  setShowTextInput(false);
+                  setActiveFieldId(null);
+                }
+              }}
+            />
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => { setShowTextInput(false); setActiveFieldId(null); }}>
+                Cancel
+              </button>
+              <button
+                className="btn btn-primary"
+                style={{ flex: 1 }}
+                disabled={!textInputValue.trim()}
+                onClick={() => {
+                  handleTextFieldSubmit(activeFieldId, textInputValue.trim());
+                  setShowTextInput(false);
+                  setActiveFieldId(null);
+                }}
+              >
+                Confirm
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Decline Modal */}
