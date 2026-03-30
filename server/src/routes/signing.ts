@@ -57,14 +57,19 @@ export function createSigningRouter(): Router {
 
       // Generate signed URL if S3 is configured and document has been uploaded
       let documentUrl: string | null = null;
+      logger.info(`Signing session: s3_key=${doc.s3_key}, AWS_KEY=${!!process.env.AWS_ACCESS_KEY_ID}`);
       if (process.env.AWS_ACCESS_KEY_ID && doc.s3_key && !doc.s3_key.startsWith('pending/')) {
         try {
           const { StorageService } = await import('../services/StorageService.js');
           const storageService = new StorageService();
           documentUrl = await storageService.getSignedDownloadUrl(doc.s3_key);
+          logger.info(`Generated signed URL for s3_key=${doc.s3_key}`);
         } catch (urlErr) {
-          logger.warn({ err: urlErr }, 'Could not generate signed download URL');
+          const errMsg = urlErr instanceof Error ? urlErr.message : String(urlErr);
+          logger.error(`Could not generate signed download URL: ${errMsg}`);
         }
+      } else {
+        logger.info(`Skipping S3 URL: s3_key=${doc.s3_key}, starts_with_pending=${doc.s3_key?.startsWith('pending/')}`);
       }
 
       res.json({
