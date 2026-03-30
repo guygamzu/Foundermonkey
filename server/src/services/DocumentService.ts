@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
+import pdfParse from 'pdf-parse';
 import { DocumentRepository } from '../models/DocumentRepository.js';
 import { AuditRepository } from '../models/AuditRepository.js';
 import { StorageService } from './StorageService.js';
@@ -41,7 +42,8 @@ export class DocumentService {
     const hash = crypto.createHash('sha256').update(fileBuffer).digest('hex');
 
     // Extract text for AI analysis
-    const documentText = await this.extractTextFromPdf(pdfDoc);
+    const documentText = await this.extractTextFromPdf(fileBuffer, pageCount);
+    logger.info({ textLength: documentText.length, preview: documentText.substring(0, 200) }, 'PDF text extracted');
 
     // Use AI to detect fields
     const detectedFields = await this.aiService.detectDocumentFields(
@@ -49,6 +51,7 @@ export class DocumentService {
       pageCount,
       signerCount,
     );
+    logger.info({ fieldCount: detectedFields.length, fields: detectedFields.map(f => `${f.type}@p${f.page}(${f.x},${f.y})`) }, 'AI detected fields');
 
     // Upload to S3
     const documentId = crypto.randomUUID();
@@ -81,13 +84,20 @@ export class DocumentService {
     };
   }
 
-  private async extractTextFromPdf(pdfDoc: PDFDocument): Promise<string> {
-    // pdf-lib doesn't support text extraction natively
-    // In production, we'd use a library like pdf-parse or send to AI for OCR
-    // For now, return a placeholder that the AI service can work with
-    const pages = pdfDoc.getPages();
+  private async extractTextFromPdf(fileBuffer: Buffer, pageCount: number): Promise<string> {
+    try {
+      const result = await pdfParse(fileBuffer);
+      if (result.text && result.text.trim().length > 0) {
+        return result.text;
+      }
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      logger.warn({ error: errMsg }, 'pdf-parse failed, using page markers');
+    }
+
+    // Fallback if text extraction fails (e.g., scanned PDFs)
     const textParts: string[] = [];
-    for (let i = 0; i < pages.length; i++) {
+    for (let i = 0; i < pageCount; i++) {
       textParts.push(`[Page ${i + 1}]`);
     }
     return textParts.join('\n');
