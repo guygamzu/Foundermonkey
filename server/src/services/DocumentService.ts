@@ -44,11 +44,12 @@ export class DocumentService {
     const documentText = await this.extractTextFromPdf(fileBuffer, pageCount);
     logger.info({ textLength: documentText.length, preview: documentText.substring(0, 200) }, 'PDF text extracted');
 
-    // Use AI to detect fields
+    // Use AI to detect fields (send PDF buffer for visual analysis)
     const detectedFields = await this.aiService.detectDocumentFields(
       documentText,
       pageCount,
       signerCount,
+      fileBuffer,
     );
     logger.info({ fieldCount: detectedFields.length, fields: detectedFields.map(f => `${f.type}@p${f.page}(${f.x},${f.y})`) }, 'AI detected fields');
 
@@ -113,6 +114,7 @@ export class DocumentService {
     const pdfBuffer = await this.storageService.getDocument(doc.s3_key);
     const pdfDoc = await PDFDocument.load(pdfBuffer);
     const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+    const italicFont = await pdfDoc.embedFont(StandardFonts.HelveticaOblique);
 
     const fields = await this.documentRepo.findFieldsByDocumentId(documentId);
     const signers = await this.documentRepo.findSignersByDocumentId(documentId);
@@ -130,17 +132,58 @@ export class DocumentService {
       const height = field.height * pageHeight;
 
       if (field.type === 'signature' || field.type === 'initial') {
-        // Draw signature text (in production, we'd render the actual signature image)
-        const signer = signerMap.get(field.signer_id);
-        const sigText = field.value || signer?.name || signer?.email || 'Signed';
-        page.drawText(sigText, {
-          x: x + 4,
-          y: y + height / 3,
-          size: Math.min(height * 0.6, 14),
-          font,
-          color: rgb(0, 0, 0.7),
-        });
-        // Draw underline
+        // Check if value is a drawn signature (data URL) or typed text
+        if (field.value.startsWith('data:image/png;base64,')) {
+          try {
+            // Extract base64 data and embed as PNG image
+            const base64Data = field.value.replace('data:image/png;base64,', '');
+            const imageBytes = Buffer.from(base64Data, 'base64');
+            const pngImage = await pdfDoc.embedPng(imageBytes);
+
+            // Scale image to fit within the field bounds while preserving aspect ratio
+            const imgAspect = pngImage.width / pngImage.height;
+            const fieldAspect = width / height;
+            let drawWidth = width;
+            let drawHeight = height;
+            if (imgAspect > fieldAspect) {
+              drawHeight = width / imgAspect;
+            } else {
+              drawWidth = height * imgAspect;
+            }
+
+            page.drawImage(pngImage, {
+              x: x + (width - drawWidth) / 2,
+              y: y + (height - drawHeight) / 2,
+              width: drawWidth,
+              height: drawHeight,
+            });
+          } catch (imgErr) {
+            // Fallback to text if image embedding fails
+            const signer = signerMap.get(field.signer_id);
+            const sigText = signer?.name || signer?.email || 'Signed';
+            page.drawText(sigText, {
+              x: x + 4,
+              y: y + height / 3,
+              size: Math.min(height * 0.6, 14),
+              font: italicFont,
+              color: rgb(0, 0, 0.7),
+            });
+            logger.warn({ error: imgErr instanceof Error ? imgErr.message : String(imgErr) }, 'Failed to embed signature image, using text fallback');
+          }
+        } else {
+          // Typed signature - render in italic/cursive style
+          const sigText = field.value;
+          const fontSize = Math.min(height * 0.6, 16);
+          page.drawText(sigText, {
+            x: x + 4,
+            y: y + height * 0.3,
+            size: fontSize,
+            font: italicFont,
+            color: rgb(0, 0, 0.7),
+          });
+        }
+
+        // Draw underline beneath signature
         page.drawLine({
           start: { x, y },
           end: { x: x + width, y },
@@ -148,18 +191,20 @@ export class DocumentService {
           color: rgb(0, 0, 0),
         });
       } else if (field.type === 'date') {
+        const fontSize = Math.min(height * 0.7, 11);
         page.drawText(field.value, {
           x: x + 2,
-          y: y + 2,
-          size: 10,
+          y: y + height * 0.25,
+          size: fontSize,
           font,
           color: rgb(0, 0, 0),
         });
       } else if (field.type === 'text') {
+        const fontSize = Math.min(height * 0.7, 11);
         page.drawText(field.value, {
           x: x + 2,
-          y: y + 2,
-          size: 10,
+          y: y + height * 0.25,
+          size: fontSize,
           font,
           color: rgb(0, 0, 0),
         });

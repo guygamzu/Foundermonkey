@@ -223,7 +223,10 @@ export function createSigningRouter(): Router {
       const allSigned = allSigners.every((s) => s.status === 'signed');
 
       if (allSigned) {
-        // Queue document completion if Redis is available
+        await documentRepo.updateStatus(signer.document_request_id, 'completed');
+
+        // Generate signed PDF and send completion emails
+        let completionHandled = false;
         if (process.env.REDIS_URL) {
           try {
             const { getQueue, QUEUE_NAMES } = await import('../config/queue.js');
@@ -231,11 +234,59 @@ export function createSigningRouter(): Router {
             await completionQueue.add('complete-document', {
               documentRequestId: signer.document_request_id,
             });
+            completionHandled = true;
           } catch (qErr) {
-            logger.warn({ err: qErr }, 'Could not queue document completion');
+            logger.warn({ err: qErr }, 'Could not queue document completion, will process inline');
           }
         }
-        await documentRepo.updateStatus(signer.document_request_id, 'completed');
+
+        // Process inline if no Redis or queue failed
+        if (!completionHandled) {
+          try {
+            const { StorageService } = await import('../services/StorageService.js');
+            const { AIService } = await import('../services/AIService.js');
+            const { DocumentService } = await import('../services/DocumentService.js');
+            const { EmailService } = await import('../services/EmailService.js');
+            const storageService = new StorageService();
+            const aiService = new AIService();
+            const documentService = new DocumentService(documentRepo, auditRepo, storageService, aiService);
+            const emailService = new EmailService();
+
+            const completedDoc = await documentRepo.findById(signer.document_request_id);
+            if (completedDoc) {
+              // Apply signatures to PDF
+              const signedPdf = await documentService.applySignaturesToDocument(signer.document_request_id);
+              const certificate = await documentService.generateCertificateOfCompletion(signer.document_request_id);
+
+              // Upload signed docs
+              const signedKey = storageService.generateSignedKey(signer.document_request_id, `${completedDoc.file_name.replace('.pdf', '')}-signed.pdf`);
+              const certKey = storageService.generateCertificateKey(signer.document_request_id);
+              await storageService.uploadDocument(signedKey, signedPdf, 'application/pdf');
+              await storageService.uploadDocument(certKey, certificate, 'application/pdf');
+              await documentRepo.markCompleted(signer.document_request_id, signedKey, certKey);
+
+              // Send completion emails
+              const allSigners = await documentRepo.findSignersByDocumentId(signer.document_request_id);
+              const sender = await db('users').where({ id: completedDoc.sender_id }).first();
+              const allEmails = new Set<string>();
+              if (sender?.email) allEmails.add(sender.email);
+              for (const s of allSigners) { if (s.email) allEmails.add(s.email); }
+
+              const attachments = [
+                { filename: `${completedDoc.file_name.replace('.pdf', '')}-signed.pdf`, content: signedPdf, contentType: 'application/pdf' },
+                { filename: `Certificate-of-Completion.pdf`, content: certificate, contentType: 'application/pdf' },
+              ];
+
+              for (const email of allEmails) {
+                await emailService.sendCompletionNotification(email, completedDoc.file_name, `${process.env.APP_URL}/archive/${signer.document_request_id}`, attachments);
+              }
+
+              logger.info({ documentId: signer.document_request_id }, 'Document completion processed inline');
+            }
+          } catch (completionErr) {
+            logger.error({ err: completionErr }, 'Inline document completion failed');
+          }
+        }
       } else {
         // For sequential signing, notify next signer
         const doc = await documentRepo.findById(signer.document_request_id);

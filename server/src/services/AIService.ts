@@ -88,26 +88,21 @@ Rules:
     documentText: string,
     pageCount: number,
     signerCount: number,
+    pdfBuffer?: Buffer,
   ): Promise<DetectedField[]> {
-    const response = await this.client.messages.create({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 2048,
-      messages: [{
-        role: 'user',
-        content: `You are an AI assistant for an e-signature platform. Analyze this document text and detect where signature fields, initial fields, date fields, and text fields should be placed.
+    const prompt = `You are an AI assistant for an e-signature platform. Analyze this document and detect EXACTLY where signature fields, initial fields, date fields, and text fields should be placed.
 
 Document has ${pageCount} pages and ${signerCount} signer(s).
 
-Document text:
-${documentText.substring(0, 15000)}
+${pdfBuffer ? 'I have attached the actual PDF document. LOOK at each page carefully to find signature lines, date blanks, and other fields that need filling.' : `Document text:\n${documentText.substring(0, 15000)}`}
 
 Identify all fields that need to be filled/signed. Return JSON array:
 [
   {
     "type": "signature|initial|date|text",
     "page": number (1-based),
-    "x": number (0-1, relative position from left),
-    "y": number (0-1, relative position from top),
+    "x": number (0-1, relative position from left edge of page),
+    "y": number (0-1, relative position from top edge of page),
     "width": number (0-1, relative width),
     "height": number (0-1, relative height),
     "signerIndex": number (0-based),
@@ -115,15 +110,37 @@ Identify all fields that need to be filled/signed. Return JSON array:
   }
 ]
 
-Rules:
-- Look for signature lines (____), "Sign here", "Signature" labels
-- Look for date fields near signatures
-- Look for initial boxes/lines
-- Look for fill-in-the-blank text fields
-- Place fields at appropriate positions on the correct pages
-- If no explicit fields found, add a signature field at the bottom of the last page
-- Assign fields to signers based on document context`,
-      }],
+CRITICAL positioning rules:
+- x=0 is the LEFT edge, x=1 is the RIGHT edge
+- y=0 is the TOP edge, y=1 is the BOTTOM edge
+- Position fields PRECISELY over the blank lines, boxes, or spaces where the user should write
+- For signature lines (____), place the field directly on top of the line
+- Signature fields should typically be about width=0.3, height=0.05
+- Date fields should typically be about width=0.15, height=0.04
+- Text fields should match the blank space size
+- Look for: signature lines (____), "Sign here", "Signature:", "Date:", blank lines after labels, checkbox areas
+- If multiple signers, assign each field to the correct signer based on context (e.g., "Buyer" vs "Seller")
+- If no explicit fields found, add a signature and date field at the bottom of the last page`;
+
+    const content: Anthropic.MessageParam['content'] = [];
+
+    // If we have the actual PDF, send it as a document for visual analysis
+    if (pdfBuffer) {
+      content.push({
+        type: 'document',
+        source: {
+          type: 'base64',
+          media_type: 'application/pdf',
+          data: pdfBuffer.toString('base64'),
+        },
+      } as any);
+    }
+    content.push({ type: 'text', text: prompt });
+
+    const response = await this.client.messages.create({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 4096,
+      messages: [{ role: 'user', content }],
     });
 
     const text = response.content[0].type === 'text' ? response.content[0].text : '';
@@ -139,10 +156,21 @@ Rules:
         height: 0.05,
         signerIndex: 0,
         label: 'Signature',
+      }, {
+        type: 'date',
+        page: pageCount,
+        x: 0.6,
+        y: 0.8,
+        width: 0.15,
+        height: 0.04,
+        signerIndex: 0,
+        label: 'Date',
       }];
     }
 
-    return JSON.parse(jsonMatch[0]) as DetectedField[];
+    const fields = JSON.parse(jsonMatch[0]) as DetectedField[];
+    logger.info({ fieldCount: fields.length, fields: fields.map(f => `${f.type}@p${f.page}(${f.x.toFixed(2)},${f.y.toFixed(2)})`) }, 'AI field detection results');
+    return fields;
   }
 
   async answerDocumentQuestion(
