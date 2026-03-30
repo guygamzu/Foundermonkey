@@ -12,9 +12,10 @@ interface PDFViewerProps {
   url: string;
   pageCount: number;
   renderOverlay: (pageIndex: number, dimensions: { width: number; height: number }) => React.ReactNode;
+  onError?: () => void;
 }
 
-export default function PDFViewer({ url, pageCount, renderOverlay }: PDFViewerProps) {
+export default function PDFViewer({ url, pageCount, renderOverlay, onError }: PDFViewerProps) {
   const [pageDimensions, setPageDimensions] = useState<Record<number, { width: number; height: number }>>({});
   const [loadError, setLoadError] = useState(false);
 
@@ -32,7 +33,7 @@ export default function PDFViewer({ url, pageCount, renderOverlay }: PDFViewerPr
   return (
     <Document
       file={url}
-      onLoadError={() => setLoadError(true)}
+      onLoadError={() => { setLoadError(true); onError?.(); }}
       loading={
         <div style={{ padding: 40, textAlign: 'center', color: 'var(--gray-400)' }}>
           Loading PDF...

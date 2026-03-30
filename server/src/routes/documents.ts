@@ -176,6 +176,39 @@ export function createDocumentsRouter(): Router {
     }
   });
 
+  // Proxy endpoint to stream PDF content (avoids S3 CORS issues)
+  router.get('/preview/:documentId/document', async (req: Request<{ documentId: string }>, res: Response) => {
+    try {
+      const doc = await documentRepo.findById(req.params.documentId);
+      if (!doc) {
+        res.status(404).json({ error: 'Document not found' });
+        return;
+      }
+
+      if (!process.env.AWS_ACCESS_KEY_ID || !doc.s3_key || doc.s3_key.startsWith('pending/')) {
+        res.status(404).json({ error: 'Document file not available' });
+        return;
+      }
+
+      try {
+        const { StorageService } = await import('../services/StorageService.js');
+        const storageService = new StorageService();
+        const pdfBuffer = await storageService.getDocument(doc.s3_key);
+
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `inline; filename="${doc.file_name}"`);
+        res.setHeader('Content-Length', pdfBuffer.length);
+        res.send(pdfBuffer);
+      } catch (s3Err) {
+        logger.error({ err: s3Err, s3Key: doc.s3_key }, 'Error fetching document from S3');
+        res.status(502).json({ error: 'Could not retrieve document' });
+      }
+    } catch (err) {
+      logger.error({ err }, 'Error in document proxy');
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
   // Get completed document archive
   router.get('/archive/:documentId', async (req: Request<{ documentId: string }>, res: Response) => {
     try {

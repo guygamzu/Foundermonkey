@@ -2,6 +2,7 @@
 
 import { useState, useEffect, lazy, Suspense } from 'react';
 import { useParams } from 'next/navigation';
+import { getPreviewDocumentProxyUrl } from '@/lib/api';
 
 const PDFViewer = lazy(() => import('@/components/PDFViewer'));
 
@@ -169,9 +170,10 @@ export default function PreviewPage() {
         {showPdf ? (
           <Suspense fallback={<div style={{ padding: 40, textAlign: 'center', color: 'var(--gray-400)' }}>Loading PDF...</div>}>
             <PDFViewer
-              url={preview.documentUrl!}
+              url={getPreviewDocumentProxyUrl(documentId)}
               pageCount={preview.pageCount}
               renderOverlay={(pageIndex) => renderFieldOverlays(pageIndex)}
+              onError={() => setPdfFailed(true)}
             />
           </Suspense>
         ) : (

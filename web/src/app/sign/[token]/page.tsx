@@ -9,6 +9,7 @@ import {
   submitFieldValue,
   completeSigning,
   declineSigning,
+  getDocumentProxyUrl,
   type SigningSession,
 } from '@/lib/api';
 
@@ -209,7 +210,7 @@ export default function SigningPage() {
               }
             >
               <PDFViewer
-                url={session.document.documentUrl}
+                url={getDocumentProxyUrl(token)}
                 pageCount={session.document.pageCount}
                 renderOverlay={(pageIndex) => (
                   <>

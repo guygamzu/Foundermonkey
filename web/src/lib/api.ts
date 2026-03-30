@@ -65,6 +65,14 @@ export async function getSigningSession(token: string): Promise<SigningSession> 
   return apiFetch(`/api/signing/session/${token}`);
 }
 
+export function getDocumentProxyUrl(token: string): string {
+  return `${API_URL}/api/signing/session/${token}/document`;
+}
+
+export function getPreviewDocumentProxyUrl(documentId: string): string {
+  return `${API_URL}/api/documents/preview/${documentId}/document`;
+}
+
 export async function submitFieldValue(token: string, fieldId: string, value: string): Promise<void> {
   await apiFetch(`/api/signing/session/${token}/fields/${fieldId}`, {
     method: 'POST',

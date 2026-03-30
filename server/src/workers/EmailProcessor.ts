@@ -16,6 +16,7 @@ export class EmailProcessor {
   private emailService: EmailService;
   private smtpVerified = false;
   private processedUids = new Set<number>();
+  private processedMessageIds = new Set<string>();
 
   constructor() {
     const db = getDatabase();
@@ -86,31 +87,31 @@ export class EmailProcessor {
         return;
       }
       if (!results?.length) {
-        logger.info('No recent emails found');
         return;
       }
 
-      // Filter out already-processed UIDs
-      const newResults = results.filter(uid => !this.processedUids.has(uid));
+      // Filter out already-processed sequence numbers
+      const newResults = results.filter(seq => !this.processedUids.has(seq));
       if (!newResults.length) {
-        return; // All already processed, skip logging to reduce noise
+        return;
       }
 
-      logger.info(`Found ${newResults.length} new emails to process (${results.length} total recent)`);
-      const fetch = this.imap.fetch(newResults, { bodies: '' });
+      // Mark all as processed BEFORE fetching to prevent re-entry
+      for (const seq of newResults) {
+        this.processedUids.add(seq);
+      }
 
-      fetch.on('message', (msg, seqno) => {
+      logger.info(`Found ${newResults.length} new emails to process`);
+      const fetch = this.imap.fetch(newResults, { bodies: '', markSeen: true });
+
+      fetch.on('message', (msg) => {
         let buffer = '';
-        let uid = 0;
-        msg.on('attributes', (attrs) => { uid = attrs.uid; });
         msg.on('body', (stream) => {
           stream.on('data', (chunk: Buffer) => { buffer += chunk.toString(); });
           stream.on('end', () => {
-            this.processedUids.add(uid || seqno);
             this.handleEmail(buffer).catch((handleErr) => {
               const errMsg = handleErr instanceof Error ? handleErr.message : String(handleErr);
-              const errStack = handleErr instanceof Error ? handleErr.stack : undefined;
-              logger.error({ error: errMsg, stack: errStack }, 'Failed to process email');
+              logger.error(`Failed to process email: ${errMsg}`);
             });
           });
         });
@@ -135,6 +136,22 @@ export class EmailProcessor {
 
   private async handleEmail(rawEmail: string): Promise<void> {
     const parsed = await simpleParser(rawEmail);
+
+    // Deduplicate by Message-ID to prevent reprocessing the same email
+    const messageId = parsed.messageId || '';
+    if (messageId && this.processedMessageIds.has(messageId)) {
+      logger.info(`Skipping already-processed email messageId=${messageId}`);
+      return;
+    }
+    if (messageId) {
+      this.processedMessageIds.add(messageId);
+      // Cap to prevent memory growth
+      if (this.processedMessageIds.size > 2000) {
+        const arr = [...this.processedMessageIds];
+        this.processedMessageIds = new Set(arr.slice(-1000));
+      }
+    }
+
     const senderEmail = this.extractEmail(parsed.from?.text || '');
     if (!senderEmail) {
       logger.warn('Could not extract sender email');
@@ -163,7 +180,6 @@ export class EmailProcessor {
 
     const body = (parsed.text || '').trim();
     const subject = parsed.subject || '';
-    const messageId = parsed.messageId || '';
 
     const firstLine = body.split(/\r?\n/)[0].trim();
     logger.info(`Processing incoming email: from=${senderEmail} subject="${subject}" bodyLen=${body.length} firstLine="${firstLine}"`);
