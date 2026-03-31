@@ -114,7 +114,7 @@ export class DocumentService {
     if (!doc) throw new Error('Document not found');
 
     const pdfBuffer = await this.storageService.getDocument(doc.s3_key);
-    const pdfDoc = await PDFDocument.load(pdfBuffer);
+    const pdfDoc = await PDFDocument.load(pdfBuffer, { ignoreEncryption: true });
     const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
     const italicFont = await pdfDoc.embedFont(StandardFonts.HelveticaOblique);
 
@@ -122,16 +122,38 @@ export class DocumentService {
     const signers = await this.documentRepo.findSignersByDocumentId(documentId);
     const signerMap = new Map(signers.map(s => [s.id, s]));
 
+    logger.info({
+      documentId,
+      pageCount: pdfDoc.getPageCount(),
+      fieldCount: fields.length,
+      fieldsWithValues: fields.filter(f => f.value).length,
+    }, 'Applying signatures to document');
+
     for (const field of fields) {
       if (!field.value) continue;
+
+      if (field.page < 1 || field.page > pdfDoc.getPageCount()) {
+        logger.warn({ fieldId: field.id, page: field.page, pageCount: pdfDoc.getPageCount() }, 'Field references invalid page, skipping');
+        continue;
+      }
 
       const page = pdfDoc.getPage(field.page - 1);
       const { width: pageWidth, height: pageHeight } = page.getSize();
 
+      // Convert from top-left origin (AI coordinates) to bottom-left origin (pdf-lib)
       const x = field.x * pageWidth;
       const y = pageHeight - (field.y * pageHeight) - (field.height * pageHeight);
       const width = field.width * pageWidth;
       const height = field.height * pageHeight;
+
+      logger.info({
+        fieldId: field.id,
+        type: field.type,
+        page: field.page,
+        normalized: { x: field.x, y: field.y, w: field.width, h: field.height },
+        absolute: { x: Math.round(x), y: Math.round(y), w: Math.round(width), h: Math.round(height) },
+        pageSize: { w: Math.round(pageWidth), h: Math.round(pageHeight) },
+      }, 'Rendering field on signed PDF');
 
       if (field.type === 'signature' || field.type === 'initial') {
         // Check if value is a drawn signature (data URL) or typed text
@@ -205,7 +227,14 @@ export class DocumentService {
       }
     }
 
-    const signedBytes = await pdfDoc.save();
+    // Save with compatibility options to prevent PDF corruption
+    const signedBytes = await pdfDoc.save({ useObjectStreams: false });
+    logger.info({
+      documentId,
+      originalSize: pdfBuffer.length,
+      signedSize: signedBytes.length,
+      pageCount: pdfDoc.getPageCount(),
+    }, 'Signed PDF generated');
     return Buffer.from(signedBytes);
   }
 
@@ -220,12 +249,19 @@ export class DocumentService {
     const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
     const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
 
-    const page = pdfDoc.addPage([612, 792]); // Letter size
-    let y = 740;
     const margin = 50;
+    let currentPage = pdfDoc.addPage([612, 792]);
+    let y = 740;
+
+    const ensureSpace = (needed: number) => {
+      if (y - needed < 50) {
+        currentPage = pdfDoc.addPage([612, 792]);
+        y = 740;
+      }
+    };
 
     // Title
-    page.drawText('Certificate of Completion', {
+    currentPage.drawText('Certificate of Completion', {
       x: margin,
       y,
       size: 24,
@@ -235,43 +271,41 @@ export class DocumentService {
     y -= 40;
 
     // Document info
-    page.drawText(`Document: ${doc.file_name}`, { x: margin, y, size: 12, font });
+    currentPage.drawText(`Document: ${doc.file_name}`, { x: margin, y, size: 12, font });
     y -= 20;
-    page.drawText(`Document Hash (SHA-256): ${doc.document_hash}`, { x: margin, y, size: 9, font, color: rgb(0.4, 0.4, 0.4) });
+    currentPage.drawText(`Document Hash (SHA-256): ${doc.document_hash}`, { x: margin, y, size: 9, font, color: rgb(0.4, 0.4, 0.4) });
     y -= 20;
-    page.drawText(`Completed: ${doc.completed_at?.toISOString() || 'N/A'}`, { x: margin, y, size: 12, font });
+    currentPage.drawText(`Completed: ${doc.completed_at?.toISOString() || 'N/A'}`, { x: margin, y, size: 12, font });
     y -= 30;
 
     // Signers
-    page.drawText('Signers', { x: margin, y, size: 16, font: boldFont });
+    currentPage.drawText('Signers', { x: margin, y, size: 16, font: boldFont });
     y -= 25;
 
     for (const signer of signers) {
+      ensureSpace(60);
       const identifier = signer.email || signer.phone || 'Unknown';
-      page.drawText(`• ${signer.name || identifier}`, { x: margin + 10, y, size: 11, font: boldFont });
+      currentPage.drawText(`• ${signer.name || identifier}`, { x: margin + 10, y, size: 11, font: boldFont });
       y -= 16;
-      page.drawText(`  Contact: ${identifier}`, { x: margin + 10, y, size: 10, font });
+      currentPage.drawText(`  Contact: ${identifier}`, { x: margin + 10, y, size: 10, font });
       y -= 16;
-      page.drawText(`  Status: ${signer.status} | Signed: ${signer.signed_at?.toISOString() || 'N/A'}`, { x: margin + 10, y, size: 10, font });
+      currentPage.drawText(`  Status: ${signer.status} | Signed: ${signer.signed_at?.toISOString() || 'N/A'}`, { x: margin + 10, y, size: 10, font });
       y -= 22;
     }
 
     // Audit trail
+    ensureSpace(40);
     y -= 10;
-    page.drawText('Audit Trail', { x: margin, y, size: 16, font: boldFont });
+    currentPage.drawText('Audit Trail', { x: margin, y, size: 16, font: boldFont });
     y -= 25;
 
     for (const event of auditEvents) {
-      if (y < 60) {
-        // Add new page if needed
-        const newPage = pdfDoc.addPage([612, 792]);
-        y = 740;
-        // Continue on new page - simplified for initial implementation
-      }
+      ensureSpace(40);
       const timestamp = event.created_at.toISOString();
-      page.drawText(`${timestamp} - ${event.action}`, { x: margin + 10, y, size: 9, font });
+      currentPage.drawText(`${timestamp} - ${event.action}`, { x: margin + 10, y, size: 9, font });
       y -= 14;
-      page.drawText(`  IP: ${event.ip_address} | UA: ${event.user_agent.substring(0, 60)}`, {
+      const ua = event.user_agent ? event.user_agent.substring(0, 60) : 'N/A';
+      currentPage.drawText(`  IP: ${event.ip_address || 'N/A'} | UA: ${ua}`, {
         x: margin + 10, y, size: 8, font, color: rgb(0.5, 0.5, 0.5),
       });
       y -= 18;

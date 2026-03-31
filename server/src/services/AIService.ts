@@ -96,6 +96,11 @@ Rules:
       ? signerDescriptions!.map((d, i) => `  Signer ${i} → ${d}`).join('\n')
       : `  ${signerCount} signer(s) — names not specified`;
 
+    // If we have the PDF text, add it as context to help the AI correlate text positions with visual locations
+    const textContext = documentText && documentText.trim().length > 20
+      ? `\nEXTRACTED TEXT (for reference — use to identify where signer names and signature blocks appear):\n${documentText.substring(0, 12000)}\n`
+      : '';
+
     const prompt = `You are a document analysis expert for an e-signature platform.
 
 TASK: Find the exact signature blocks in this document that belong to the specified signers and return their precise coordinates.
@@ -103,39 +108,53 @@ TASK: Find the exact signature blocks in this document that belong to the specif
 SIGNERS WHO NEED TO SIGN:
 ${signerList}
 
-${pdfBuffer ? 'The actual PDF document is attached. LOOK at every page carefully.' : `Document text:\n${documentText.substring(0, 15000)}`}
+${pdfBuffer ? 'The actual PDF document is attached as a file. LOOK at every page carefully to find signature lines.' : ''}
+${textContext}
 
-INSTRUCTIONS:
-1. Look through the document for signature blocks — these typically have:
-   - A horizontal line (____) for the signature
-   - A name printed below or near the line
-   - Sometimes "Date:", "Title:", "Name:" fields nearby
+CRITICAL INSTRUCTIONS:
+1. Scan the ENTIRE document visually (all pages) for signature blocks. These typically have:
+   - A horizontal line (____) or blank space for the signature
+   - The signer's PRINTED NAME below, above, or near the line
+   - Sometimes "Date:", "Title:", "Name:" labels nearby
+   - Signature blocks are usually near the END of the document (last 1-2 pages)
 
-2. MATCH each signer to their specific signature block in the document:
-   - Match by name: if Signer 0 is "Guy Gamzu", find the signature line near/above "Guy Gamzu" in the document
-   - If a signer's name appears in the document near a signature line, that is THEIR signature block
-   - Only create fields for the SPECIFIED signers, not for every signature line in the document
+2. MATCH each signer to their SPECIFIC signature block:
+   - Find where each signer's name is PRINTED in the document
+   - The signature LINE associated with that printed name belongs to that signer
+   - Only create fields for the SPECIFIED signers, not for every signature line
 
-3. For each matched signer, create fields for:
-   - The signature line itself (type: "signature")
-   - A date field if one exists nearby (type: "date")
-   - A name/title field if one exists nearby (type: "name" or "title")
+3. For each matched signer, create these fields:
+   - "signature": positioned ON the blank signature line (where they draw/write their signature)
+   - "date": positioned ON the blank date space near their signature block (if one exists)
+   - "name": only if there's a separate blank name field (NOT the pre-printed name)
+   - "title": only if there's a separate blank title field
 
-COORDINATE SYSTEM:
+COORDINATE SYSTEM — READ CAREFULLY:
 - Origin (0,0) = TOP-LEFT corner of the page
-- x: 0.0 = left edge, 1.0 = right edge
-- y: 0.0 = top edge, 1.0 = bottom edge
-- Position the field DIRECTLY ON TOP of the blank line/space where the signer writes
-- The field should COVER the signature line, not be next to it
+- x: distance from LEFT edge as fraction (0.0=left, 0.5=center, 1.0=right)
+- y: distance from TOP edge as fraction (0.0=top, 0.5=middle, 1.0=bottom)
 
-FIELD SIZES:
-- Signature: width ≈ 0.22, height ≈ 0.04
-- Date: width ≈ 0.15, height ≈ 0.03
-- Name: width ≈ 0.22, height ≈ 0.03
-- Title: width ≈ 0.20, height ≈ 0.03
+CALIBRATION GUIDE:
+- A typical letter/A4 page has ~50 lines of text
+- Page header area: y ≈ 0.02–0.08
+- First quarter: y ≈ 0.08–0.25
+- Middle of page: y ≈ 0.40–0.60
+- Three-quarters down: y ≈ 0.70–0.80
+- Bottom of page (common for signatures): y ≈ 0.80–0.95
+- Left margin text typically starts at x ≈ 0.08–0.12
+- Right-aligned signature blocks often start at x ≈ 0.50–0.60
+- Signature lines centered on page: x ≈ 0.30, width ≈ 0.40
 
-Return ONLY a JSON array (no markdown fences, no explanation):
-[{"type":"signature","page":1,"x":0.55,"y":0.42,"width":0.22,"height":0.04,"signerIndex":0,"label":"Guy Gamzu Signature"}]`;
+IMPORTANT: Position each field so it COVERS the blank line/space. The (x, y) is the TOP-LEFT corner of the field rectangle.
+
+FIELD SIZES (use these defaults):
+- Signature: width=0.25, height=0.045
+- Date: width=0.15, height=0.03
+- Name: width=0.22, height=0.03
+- Title: width=0.20, height=0.03
+
+Return ONLY a JSON array (no markdown, no explanation, no code fences):
+[{"type":"signature","page":1,"x":0.55,"y":0.82,"width":0.25,"height":0.045,"signerIndex":0,"label":"Guy Gamzu Signature"}]`;
 
     const content: Anthropic.MessageParam['content'] = [];
 
