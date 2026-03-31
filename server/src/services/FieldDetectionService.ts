@@ -44,12 +44,12 @@ export class FieldDetectionService {
     signerDescriptions?: string[],
     documentText?: string,
   ): Promise<DetectedField[]> {
-    // --- Layer 1: AcroForm field extraction ---
+    // --- Layer 1: AcroForm field extraction (deterministic, perfect accuracy) ---
     const acroFields = await this.extractAcroFormFields(pdfBuffer, pageCount);
     logger.info({ count: acroFields.length }, 'Layer 1 (AcroForm): fields extracted');
 
+    // AcroForm fields are deterministic — use them directly if found
     if (acroFields.length >= signerCount) {
-      // AcroForm has enough fields — use AI only for signer assignment
       const assigned = await this.assignSignersToFields(
         acroFields, signerCount, signerDescriptions, documentText,
       );
@@ -59,26 +59,18 @@ export class FieldDetectionService {
       }
     }
 
-    // --- Layer 2: Text anchor matching ---
+    // --- Layer 2: Extract text positions as CALIBRATION DATA ---
+    // These are NOT used as field positions directly.
+    // They serve as known reference points so the AI can
+    // calibrate its visual coordinate estimates.
     const textItems = await this.extractTextPositions(pdfBuffer);
-    const anchorFields = this.findFieldsByTextAnchors(textItems, pageCount);
-    logger.info({ count: anchorFields.length, textItems: textItems.length }, 'Layer 2 (TextAnchor): fields detected');
+    logger.info({ textItems: textItems.length }, 'Layer 2: text positions extracted for AI calibration');
 
-    if (anchorFields.length >= signerCount) {
-      const assigned = await this.assignSignersToFields(
-        anchorFields, signerCount, signerDescriptions, documentText,
-      );
-      if (assigned.length > 0) {
-        logger.info({ count: assigned.length }, 'Using text-anchor fields with AI signer assignment');
-        return assigned;
-      }
-    }
-
-    // --- Layer 3: AI with structured text positions as context ---
-    // Instead of asking AI for raw coordinates, give it the text positions
-    // and ask it to identify which detected anchors belong to which signer
+    // --- Layer 3: AI visual analysis with text calibration ---
+    // ALWAYS use AI for visual analysis. Text positions provide
+    // ground-truth anchor coordinates the AI can reference.
     const aiFields = await this.aiDetectWithTextContext(
-      pdfBuffer, textItems, anchorFields, pageCount, signerCount, signerDescriptions, documentText,
+      pdfBuffer, textItems, pageCount, signerCount, signerDescriptions, documentText,
     );
     logger.info({ count: aiFields.length }, 'Layer 3 (AI): fields detected');
 
@@ -179,10 +171,31 @@ export class FieldDetectionService {
       });
       const pdf = await loadingTask.promise;
 
+      // Also load with pdf-lib to get page dimensions for cross-reference
+      const pdfLibDoc = await PDFDocument.load(pdfBuffer, { ignoreEncryption: true });
+
       for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
         const page = await pdf.getPage(pageNum);
         const viewport = page.getViewport({ scale: 1.0 });
         const textContent = await page.getTextContent();
+
+        // Check if pdfjs-dist and pdf-lib agree on page dimensions
+        const pdfLibPage = pdfLibDoc.getPage(pageNum - 1);
+        const pdfLibSize = pdfLibPage.getSize();
+
+        // Use pdf-lib dimensions for normalization since that's what
+        // applySignaturesToDocument uses for rendering. This ensures
+        // consistent coordinates across detection and rendering.
+        const normWidth = pdfLibSize.width;
+        const normHeight = pdfLibSize.height;
+
+        if (Math.abs(viewport.width - normWidth) > 1 || Math.abs(viewport.height - normHeight) > 1) {
+          logger.warn({
+            page: pageNum,
+            pdfjs: { w: viewport.width, h: viewport.height },
+            pdflib: { w: normWidth, h: normHeight },
+          }, 'Page dimension mismatch between pdfjs-dist and pdf-lib — using pdf-lib dimensions');
+        }
 
         for (const item of textContent.items) {
           if (!('str' in item) || !item.str.trim()) continue;
@@ -194,14 +207,15 @@ export class FieldDetectionService {
           const textWidth = item.width || 0;
           const textHeight = item.height || Math.abs(tx[3]);
 
-          // Normalize to 0–1 using viewport dimensions (top-left origin)
+          // Normalize using pdf-lib page dimensions (consistent with rendering)
+          // Y is flipped: PDF uses bottom-left origin, we use top-left
           items.push({
             text: item.str,
             page: pageNum,
-            x: pdfX / viewport.width,
-            y: 1 - (pdfY / viewport.height), // flip Y from bottom-left to top-left
-            width: textWidth / viewport.width,
-            height: textHeight / viewport.height,
+            x: pdfX / normWidth,
+            y: 1 - (pdfY / normHeight),
+            width: textWidth / normWidth,
+            height: textHeight / normHeight,
           });
         }
 
@@ -348,7 +362,6 @@ export class FieldDetectionService {
   private async aiDetectWithTextContext(
     pdfBuffer: Buffer,
     textItems: TextItem[],
-    anchorFields: DetectedField[],
     pageCount: number,
     signerCount: number,
     signerDescriptions?: string[],
@@ -359,56 +372,58 @@ export class FieldDetectionService {
       ? signerDescriptions!.map((d, i) => `  Signer ${i} → ${d}`).join('\n')
       : `  ${signerCount} signer(s) — names not specified`;
 
-    // Build a structured map of text positions for the AI
-    const positionMap = this.buildTextPositionSummary(textItems);
+    // Build calibration anchors: known text items with exact positions
+    // These let the AI cross-reference visual locations with ground-truth coordinates
+    const calibrationAnchors = this.buildCalibrationAnchors(textItems);
 
-    // If we found anchor fields, include them so the AI can refine rather than start from scratch
-    const anchorContext = anchorFields.length > 0
-      ? `\nPRE-DETECTED FIELD CANDIDATES (from text analysis — refine these positions and assign signers):
-${anchorFields.map((f, i) => `  [${i}] type=${f.type} page=${f.page} x=${f.x.toFixed(3)} y=${f.y.toFixed(3)} w=${f.width.toFixed(3)} h=${f.height.toFixed(3)} label="${f.label}"`).join('\n')}\n`
-      : '';
+    const prompt = `You are a precise document field detection system for e-signatures.
 
-    const prompt = `You are an e-signature field detection system. Your job is to identify EXACTLY where each signer should sign, date, and fill fields in the document.
+TASK: Find where each signer must sign/date/fill in the attached PDF document.
 
 SIGNERS:
 ${signerList}
 
-${anchorContext}
-TEXT POSITION MAP (text found in the document with normalized page coordinates, top-left origin):
-${positionMap}
+CALIBRATION ANCHORS — these are exact text positions extracted from the PDF.
+Use them as reference points to calibrate your coordinate estimates:
+${calibrationAnchors}
 
-The PDF document is attached. Look at it carefully.
+HOW TO USE CALIBRATION ANCHORS:
+1. Find a text item in the CALIBRATION ANCHORS that you can also see in the PDF
+2. Note its exact (x, y) coordinates from the anchor data
+3. Use that as a reference to estimate nearby field positions
+For example, if you see "Guy Gamzu" in the anchors at y=0.82 on page 3, and
+the signature line is visually just above that name, the signature field
+should be at approximately y=0.78 (slightly above the name).
 
-YOUR TASK:
-${anchorFields.length > 0
-  ? `I've already detected ${anchorFields.length} potential field locations from text analysis (listed above as PRE-DETECTED FIELD CANDIDATES). For each:
-1. VERIFY the position is correct by looking at the PDF visually
-2. ADJUST coordinates if they seem off (the text extraction coordinates are approximate)
-3. ASSIGN each field to the correct signer (signerIndex) by matching signer names to nearby text
-4. ADD any missing fields (e.g., if a date field exists but wasn't detected)`
-  : `Analyze the document to find signature blocks for each signer. Use the TEXT POSITION MAP above to identify where signer names, "Signature:", "Date:", etc. appear.`}
+WHAT TO LOOK FOR:
+- Horizontal lines (drawn lines, underscores, dots) = signature/writing areas
+- "Signature", "Sign here", "By:" labels = signature fields
+- "Date:" labels with blank space = date fields
+- "Name:", "Print Name:" with blank space = name fields
+- "Title:", "Position:" with blank space = title fields
+- Each signer's PRINTED NAME indicates their signature block
 
 COORDINATE SYSTEM:
-- Origin (0,0) = TOP-LEFT corner of the page
-- x: 0.0=left edge, 1.0=right edge
-- y: 0.0=top edge, 1.0=bottom edge
-- The (x,y) is the TOP-LEFT corner of the field rectangle
-- The field EXTENDS DOWNWARD from y by its height
+- (0,0) = TOP-LEFT corner of the page
+- x: 0.0 = left edge, 1.0 = right edge
+- y: 0.0 = top edge, 1.0 = bottom edge
+- (x, y) = TOP-LEFT corner of the field rectangle
+- Field extends DOWNWARD from y by height, RIGHTWARD from x by width
 
-CRITICAL POSITIONING RULE:
-- The y coordinate should place the field ABOVE the signature line
-- For a signature line at vertical position P, set y = P - height
-  so the field bottom touches the line and extends upward
-- Example: if a signature line is at y=0.85 on the page,
-  set y=0.805 (=0.85-0.045) for a signature field (height=0.045)
+POSITIONING:
+- Place signature fields ON the blank line where the person writes
+- The field y should position it so the field COVERS the blank writing area
+- For a blank line at position lineY, set y = lineY - height
+  (field bottom at the line, field body extends upward = writing area)
 
-FIELD SIZES:
+FIELD DIMENSIONS (normalized):
 - signature: width=0.25, height=0.045
 - date: width=0.15, height=0.03
-- name/title: width=0.22, height=0.03
+- name: width=0.22, height=0.03
+- title: width=0.20, height=0.03
 
-Return ONLY a JSON array (no markdown, no explanation):
-[{"type":"signature","page":1,"x":0.12,"y":0.805,"width":0.25,"height":0.045,"signerIndex":0,"label":"Signer Name Signature"}]`;
+Return ONLY a valid JSON array. No markdown fences, no explanation text:
+[{"type":"signature","page":1,"x":0.10,"y":0.78,"width":0.25,"height":0.045,"signerIndex":0,"label":"Guy Gamzu Signature"}]`;
 
     const content: Anthropic.MessageParam['content'] = [];
 
@@ -430,7 +445,7 @@ Return ONLY a JSON array (no markdown, no explanation):
       });
 
       const text = response.content[0].type === 'text' ? response.content[0].text : '';
-      logger.info({ rawAIResponse: text.substring(0, 500) }, 'AI field detection (Layer 3) raw response');
+      logger.info({ rawAIResponse: text.substring(0, 1000) }, 'AI field detection raw response');
 
       const jsonMatch = text.match(/\[[\s\S]*\]/);
       if (!jsonMatch) {
@@ -456,11 +471,45 @@ Return ONLY a JSON array (no markdown, no explanation):
         source: 'ai' as const,
       }));
 
+      // Cross-validate AI coordinates against nearest calibration anchors
+      if (textItems.length > 0) {
+        for (const field of fields) {
+          const nearestAnchor = this.findNearestTextItem(textItems, field.page, field.x, field.y + field.height);
+          if (nearestAnchor) {
+            logger.info({
+              fieldType: field.type,
+              fieldLabel: field.label,
+              fieldPos: { x: field.x.toFixed(3), y: field.y.toFixed(3) },
+              nearestText: nearestAnchor.text.substring(0, 40),
+              nearestPos: { x: nearestAnchor.x.toFixed(3), y: nearestAnchor.y.toFixed(3) },
+              distance: Math.sqrt(
+                Math.pow(field.x - nearestAnchor.x, 2) +
+                Math.pow((field.y + field.height) - nearestAnchor.y, 2),
+              ).toFixed(3),
+            }, 'Field cross-validation with nearest text');
+          }
+        }
+      }
+
       return fields;
     } catch (err) {
       logger.error({ error: err instanceof Error ? err.message : String(err) }, 'AI field detection failed');
       return [];
     }
+  }
+
+  private findNearestTextItem(items: TextItem[], page: number, x: number, y: number): TextItem | null {
+    let best: TextItem | null = null;
+    let bestDist = Infinity;
+    for (const item of items) {
+      if (item.page !== page) continue;
+      const dist = Math.sqrt(Math.pow(item.x - x, 2) + Math.pow(item.y - y, 2));
+      if (dist < bestDist) {
+        bestDist = dist;
+        best = item;
+      }
+    }
+    return best;
   }
 
   /**
@@ -533,39 +582,48 @@ Return ONLY a JSON array mapping field index to signer index:
     }
   }
 
-  private buildTextPositionSummary(textItems: TextItem[]): string {
-    if (textItems.length === 0) return '(no text positions available)';
+  private buildCalibrationAnchors(textItems: TextItem[]): string {
+    if (textItems.length === 0) return '(no calibration data available — rely on visual analysis only)';
 
-    // Group by page and filter to relevant items (labels, names, underlines)
-    const relevantPatterns = [
-      /signature/i, /sign/i, /date/i, /name/i, /title/i, /initial/i,
-      /print/i, /_{3,}/, /\.{5,}/, /by:/i, /authorized/i, /witness/i,
-      /company/i, /address/i, /agreed/i, /party/i,
-    ];
-
+    // Group by page
     const byPage = new Map<number, TextItem[]>();
     for (const item of textItems) {
-      // Include items that match relevant patterns, or are long underlines
-      const isRelevant = relevantPatterns.some(p => p.test(item.text)) ||
-        item.text.length > 20; // also include substantial text for context
-
-      if (isRelevant) {
-        if (!byPage.has(item.page)) byPage.set(item.page, []);
-        byPage.get(item.page)!.push(item);
-      }
+      if (!byPage.has(item.page)) byPage.set(item.page, []);
+      byPage.get(item.page)!.push(item);
     }
 
     const lines: string[] = [];
     for (const [page, items] of byPage) {
-      lines.push(`  Page ${page}:`);
+      lines.push(`\n  Page ${page}:`);
       // Sort by Y position (top to bottom)
       items.sort((a, b) => a.y - b.y);
-      for (const item of items.slice(0, 30)) { // limit per page
-        lines.push(`    y=${item.y.toFixed(3)} x=${item.x.toFixed(3)} "${item.text.substring(0, 60)}"`);
+
+      // Include ALL text items but prioritize signature-related ones
+      // This gives the AI maximum calibration data
+      const signatureRelated = [
+        /signature/i, /sign/i, /date/i, /name/i, /title/i, /initial/i,
+        /print/i, /_{3,}/, /by:/i, /authorized/i, /witness/i,
+      ];
+
+      // First: all signature-related items (always included)
+      for (const item of items) {
+        if (signatureRelated.some(p => p.test(item.text))) {
+          lines.push(`    ★ x=${item.x.toFixed(3)} y=${item.y.toFixed(3)} "${item.text.substring(0, 80)}"`);
+        }
+      }
+
+      // Then: other substantial text items for context (limited)
+      let contextCount = 0;
+      for (const item of items) {
+        if (signatureRelated.some(p => p.test(item.text))) continue; // already added
+        if (item.text.trim().length < 3) continue;
+        if (contextCount >= 15) break;
+        lines.push(`    · x=${item.x.toFixed(3)} y=${item.y.toFixed(3)} "${item.text.substring(0, 60)}"`);
+        contextCount++;
       }
     }
 
-    return lines.length > 0 ? lines.join('\n') : '(no relevant text positions found)';
+    return lines.join('\n');
   }
 
   private getDefaultFields(pageCount: number, signerCount: number): DetectedField[] {
