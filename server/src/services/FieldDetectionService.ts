@@ -48,7 +48,6 @@ export class FieldDetectionService {
     const acroFields = await this.extractAcroFormFields(pdfBuffer, pageCount);
     logger.info({ count: acroFields.length }, 'Layer 1 (AcroForm): fields extracted');
 
-    // AcroForm fields are deterministic — use them directly if found
     if (acroFields.length >= signerCount) {
       const assigned = await this.assignSignersToFields(
         acroFields, signerCount, signerDescriptions, documentText,
@@ -59,29 +58,237 @@ export class FieldDetectionService {
       }
     }
 
-    // --- Layer 2: Extract text positions as CALIBRATION DATA ---
-    // These are NOT used as field positions directly.
-    // They serve as known reference points so the AI can
-    // calibrate its visual coordinate estimates.
-    const textItems = await this.extractTextPositions(pdfBuffer);
-    logger.info({ textItems: textItems.length }, 'Layer 2: text positions extracted for AI calibration');
+    // --- Layer 2: Extract text positions ---
+    let textItems: TextItem[] = [];
+    try {
+      textItems = await this.extractTextPositions(pdfBuffer);
+      logger.info({ textItems: textItems.length }, 'Text positions extracted');
+    } catch (err) {
+      logger.error({ error: err instanceof Error ? err.message : String(err) }, 'Text extraction failed completely');
+    }
 
-    // --- Layer 3: AI visual analysis with text calibration ---
-    // ALWAYS use AI for visual analysis. Text positions provide
-    // ground-truth anchor coordinates the AI can reference.
-    const aiFields = await this.aiDetectWithTextContext(
-      pdfBuffer, textItems, pageCount, signerCount, signerDescriptions, documentText,
-    );
-    logger.info({ count: aiFields.length }, 'Layer 3 (AI): fields detected');
+    // --- Layer 3: Deterministic text-based field placement ---
+    // Find signer names and nearby signature/date patterns using exact text positions.
+    // This does NOT rely on AI for coordinates — positions come from actual text extraction.
+    if (textItems.length > 0) {
+      const deterministicFields = this.placeFieldsByTextPositions(
+        textItems, pageCount, signerCount, signerDescriptions,
+      );
+      if (deterministicFields.length > 0) {
+        logger.info({
+          count: deterministicFields.length,
+          fields: deterministicFields.map(f => `${f.type}@p${f.page}(${f.x.toFixed(3)},${f.y.toFixed(3)}) signer=${f.signerIndex}`),
+        }, 'Using deterministic text-position field placement');
+        return deterministicFields;
+      }
+    }
 
-    if (aiFields.length > 0) return aiFields;
+    // --- Layer 4: AI visual analysis with text calibration ---
+    // Only if deterministic placement couldn't find enough fields
+    try {
+      const aiFields = await this.aiDetectWithTextContext(
+        pdfBuffer, textItems, pageCount, signerCount, signerDescriptions, documentText,
+      );
+      logger.info({ count: aiFields.length }, 'Layer 4 (AI): fields detected');
+      if (aiFields.length > 0) return aiFields;
+    } catch (err) {
+      logger.error({ error: err instanceof Error ? err.message : String(err) }, 'AI field detection failed completely');
+    }
 
-    // --- Fallback: default fields ---
-    logger.warn('All layers failed, using default field placement');
+    // --- Fallback: place based on any text extraction data we have ---
+    if (textItems.length > 0) {
+      const lastResort = this.placeFieldsLastResort(textItems, pageCount, signerCount);
+      if (lastResort.length > 0) {
+        logger.warn({ count: lastResort.length }, 'Using last-resort text-based placement');
+        return lastResort;
+      }
+    }
+
+    logger.warn('All detection layers failed, using default placement');
     return this.getDefaultFields(pageCount, signerCount);
   }
 
   // =========================================================================
+  // Layer 3: Deterministic text-based field placement
+  // Finds signer names and signature-related text patterns, places fields
+  // at their exact extracted positions. No AI needed.
+  // =========================================================================
+  private placeFieldsByTextPositions(
+    textItems: TextItem[],
+    pageCount: number,
+    signerCount: number,
+    signerDescriptions?: string[],
+  ): DetectedField[] {
+    const fields: DetectedField[] = [];
+
+    // Extract signer names from descriptions
+    const signerNames: string[] = [];
+    if (signerDescriptions) {
+      for (const desc of signerDescriptions) {
+        // First part before ' — ' is usually the name
+        const name = desc.split(' — ')[0]?.trim();
+        if (name) signerNames.push(name);
+      }
+    }
+
+    // Find signature blocks: look for patterns near each signer's name
+    for (let signerIdx = 0; signerIdx < signerCount; signerIdx++) {
+      const signerName = signerNames[signerIdx];
+      if (!signerName) continue;
+
+      // Find this signer's name in the text
+      const nameItems = textItems.filter(item =>
+        item.text.toLowerCase().includes(signerName.toLowerCase()) ||
+        signerName.toLowerCase().split(' ').every(part =>
+          item.text.toLowerCase().includes(part.toLowerCase()),
+        ),
+      );
+
+      if (nameItems.length === 0) continue;
+
+      // Use the LAST occurrence (signature blocks are usually at the end)
+      const nameItem = nameItems[nameItems.length - 1];
+      logger.info({
+        signerIdx,
+        signerName,
+        foundAt: { page: nameItem.page, x: nameItem.x.toFixed(3), y: nameItem.y.toFixed(3) },
+        text: nameItem.text,
+      }, 'Found signer name in document');
+
+      // Look for signature-related text near this name (within ~10% vertical distance)
+      const nearbyItems = textItems.filter(item =>
+        item.page === nameItem.page &&
+        Math.abs(item.y - nameItem.y) < 0.12,
+      );
+
+      // Find "By:", "Signature:", or underline patterns near the name
+      let signatureY = nameItem.y - 0.045; // Default: just above the name
+      let signatureX = nameItem.x;
+      let dateY: number | null = null;
+      let dateX: number | null = null;
+      let titleY: number | null = null;
+      let titleX: number | null = null;
+
+      for (const nearby of nearbyItems) {
+        const text = nearby.text.toLowerCase();
+        if (/\bby\s*:|signature|sign\s*here/i.test(nearby.text) || /_{3,}/.test(nearby.text)) {
+          // This is a signature line — place field above it
+          signatureY = nearby.y - 0.045;
+          signatureX = nearby.x;
+          // If the text has underscores, place the field at the underscores
+          if (/_{3,}/.test(nearby.text)) {
+            const underIdx = nearby.text.search(/_{3,}/);
+            const ratio = underIdx / nearby.text.length;
+            signatureX = nearby.x + nearby.width * ratio;
+          }
+        }
+        if (/\bdate\s*:/i.test(nearby.text)) {
+          dateY = nearby.y - 0.03;
+          dateX = nearby.x + nearby.width + 0.01;
+          if (/_{3,}/.test(nearby.text)) {
+            const underIdx = nearby.text.search(/_{3,}/);
+            const ratio = underIdx / nearby.text.length;
+            dateX = nearby.x + nearby.width * ratio;
+          }
+        }
+        if (/\btitle\s*:/i.test(nearby.text)) {
+          titleY = nearby.y - 0.03;
+          titleX = nearby.x + nearby.width + 0.01;
+        }
+      }
+
+      // Add signature field
+      fields.push({
+        type: 'signature',
+        page: nameItem.page,
+        x: Math.max(0, Math.min(0.95, signatureX)),
+        y: Math.max(0, Math.min(0.95, signatureY)),
+        width: 0.25,
+        height: 0.045,
+        signerIndex: signerIdx,
+        label: `${signerName} Signature`,
+        source: 'textanchor',
+      });
+
+      // Add date field
+      if (dateY !== null && dateX !== null) {
+        fields.push({
+          type: 'date',
+          page: nameItem.page,
+          x: Math.max(0, Math.min(0.95, dateX)),
+          y: Math.max(0, Math.min(0.95, dateY)),
+          width: 0.15,
+          height: 0.03,
+          signerIndex: signerIdx,
+          label: `${signerName} Date`,
+          source: 'textanchor',
+        });
+      }
+
+      // Add title field
+      if (titleY !== null && titleX !== null) {
+        fields.push({
+          type: 'title',
+          page: nameItem.page,
+          x: Math.max(0, Math.min(0.95, titleX)),
+          y: Math.max(0, Math.min(0.95, titleY)),
+          width: 0.20,
+          height: 0.03,
+          signerIndex: signerIdx,
+          label: `${signerName} Title`,
+          source: 'textanchor',
+        });
+      }
+    }
+
+    return fields;
+  }
+
+  /**
+   * Last resort: find ANY signature-related text in the document and place fields there.
+   * Better than hardcoded defaults because it uses actual document content positions.
+   */
+  private placeFieldsLastResort(
+    textItems: TextItem[],
+    pageCount: number,
+    signerCount: number,
+  ): DetectedField[] {
+    const fields: DetectedField[] = [];
+    const sigPatterns = [/\bby\s*:/i, /signature/i, /sign\s*here/i, /_{5,}/];
+
+    // Find all signature-like patterns
+    const sigLocations: TextItem[] = [];
+    for (const item of textItems) {
+      if (sigPatterns.some(p => p.test(item.text))) {
+        sigLocations.push(item);
+      }
+    }
+
+    if (sigLocations.length === 0) return [];
+
+    // Sort by page then y position
+    sigLocations.sort((a, b) => a.page !== b.page ? a.page - b.page : a.y - b.y);
+
+    // Assign to signers round-robin
+    for (let i = 0; i < Math.min(sigLocations.length, signerCount * 2); i++) {
+      const loc = sigLocations[i];
+      const signerIdx = i % signerCount;
+
+      fields.push({
+        type: 'signature',
+        page: loc.page,
+        x: Math.max(0, Math.min(0.95, loc.x)),
+        y: Math.max(0, Math.min(0.95, loc.y - 0.045)),
+        width: 0.25,
+        height: 0.045,
+        signerIndex: signerIdx,
+        label: `Signer ${signerIdx + 1} Signature`,
+        source: 'textanchor',
+      });
+    }
+
+    return fields;
+  }
   // Layer 1: AcroForm field extraction
   // =========================================================================
   private async extractAcroFormFields(pdfBuffer: Buffer, pageCount: number): Promise<DetectedField[]> {

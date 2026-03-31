@@ -269,5 +269,94 @@ export function createDocumentsRouter(): Router {
     }
   });
 
+  // Admin: re-detect fields for a document (replaces old fields with new detection)
+  router.post('/admin/redetect-fields/:documentId', async (req: Request<{ documentId: string }>, res: Response) => {
+    try {
+      const doc = await documentRepo.findById(req.params.documentId);
+      if (!doc) {
+        res.status(404).json({ error: 'Document not found' });
+        return;
+      }
+
+      if (!doc.s3_key || doc.s3_key.startsWith('pending/')) {
+        res.status(400).json({ error: 'Document has no uploaded PDF' });
+        return;
+      }
+
+      const { StorageService } = await import('../services/StorageService.js');
+      const { AIService } = await import('../services/AIService.js');
+      const { DocumentService } = await import('../services/DocumentService.js');
+      const storageService = new StorageService();
+      const aiService = new AIService();
+      const documentService = new DocumentService(documentRepo, auditRepo, storageService, aiService);
+
+      // Get PDF buffer from S3
+      const pdfBuffer = await storageService.getDocument(doc.s3_key);
+
+      // Get signers
+      const signers = await documentRepo.findSignersByDocumentId(doc.id);
+      const signerDescriptions = signers.map(s =>
+        [s.name, s.email, s.phone].filter(Boolean).join(' — ') || 'Unknown signer',
+      );
+
+      // Re-detect fields
+      const { FieldDetectionService } = await import('../services/FieldDetectionService.js');
+      const fieldDetection = new FieldDetectionService();
+      const newFields = await fieldDetection.detectFields(
+        pdfBuffer,
+        doc.page_count,
+        signers.length,
+        signerDescriptions,
+        undefined, // documentText will be extracted internally
+      );
+
+      // Delete old fields
+      await db('document_fields').where({ document_request_id: doc.id }).del();
+
+      // Create new fields
+      if (newFields.length > 0) {
+        const fieldData = newFields.map((field) => ({
+          document_request_id: doc.id,
+          signer_id: signers[field.signerIndex]?.id || signers[0].id,
+          type: field.type,
+          page: field.page,
+          x: field.x,
+          y: field.y,
+          width: field.width,
+          height: field.height,
+          required: true,
+        }));
+        await documentRepo.createFields(fieldData);
+      }
+
+      const updatedFields = await documentRepo.findFieldsByDocumentId(doc.id);
+
+      logger.info({
+        documentId: doc.id,
+        oldFieldCount: signers.length, // approximate
+        newFieldCount: updatedFields.length,
+        fields: updatedFields.map(f => `${f.type}@p${f.page}(${f.x.toFixed(3)},${f.y.toFixed(3)})`),
+      }, 'Fields re-detected');
+
+      res.json({
+        success: true,
+        documentId: doc.id,
+        fieldCount: updatedFields.length,
+        fields: updatedFields.map(f => ({
+          id: f.id,
+          type: f.type,
+          page: f.page,
+          x: f.x,
+          y: f.y,
+          width: f.width,
+          height: f.height,
+        })),
+      });
+    } catch (err) {
+      logger.error({ err }, 'Error re-detecting fields');
+      res.status(500).json({ error: 'Internal server error', details: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
   return router;
 }
