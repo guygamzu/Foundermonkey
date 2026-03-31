@@ -254,18 +254,23 @@ export class FieldDetectionService {
 
       if (type) {
         // Look for an adjacent underline (blank space to fill)
-        // The field should be placed to the RIGHT of the label, or on the line BELOW
         const nearbyUnderline = this.findNearbyUnderline(textItems, item);
 
         let fieldX = item.x + item.width + 0.01; // right of label
-        let fieldY = item.y;
         let fieldWidth = type === 'signature' ? 0.25 : type === 'date' ? 0.15 : 0.22;
         let fieldHeight = type === 'signature' ? 0.045 : 0.03;
+
+        // CRITICAL: item.y is the text BASELINE position (top-left origin).
+        // The field must sit ABOVE the baseline (where the signer writes).
+        // So we offset Y upward by the field height: the field BOTTOM aligns
+        // with the text baseline, and the field extends UPWARD.
+        let fieldY = item.y - fieldHeight;
 
         if (nearbyUnderline) {
           // Use the underline's position for precise placement
           fieldX = nearbyUnderline.x;
-          fieldY = nearbyUnderline.y - fieldHeight / 2; // center on the underline
+          // Place field so its bottom is at the underline, extending upward
+          fieldY = nearbyUnderline.y - fieldHeight;
           fieldWidth = Math.max(fieldWidth, nearbyUnderline.width);
         } else {
           // If the label text contains the underline itself (e.g., "Signature: ________")
@@ -276,6 +281,7 @@ export class FieldDetectionService {
             const ratio = textBeforeUnderline.length / item.text.length;
             fieldX = item.x + item.width * ratio;
             fieldWidth = item.width * (1 - ratio);
+            // Y stays at item.y - fieldHeight (above the line)
           }
         }
 
@@ -387,6 +393,14 @@ COORDINATE SYSTEM:
 - x: 0.0=left edge, 1.0=right edge
 - y: 0.0=top edge, 1.0=bottom edge
 - The (x,y) is the TOP-LEFT corner of the field rectangle
+- The field EXTENDS DOWNWARD from y by its height
+
+CRITICAL POSITIONING RULE:
+- The y coordinate should place the field ABOVE the signature line
+- For a signature line at vertical position P, set y = P - height
+  so the field bottom touches the line and extends upward
+- Example: if a signature line is at y=0.85 on the page,
+  set y=0.805 (=0.85-0.045) for a signature field (height=0.045)
 
 FIELD SIZES:
 - signature: width=0.25, height=0.045
@@ -394,7 +408,7 @@ FIELD SIZES:
 - name/title: width=0.22, height=0.03
 
 Return ONLY a JSON array (no markdown, no explanation):
-[{"type":"signature","page":1,"x":0.12,"y":0.82,"width":0.25,"height":0.045,"signerIndex":0,"label":"Signer Name Signature"}]`;
+[{"type":"signature","page":1,"x":0.12,"y":0.805,"width":0.25,"height":0.045,"signerIndex":0,"label":"Signer Name Signature"}]`;
 
     const content: Anthropic.MessageParam['content'] = [];
 
