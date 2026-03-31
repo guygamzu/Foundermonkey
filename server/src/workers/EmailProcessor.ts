@@ -268,7 +268,13 @@ export class EmailProcessor {
       const errMsg = aiErr instanceof Error ? aiErr.message : String(aiErr);
       logger.error({ error: errMsg }, 'AI parsing failed, using fallback');
       const emailMatches = body.match(/[\w.-]+@[\w.-]+\.\w+/g) || [];
-      const recipientEmails = emailMatches.filter(e => e !== senderEmail);
+      // Filter out sender email, but keep it if it's the only recipient found
+      // (valid case: sender wants to sign the document themselves for testing)
+      let recipientEmails = emailMatches.filter(e => e.toLowerCase() !== senderEmail.toLowerCase());
+      if (recipientEmails.length === 0 && emailMatches.length > 0) {
+        recipientEmails = [...new Set(emailMatches.map(e => e.toLowerCase()))];
+        logger.info({ emails: recipientEmails }, 'Fallback: sender is also recipient, keeping');
+      }
       instructions = {
         recipients: recipientEmails.map((email, i) => ({
           email,
@@ -281,7 +287,7 @@ export class EmailProcessor {
     }
 
     if (!instructions.recipients.length) {
-      logger.warn('No recipients found in email');
+      logger.warn({ body: body.substring(0, 500), subject, senderEmail }, 'No recipients found in email');
       await this.trySendEmail({
         to: senderEmail,
         subject: `Re: ${subject}`,
