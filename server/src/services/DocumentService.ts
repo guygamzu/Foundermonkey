@@ -4,15 +4,20 @@ import { DocumentRepository } from '../models/DocumentRepository.js';
 import { AuditRepository } from '../models/AuditRepository.js';
 import { StorageService } from './StorageService.js';
 import { AIService } from './AIService.js';
+import { FieldDetectionService } from './FieldDetectionService.js';
 import { logger } from '../config/logger.js';
 
 export class DocumentService {
+  private fieldDetectionService: FieldDetectionService;
+
   constructor(
     private documentRepo: DocumentRepository,
     private auditRepo: AuditRepository,
     private storageService: StorageService,
     private aiService: AIService,
-  ) {}
+  ) {
+    this.fieldDetectionService = new FieldDetectionService();
+  }
 
   async processUploadedDocument(
     senderId: string,
@@ -45,15 +50,18 @@ export class DocumentService {
     const documentText = await this.extractTextFromPdf(fileBuffer, pageCount);
     logger.info({ textLength: documentText.length, preview: documentText.substring(0, 200) }, 'PDF text extracted');
 
-    // Use AI to detect fields (send PDF buffer for visual analysis)
-    const detectedFields = await this.aiService.detectDocumentFields(
-      documentText,
+    // Multi-layer field detection (AcroForm → TextAnchor → AI)
+    const detectedFields = await this.fieldDetectionService.detectFields(
+      fileBuffer,
       pageCount,
       signerCount,
-      fileBuffer,
       signerDescriptions,
+      documentText,
     );
-    logger.info({ fieldCount: detectedFields.length, fields: detectedFields.map(f => `${f.type}@p${f.page}(${f.x},${f.y})`) }, 'AI detected fields');
+    logger.info({
+      fieldCount: detectedFields.length,
+      fields: detectedFields.map(f => `${f.type}[${f.source}]@p${f.page}(${f.x.toFixed(3)},${f.y.toFixed(3)}) signer=${f.signerIndex}`),
+    }, 'Field detection complete');
 
     // Upload to S3
     const documentId = crypto.randomUUID();
