@@ -170,30 +170,41 @@ export class FieldDetectionService {
       let titleX: number | null = null;
 
       for (const nearby of nearbyItems) {
-        const text = nearby.text.toLowerCase();
-        if (/\bby\s*:|signature|sign\s*here/i.test(nearby.text) || /_{3,}/.test(nearby.text)) {
-          // This is a signature line — place field above it
+        // Check DATE first (so "Date: ___" doesn't get matched as a signature line)
+        if (/\bdate\s*:/i.test(nearby.text)) {
+          dateY = nearby.y - 0.03;
+          dateX = nearby.x;
+          // Position field at the underscores (blank area after "Date:")
+          if (/_{3,}/.test(nearby.text)) {
+            const underIdx = nearby.text.search(/_{3,}/);
+            const ratio = underIdx / nearby.text.length;
+            dateX = nearby.x + nearby.width * ratio;
+          } else {
+            dateX = nearby.x + nearby.width + 0.01;
+          }
+          continue; // Don't also match as signature
+        }
+        if (/\btitle\s*:/i.test(nearby.text)) {
+          titleY = nearby.y - 0.03;
+          titleX = nearby.x;
+          if (/_{3,}/.test(nearby.text)) {
+            const underIdx = nearby.text.search(/_{3,}/);
+            const ratio = underIdx / nearby.text.length;
+            titleX = nearby.x + nearby.width * ratio;
+          } else {
+            titleX = nearby.x + nearby.width + 0.01;
+          }
+          continue; // Don't also match as signature
+        }
+        // SIGNATURE: "By:", "Signature:", "Sign here", or standalone underline
+        if (/\bby\s*:|signature|sign\s*here/i.test(nearby.text)) {
           signatureY = nearby.y - 0.045;
           signatureX = nearby.x;
-          // If the text has underscores, place the field at the underscores
           if (/_{3,}/.test(nearby.text)) {
             const underIdx = nearby.text.search(/_{3,}/);
             const ratio = underIdx / nearby.text.length;
             signatureX = nearby.x + nearby.width * ratio;
           }
-        }
-        if (/\bdate\s*:/i.test(nearby.text)) {
-          dateY = nearby.y - 0.03;
-          dateX = nearby.x + nearby.width + 0.01;
-          if (/_{3,}/.test(nearby.text)) {
-            const underIdx = nearby.text.search(/_{3,}/);
-            const ratio = underIdx / nearby.text.length;
-            dateX = nearby.x + nearby.width * ratio;
-          }
-        }
-        if (/\btitle\s*:/i.test(nearby.text)) {
-          titleY = nearby.y - 0.03;
-          titleX = nearby.x + nearby.width + 0.01;
         }
       }
 
