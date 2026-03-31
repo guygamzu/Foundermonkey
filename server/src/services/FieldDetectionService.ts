@@ -131,6 +131,16 @@ export class FieldDetectionService {
       }
     }
 
+    // Find pages that contain signature block indicators
+    const signatureBlockPages = new Set<number>();
+    for (const item of textItems) {
+      if (/in\s+witness\s+(hereof|whereof)/i.test(item.text) ||
+          /executed\s+(as\s+of|on\s+the)/i.test(item.text) ||
+          /acknowledged\s+and\s+agreed/i.test(item.text)) {
+        signatureBlockPages.add(item.page);
+      }
+    }
+
     // Find signature blocks: look for patterns near each signer's name
     for (let signerIdx = 0; signerIdx < signerCount; signerIdx++) {
       const signerName = signerNames[signerIdx];
@@ -146,8 +156,10 @@ export class FieldDetectionService {
 
       if (nameItems.length === 0) continue;
 
-      // Use the LAST occurrence (signature blocks are usually at the end)
-      const nameItem = nameItems[nameItems.length - 1];
+      // Score each occurrence to find the one most likely to be a signature block label.
+      // Signature block labels are typically SHORT standalone text (just the name),
+      // not names embedded in long paragraph sentences.
+      const nameItem = this.pickSignatureBlockName(nameItems, signerName, textItems, signatureBlockPages);
       logger.info({
         signerIdx,
         signerName,
@@ -253,6 +265,89 @@ export class FieldDetectionService {
     }
 
     return fields;
+  }
+
+  /**
+   * Pick the best occurrence of a signer's name — the one most likely to be
+   * a signature block label (e.g., "Litan Yahav" printed under a signature line)
+   * rather than the name embedded in body paragraph text.
+   *
+   * Scoring heuristics:
+   *  - Short text items (just the name) score highest — signature labels are standalone
+   *  - Being on a page with "IN WITNESS HEREOF" or similar boilerplate
+   *  - Having underline text (___) nearby on the same page
+   *  - Names in long sentences (body text) score lowest
+   */
+  private pickSignatureBlockName(
+    nameItems: TextItem[],
+    signerName: string,
+    allTextItems: TextItem[],
+    signatureBlockPages: Set<number>,
+  ): TextItem {
+    if (nameItems.length === 1) return nameItems[0];
+
+    let bestItem = nameItems[0];
+    let bestScore = -Infinity;
+
+    for (const item of nameItems) {
+      let score = 0;
+
+      // Standalone label: text is roughly just the name (±20 chars for whitespace/punctuation)
+      const textLen = item.text.trim().length;
+      const nameLen = signerName.length;
+      if (textLen <= nameLen + 20) {
+        score += 50; // Strong signal: this is a label, not a paragraph
+      } else if (textLen <= nameLen + 50) {
+        score += 20; // Moderate: short context around name
+      } else {
+        score -= 30; // Long text = body paragraph, penalize heavily
+      }
+
+      // On a page with signature block boilerplate ("IN WITNESS HEREOF")
+      if (signatureBlockPages.has(item.page)) {
+        score += 30;
+      }
+      // Check if adjacent pages have the boilerplate (signature page often follows it)
+      if (signatureBlockPages.has(item.page - 1)) {
+        score += 15;
+      }
+
+      // Has underline text nearby on the same page (signature lines)
+      const hasNearbyUnderline = allTextItems.some(other =>
+        other.page === item.page &&
+        Math.abs(other.y - item.y) < 0.05 &&
+        /_{3,}/.test(other.text),
+      );
+      if (hasNearbyUnderline) {
+        score += 25;
+      }
+
+      // Has "By:", "Signature:" nearby
+      const hasSignatureLabel = allTextItems.some(other =>
+        other.page === item.page &&
+        Math.abs(other.y - item.y) < 0.10 &&
+        /\bby\s*:|signature|sign\s*here/i.test(other.text),
+      );
+      if (hasSignatureLabel) {
+        score += 20;
+      }
+
+      logger.debug({
+        signerName,
+        text: item.text.substring(0, 60),
+        page: item.page,
+        y: item.y.toFixed(3),
+        textLen,
+        score,
+      }, 'Scoring name occurrence for signature block');
+
+      if (score > bestScore) {
+        bestScore = score;
+        bestItem = item;
+      }
+    }
+
+    return bestItem;
   }
 
   /**
