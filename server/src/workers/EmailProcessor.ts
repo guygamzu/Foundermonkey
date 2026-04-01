@@ -466,7 +466,8 @@ Preview: ${previewUrl}`,
     });
 
     // Create signers and send notifications
-    const signerNames: string[] = [];
+    const sentEmails: string[] = [];
+    const failedEmails: string[] = [];
     for (let i = 0; i < signeeEmails.length; i++) {
       const email = signeeEmails[i];
       const signingToken = crypto.randomBytes(32).toString('base64url');
@@ -504,10 +505,11 @@ Preview: ${previewUrl}`,
         }
 
         logger.info({ signerEmail: email }, 'Signing notification sent');
-        signerNames.push(email);
+        sentEmails.push(email);
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err);
         logger.error({ error: errMsg, signerEmail: email }, 'Failed to send signing notification');
+        failedEmails.push(email);
       }
     }
 
@@ -523,12 +525,25 @@ Preview: ${previewUrl}`,
 
     // Send confirmation to sender
     const statusUrl = `${appUrl}/status/${pendingDoc.id}`;
-    const signerList = signerNames.map(e => `  • ${e}`).join('\n');
+    const allEmails = signeeEmails;
+    const sentList = allEmails.map(e => `  • ${e}${failedEmails.includes(e) ? ' (delivery failed)' : ''}`).join('\n');
+    const failedNote = failedEmails.length > 0
+      ? `\n\nNote: ${failedEmails.length} email(s) failed to deliver. The signing links have been created — you can share them manually from the status page.`
+      : '';
+
+    const emailListHtml = allEmails.map(e => {
+      const failed = failedEmails.includes(e);
+      return `<li style="margin: 4px 0;">${e}${failed ? ' <span style="color: #dc2626; font-size: 13px;">(delivery failed)</span>' : ''}</li>`;
+    }).join('');
+
+    const failedNoteHtml = failedEmails.length > 0
+      ? `<p style="color: #dc2626; font-size: 14px; margin-top: 12px;">⚠ ${failedEmails.length} email(s) failed to deliver. The signing links have been created — you can share them manually from the status page.</p>`
+      : '';
 
     await this.trySendEmail({
       to: senderEmail,
       subject: `✓ Document sent for signature: ${pendingDoc.file_name}`,
-      text: `Done! I've sent "${pendingDoc.file_name}" for signature to:\n\n${signerList}\n\nI'll notify you as each person signs.\n\nTrack status: ${statusUrl}`,
+      text: `Done! I've sent "${pendingDoc.file_name}" for signature to:\n\n${sentList}\n\nI'll notify you as each person signs.${failedNote}\n\nTrack status: ${statusUrl}`,
       html: `
 <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; color: #111827;">
   <div style="background: #16a34a; color: white; padding: 20px 24px; border-radius: 8px 8px 0 0;">
@@ -537,16 +552,17 @@ Preview: ${previewUrl}`,
   <div style="background: white; padding: 24px; border: 1px solid #e5e7eb; border-top: none; border-radius: 0 0 8px 8px;">
     <p>I've sent <strong>${pendingDoc.file_name}</strong> for signature to:</p>
     <ul style="margin: 12px 0; padding-left: 20px;">
-      ${signerNames.map(e => `<li style="margin: 4px 0;">${e}</li>`).join('')}
+      ${emailListHtml}
     </ul>
     <p>I'll notify you as each person signs.</p>
+    ${failedNoteHtml}
     <p><a href="${statusUrl}" style="color: #2563eb;">Track signing status →</a></p>
   </div>
 </div>`,
       inReplyTo: messageId,
     });
 
-    logger.info({ documentId: pendingDoc.id, signerCount: signerNames.length }, 'Step 2 complete: signing emails sent, sender notified');
+    logger.info({ documentId: pendingDoc.id, sent: sentEmails.length, failed: failedEmails.length }, 'Step 2 complete: signing emails sent, sender notified');
   }
 
   // =========================================================================
