@@ -303,7 +303,8 @@ export class EmailProcessor {
         });
         documentId = doc.id;
       } catch (err) {
-        logger.error({ error: err instanceof Error ? err.message : String(err) }, 'S3 upload failed, using basic record');
+        const errDetail = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+        logger.error({ error: errDetail, stack: err instanceof Error ? err.stack : undefined }, 'S3 upload failed, using basic record');
         documentId = await this.createBasicDocument(user.id, attachment, messageId, subject);
       }
     } else {
