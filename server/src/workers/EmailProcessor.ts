@@ -489,12 +489,15 @@ Preview: ${previewUrl}`,
           status: 'insufficient_credits',
         });
         const purchaseUrl = `${appUrl}/credits?user=${user.id}`;
+        // Ensure user has a referral code
+        const freshUser = await this.userRepo.findById(user.id);
         await this.emailService.sendInsufficientCreditsEmail(
           senderEmail,
           signeeEmails.length,
           user.credits,
           purchaseUrl,
           messageId,
+          freshUser?.referral_code || undefined,
         );
         logger.info({ documentId: pendingDoc.id, required: signeeEmails.length, available: user.credits }, 'Insufficient credits — notified sender');
       } else {
