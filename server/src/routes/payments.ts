@@ -12,7 +12,8 @@ export function createPaymentsRouter(): Router {
   router.post('/checkout', async (req: Request, res: Response) => {
     try {
       if (!process.env.STRIPE_SECRET_KEY) {
-        res.status(503).json({ error: 'Payment processing is not configured' });
+        logger.error('STRIPE_SECRET_KEY is not set — cannot process payments');
+        res.status(503).json({ error: 'Payment processing is temporarily unavailable. Please try again later.' });
         return;
       }
 
@@ -22,13 +23,20 @@ export function createPaymentsRouter(): Router {
         return;
       }
 
+      const user = await userRepo.findById(userId);
+      if (!user) {
+        res.status(404).json({ error: 'User not found' });
+        return;
+      }
+
       const { PaymentService } = await import('../services/PaymentService.js');
       const paymentService = new PaymentService(userRepo);
       const url = await paymentService.createCheckoutSession(userId, packageIndex);
       res.json({ url });
     } catch (err) {
-      logger.error({ err }, 'Error creating checkout session');
-      res.status(500).json({ error: 'Internal server error' });
+      const errMsg = err instanceof Error ? err.message : String(err);
+      logger.error({ error: errMsg }, 'Error creating checkout session');
+      res.status(500).json({ error: 'Failed to start checkout. Please try again.' });
     }
   });
 

@@ -17,6 +17,7 @@ export default function CreditsContent() {
   const [credits, setCredits] = useState<number | null>(null);
   const [selectedPackage, setSelectedPackage] = useState(1);
   const [loading, setLoading] = useState(false);
+  const [purchaseError, setPurchaseError] = useState<string | null>(null);
   const [referralCode, setReferralCode] = useState<string | null>(null);
   const [referralInput, setReferralInput] = useState('');
   const [referralLoading, setReferralLoading] = useState(false);
@@ -61,6 +62,7 @@ export default function CreditsContent() {
   const handlePurchase = async () => {
     if (!userId || loading) return;
     setLoading(true);
+    setPurchaseError(null);
 
     try {
       const res = await fetch(`${API_URL}/api/payments/checkout`, {
@@ -71,10 +73,12 @@ export default function CreditsContent() {
       const data = await res.json();
       if (data.url) {
         window.location.href = data.url;
+      } else {
+        setPurchaseError(data.error || 'Could not start checkout. Please try again.');
+        setLoading(false);
       }
     } catch {
-      alert('Failed to start checkout. Please try again.');
-    } finally {
+      setPurchaseError('Network error — please check your connection and try again.');
       setLoading(false);
     }
   };
@@ -126,6 +130,11 @@ export default function CreditsContent() {
       >
         {loading ? 'Processing...' : 'Pay with Card'}
       </button>
+      {purchaseError && (
+        <p style={{ color: '#dc2626', fontSize: '0.85rem', marginTop: 8, textAlign: 'center' }}>
+          {purchaseError}
+        </p>
+      )}
 
       {/* Referral section */}
       <div style={{
