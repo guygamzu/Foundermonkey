@@ -159,11 +159,28 @@ export class EmailProcessor {
     const senderLower = senderEmail.toLowerCase();
 
     // Skip emails sent BY the service itself (prevent reply loops).
-    // Resend-sent emails have Message-IDs containing 'resend.com'.
     const rawMessageId = parsed.messageId || '';
+    const fromEmail = (process.env.FROM_EMAIL || '').replace(/@@/g, '@').toLowerCase();
+    // Method 1: Resend-sent emails have Message-IDs containing 'resend.com'
     if (rawMessageId.includes('resend.com')) {
       logger.info(`Skipping service-sent email (Resend Message-ID): from=${senderEmail} msgId=${rawMessageId}`);
       return;
+    }
+    // Method 2: Skip any email FROM our own FROM_EMAIL that looks like a service reply
+    // (contains service-generated content like "Welcome to Lapen" or "Document Sent")
+    if (fromEmail && senderLower === fromEmail) {
+      const bodyText = (parsed.text || '').trim();
+      const subjectText = parsed.subject || '';
+      const isServiceReply = bodyText.includes('Welcome to Lapen!') ||
+        bodyText.includes("I've analyzed your document") ||
+        bodyText.includes("I've sent") ||
+        bodyText.includes('Track signing status') ||
+        bodyText.includes('Lapen E-Signature Service') ||
+        subjectText.includes('Document sent for signature');
+      if (isServiceReply) {
+        logger.info(`Skipping service-generated email: from=${senderEmail} subject="${subjectText}"`);
+        return;
+      }
     }
 
     if (senderLower.includes('noreply') || senderLower.includes('no-reply') ||
