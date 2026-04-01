@@ -7,6 +7,7 @@ export interface UserRow {
   name: string | null;
   credits: number;
   is_provisional: boolean;
+  referral_code: string | null;
   created_at: Date;
   updated_at: Date;
 }
@@ -26,15 +27,66 @@ export class UserRepository {
     const existing = await this.findByEmail(email);
     if (existing) return existing;
 
+    const referralCode = this.generateReferralCode();
     const [user] = await this.db('users')
       .insert({
         email: email.toLowerCase(),
         name,
         credits: FREE_CREDITS,
         is_provisional: true,
+        referral_code: referralCode,
       })
       .returning('*');
     return user;
+  }
+
+  async findByReferralCode(code: string): Promise<UserRow | undefined> {
+    return this.db('users').where({ referral_code: code.toUpperCase() }).first();
+  }
+
+  async redeemReferral(referrerId: string, referredId: string): Promise<{ referrerCredits: number; referredCredits: number }> {
+    const REFERRAL_BONUS = 5;
+    return this.db.transaction(async (trx) => {
+      // Check not self-referral
+      if (referrerId === referredId) throw new Error('Cannot refer yourself');
+
+      // Check not already referred
+      const existing = await trx('referrals')
+        .where({ referrer_id: referrerId, referred_id: referredId })
+        .first();
+      if (existing) throw new Error('Referral already redeemed');
+
+      // Award credits to both
+      await trx('users').where({ id: referrerId }).increment('credits', REFERRAL_BONUS);
+      await trx('users').where({ id: referredId }).increment('credits', REFERRAL_BONUS);
+
+      // Record the referral
+      await trx('referrals').insert({
+        referrer_id: referrerId,
+        referred_id: referredId,
+        credits_awarded: REFERRAL_BONUS,
+      });
+
+      // Log transactions
+      const referrer = await trx('users').where({ id: referrerId }).first();
+      const referred = await trx('users').where({ id: referredId }).first();
+
+      await trx('credit_transactions').insert([
+        { user_id: referrerId, amount: REFERRAL_BONUS, balance_after: referrer.credits, reason: 'referral_bonus' },
+        { user_id: referredId, amount: REFERRAL_BONUS, balance_after: referred.credits, reason: 'referral_bonus' },
+      ]);
+
+      return { referrerCredits: referrer.credits, referredCredits: referred.credits };
+    });
+  }
+
+  private generateReferralCode(): string {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    let code = '';
+    for (let i = 0; i < 8; i++) {
+      code += chars[Math.floor(Math.random() * chars.length)];
+    }
+    return code;
   }
 
   async deductCredits(userId: string, amount: number, documentRequestId: string): Promise<UserRow> {

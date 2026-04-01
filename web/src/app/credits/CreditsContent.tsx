@@ -17,14 +17,46 @@ export default function CreditsContent() {
   const [credits, setCredits] = useState<number | null>(null);
   const [selectedPackage, setSelectedPackage] = useState(1);
   const [loading, setLoading] = useState(false);
+  const [referralCode, setReferralCode] = useState<string | null>(null);
+  const [referralInput, setReferralInput] = useState('');
+  const [referralLoading, setReferralLoading] = useState(false);
+  const [referralMessage, setReferralMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   useEffect(() => {
     if (!userId) return;
     fetch(`${API_URL}/api/payments/credits/${userId}`)
       .then((r) => r.json())
-      .then((data) => setCredits(data.credits))
+      .then((data) => {
+        setCredits(data.credits);
+        if (data.referralCode) setReferralCode(data.referralCode);
+      })
       .catch(() => {});
   }, [userId]);
+
+  const handleReferral = async () => {
+    if (!userId || !referralInput.trim() || referralLoading) return;
+    setReferralLoading(true);
+    setReferralMessage(null);
+    try {
+      const res = await fetch(`${API_URL}/api/payments/referral`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, referralCode: referralInput.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setReferralMessage({ type: 'error', text: data.error || 'Failed to redeem code' });
+      } else {
+        setCredits(data.credits);
+        setReferralMessage({ type: 'success', text: '5 bonus credits added! Your friend got 5 too.' });
+        setReferralInput('');
+      }
+    } catch {
+      setReferralMessage({ type: 'error', text: 'Something went wrong. Please try again.' });
+    } finally {
+      setReferralLoading(false);
+    }
+  };
 
   const handlePurchase = async () => {
     if (!userId || loading) return;
@@ -94,6 +126,67 @@ export default function CreditsContent() {
       >
         {loading ? 'Processing...' : 'Pay with Card'}
       </button>
+
+      {/* Referral section */}
+      <div style={{
+        marginTop: 32, padding: 20, background: '#fef3c7', borderRadius: 12,
+        border: '1px solid #fbbf24',
+      }}>
+        <h3 style={{ margin: '0 0 4px', fontSize: '1rem', color: '#92400e' }}>
+          Get 5 free credits
+        </h3>
+        <p style={{ margin: '0 0 12px', fontSize: '0.85rem', color: '#78350f', lineHeight: 1.5 }}>
+          Have a referral code from a friend? Enter it below &mdash; you both get <strong>5 free credits</strong>.
+        </p>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <input
+            type="text"
+            value={referralInput}
+            onChange={(e) => setReferralInput(e.target.value.toUpperCase())}
+            placeholder="Enter code"
+            maxLength={8}
+            style={{
+              flex: 1, padding: '10px 12px', border: '1px solid #fbbf24', borderRadius: 8,
+              fontSize: '1rem', fontFamily: 'monospace', letterSpacing: 2,
+              textTransform: 'uppercase', background: 'white',
+            }}
+          />
+          <button
+            className="btn btn-primary"
+            style={{ whiteSpace: 'nowrap' }}
+            onClick={handleReferral}
+            disabled={referralLoading || !referralInput.trim()}
+          >
+            {referralLoading ? '...' : 'Redeem'}
+          </button>
+        </div>
+        {referralMessage && (
+          <p style={{
+            margin: '8px 0 0', fontSize: '0.85rem',
+            color: referralMessage.type === 'success' ? '#16a34a' : '#dc2626',
+          }}>
+            {referralMessage.text}
+          </p>
+        )}
+      </div>
+
+      {/* Your referral code */}
+      {referralCode && (
+        <div style={{
+          marginTop: 16, padding: 16, background: '#f0f7ff', borderRadius: 12,
+          border: '1px solid #bfdbfe', textAlign: 'center',
+        }}>
+          <p style={{ margin: '0 0 6px', fontSize: '0.8rem', color: '#6b7280' }}>
+            Share your code with friends &mdash; you both get 5 credits
+          </p>
+          <span style={{
+            fontSize: '1.5rem', fontWeight: 800, color: '#1e40af',
+            letterSpacing: 3, fontFamily: 'monospace',
+          }}>
+            {referralCode}
+          </span>
+        </div>
+      )}
     </div>
   );
 }

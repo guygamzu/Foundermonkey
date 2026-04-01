@@ -224,27 +224,95 @@ export class EmailService {
     creditsAvailable: number,
     purchaseUrl: string,
     inReplyTo?: string,
+    referralCode?: string,
   ): Promise<string> {
+    const referralSection = referralCode ? `
+        <div style="background: #fef3c7; border: 1px solid #fbbf24; border-radius: 12px; padding: 20px; margin-top: 24px;">
+          <p style="margin: 0 0 8px; font-weight: 700; color: #92400e; font-size: 15px;">
+            Or get credits for free!
+          </p>
+          <p style="margin: 0 0 12px; color: #78350f; font-size: 14px; line-height: 1.5;">
+            Share your referral code with a friend. When they sign up and use it,
+            <strong>you both get 5 free credits</strong>.
+          </p>
+          <div style="background: white; border: 2px dashed #f59e0b; border-radius: 8px; padding: 12px; text-align: center;">
+            <span style="font-size: 11px; color: #9ca3af; text-transform: uppercase; letter-spacing: 1px;">Your referral code</span><br/>
+            <span style="font-size: 24px; font-weight: 800; color: #1e40af; letter-spacing: 3px; font-family: monospace;">${referralCode}</span>
+          </div>
+        </div>
+    ` : '';
+
     const html = `
-      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto;">
-        <p>Hi,</p>
-        <p>This request will require <strong>${creditsRequired}</strong> signature credits,
-        but you only have <strong>${creditsAvailable}</strong> remaining.</p>
-        <p>
-          <a href="${purchaseUrl}" style="display: inline-block; background: #2563eb; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: 600;">
-            Buy More Credits
-          </a>
-        </p>
-        <p>Once you've topped up your account, simply reply <strong>"Y"</strong> to this email to proceed.</p>
-        <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 24px 0;" />
-        <p style="color: #6b7280; font-size: 12px;">Lapen - AI-powered e-signatures</p>
+      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 0;">
+        <!-- Header -->
+        <div style="background: linear-gradient(135deg, #2563eb 0%, #7c3aed 100%); padding: 32px 24px; border-radius: 12px 12px 0 0; text-align: center;">
+          <h1 style="color: white; margin: 0; font-size: 22px; font-weight: 700;">You're almost there!</h1>
+          <p style="color: rgba(255,255,255,0.85); margin: 8px 0 0; font-size: 14px;">Your document is ready to send</p>
+        </div>
+
+        <!-- Body -->
+        <div style="background: white; padding: 28px 24px; border: 1px solid #e5e7eb; border-top: none;">
+          <p style="margin: 0 0 16px; color: #374151; font-size: 15px; line-height: 1.6;">
+            Your signing request needs <strong>${creditsRequired} credit${creditsRequired !== 1 ? 's' : ''}</strong>,
+            but you have <strong>${creditsAvailable}</strong> remaining.
+            Top up to send it instantly:
+          </p>
+
+          <!-- Pricing cards -->
+          <div style="margin: 20px 0;">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse: separate; border-spacing: 0 8px;">
+              <tr>
+                <td style="background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px 16px;">
+                  <strong style="color: #374151;">10 credits</strong>
+                  <span style="float: right; color: #2563eb; font-weight: 700;">$15</span>
+                </td>
+              </tr>
+              <tr>
+                <td style="background: #eff6ff; border: 2px solid #2563eb; border-radius: 8px; padding: 12px 16px; position: relative;">
+                  <strong style="color: #1e40af;">25 credits</strong>
+                  <span style="background: #2563eb; color: white; font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 10px; margin-left: 8px;">BEST VALUE</span>
+                  <span style="float: right; color: #2563eb; font-weight: 700;">$25</span>
+                </td>
+              </tr>
+              <tr>
+                <td style="background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px 16px;">
+                  <strong style="color: #374151;">100 credits</strong>
+                  <span style="float: right; color: #2563eb; font-weight: 700;">$75</span>
+                </td>
+              </tr>
+            </table>
+          </div>
+
+          <!-- CTA Button -->
+          <div style="text-align: center; margin: 24px 0 8px;">
+            <a href="${purchaseUrl}" style="display: inline-block; background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%); color: white; padding: 14px 40px; border-radius: 10px; text-decoration: none; font-weight: 700; font-size: 16px; box-shadow: 0 4px 14px rgba(37,99,235,0.35);">
+              Get Credits Now
+            </a>
+          </div>
+          <p style="text-align: center; color: #9ca3af; font-size: 12px; margin: 8px 0 0;">
+            Secure checkout via Stripe. Once purchased, reply to this email with the signee addresses to continue.
+          </p>
+
+          ${referralSection}
+        </div>
+
+        <!-- Footer -->
+        <div style="background: #f9fafb; padding: 16px 24px; border: 1px solid #e5e7eb; border-top: none; border-radius: 0 0 12px 12px; text-align: center;">
+          <p style="margin: 0; color: #9ca3af; font-size: 12px;">
+            Lapen &mdash; AI-powered e-signatures &middot; Simple, fast, and secure
+          </p>
+        </div>
       </div>
     `;
 
+    const textReferral = referralCode
+      ? `\n\nOr get credits FREE: share your referral code ${referralCode} with a friend. You both get 5 free credits when they sign up!`
+      : '';
+
     return this.sendEmail({
       to,
-      subject: 'Insufficient credits - Action needed',
-      text: `This request requires ${creditsRequired} credits, but you only have ${creditsAvailable}.\n\nBuy more: ${purchaseUrl}\n\nOnce purchased, reply "Y" to proceed.`,
+      subject: 'Your document is ready — top up to send!',
+      text: `Your signing request needs ${creditsRequired} credit(s), but you have ${creditsAvailable}.\n\nGet credits: ${purchaseUrl}\n\nOnce purchased, reply with the signee email addresses to continue.${textReferral}`,
       html,
       inReplyTo,
     });

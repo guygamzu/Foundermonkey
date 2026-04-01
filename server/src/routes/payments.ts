@@ -131,7 +131,35 @@ export function createPaymentsRouter(): Router {
     }
   });
 
-  // Get user credit balance
+  // Redeem referral code
+  router.post('/referral', async (req: Request, res: Response) => {
+    try {
+      const { userId, referralCode } = req.body;
+      if (!userId || !referralCode) {
+        res.status(400).json({ error: 'userId and referralCode are required' });
+        return;
+      }
+
+      const referrer = await userRepo.findByReferralCode(referralCode);
+      if (!referrer) {
+        res.status(404).json({ error: 'Invalid referral code' });
+        return;
+      }
+
+      const result = await userRepo.redeemReferral(referrer.id, userId);
+      res.json({ message: 'Referral redeemed! 5 credits added for both of you.', credits: result.referredCredits });
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      if (errMsg === 'Cannot refer yourself' || errMsg === 'Referral already redeemed') {
+        res.status(400).json({ error: errMsg });
+        return;
+      }
+      logger.error({ error: errMsg }, 'Error redeeming referral');
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  // Get user credit balance and referral code
   router.get('/credits/:userId', async (req: Request<{ userId: string }>, res: Response) => {
     try {
       const user = await userRepo.findById(req.params.userId);
@@ -140,7 +168,7 @@ export function createPaymentsRouter(): Router {
         return;
       }
 
-      res.json({ credits: user.credits, email: user.email });
+      res.json({ credits: user.credits, email: user.email, referralCode: user.referral_code });
     } catch (err) {
       logger.error({ err }, 'Error fetching credits');
       res.status(500).json({ error: 'Internal server error' });
