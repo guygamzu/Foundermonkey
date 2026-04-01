@@ -481,6 +481,23 @@ Preview: ${previewUrl}`,
     // Extract custom cover text from the reply (look for text after "cover text:" or just use the body minus email addresses)
     const coverText = this.extractCoverText(body, signeeEmails);
 
+    // If user appears to have insufficient credits, try recovering from Stripe first
+    if (user.credits < signeeEmails.length && process.env.STRIPE_SECRET_KEY) {
+      try {
+        const recovered = await this.recoverUnprocessedPayments(user.id, user.email);
+        if (recovered) {
+          // Re-fetch user with updated credits
+          const updatedUser = await this.userRepo.findById(user.id);
+          if (updatedUser) {
+            user = { id: updatedUser.id, name: updatedUser.name, email: updatedUser.email, credits: updatedUser.credits };
+            logger.info({ userId: user.id, newCredits: user.credits }, 'Recovered credits from Stripe payments');
+          }
+        }
+      } catch (err) {
+        logger.warn({ err }, 'Failed to recover Stripe payments — continuing with current credits');
+      }
+    }
+
     // Check credits — mark document so we don't spam the user on every email
     if (user.credits < signeeEmails.length) {
       // Only send the notification once: skip if already notified
@@ -710,6 +727,46 @@ Preview: ${previewUrl}`,
    * Looks for text after "cover text:" or similar markers.
    * Falls back to extracting non-email text content.
    */
+  /**
+   * Check Stripe for completed checkout sessions whose credits haven't been applied yet.
+   * Returns true if any credits were recovered.
+   */
+  private async recoverUnprocessedPayments(userId: string, userEmail: string): Promise<boolean> {
+    const Stripe = (await import('stripe')).default;
+    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
+    const db = getDatabase();
+
+    // List recent completed checkout sessions and filter by userId in metadata
+    const sessions = await stripe.checkout.sessions.list({
+      status: 'complete',
+      limit: 20,
+    });
+
+    let recovered = false;
+    for (const session of sessions.data) {
+      if (session.payment_status !== 'paid') continue;
+      if (session.metadata?.userId !== userId) continue;
+      const credits = Number(session.metadata?.credits);
+      if (!credits) continue;
+
+      const paymentIntentId = session.payment_intent as string;
+      if (!paymentIntentId) continue;
+
+      // Check if already credited
+      const existing = await db('credit_transactions')
+        .where({ stripe_payment_intent_id: paymentIntentId })
+        .first();
+      if (existing) continue;
+
+      // Apply the credits
+      await this.userRepo.addCredits(userId, credits, paymentIntentId);
+      logger.info({ userId, credits, paymentIntentId }, 'Recovered uncredited Stripe payment');
+      recovered = true;
+    }
+
+    return recovered;
+  }
+
   private extractCoverText(body: string, signeeEmails: string[]): string {
     // Look for explicit cover text marker
     const coverMatch = body.match(/cover\s*text\s*[:：]\s*([\s\S]*?)(?=\n\n|$)/i);
