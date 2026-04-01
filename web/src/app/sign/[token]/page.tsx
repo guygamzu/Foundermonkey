@@ -407,74 +407,75 @@ export default function SigningPage() {
       {/* Document Viewer */}
       <div className="document-viewer">
         <div className="document-container">
-          {session.document.documentUrl ? (
-            <Suspense
-              fallback={
-                <div style={{ padding: 40, textAlign: 'center', color: 'var(--gray-400)' }}>
-                  Loading PDF viewer...
-                </div>
-              }
-            >
-              <PDFViewer
-                url={getDocumentProxyUrl(token)}
-                pageCount={session.document.pageCount}
-                onPageClick={activeTool ? handlePdfClick : undefined}
-                renderOverlay={(pageIndex) => (
-                  <>
-                    {placedItems
-                      .filter((item) => item.page === pageIndex + 1)
-                      .map((item) => (
-                        <div
-                          key={item.id}
-                          className={`placed-item ${item.completed ? 'completed' : 'pending'} type-${item.type}`}
-                          style={{
-                            left: `${item.x * 100}%`,
-                            top: `${item.y * 100}%`,
-                            width: `${item.width * 100}%`,
-                            height: `${item.height * 100}%`,
-                          }}
-                        >
-                          {item.type === 'signature' && item.value && (
-                            <img
-                              src={item.value}
-                              alt="Signature"
-                              style={{ width: '100%', height: '100%', objectFit: 'contain' }}
-                            />
-                          )}
-                          {item.type === 'text' && item.value && (
-                            <span style={{ fontSize: '10px', color: '#111' }}>{item.value}</span>
-                          )}
-                          {item.type === 'date' && item.value && (
-                            <span style={{ fontSize: '10px', color: '#111' }}>{item.value}</span>
-                          )}
-                          {item.type === 'checkbox' && item.value && (
-                            <span style={{ fontSize: '14px', color: '#111', fontWeight: 'bold' }}>✓</span>
-                          )}
-                          {!item.completed && !item.isLocal && (
-                            <span style={{ fontSize: '9px', color: 'var(--primary)' }}>
-                              {item.type}
-                            </span>
-                          )}
-                          {item.completed && (
-                            <button
-                              className="remove-item-btn"
-                              onClick={(e) => { e.stopPropagation(); removeItem(item.id); }}
-                              title="Remove"
-                            >
-                              &times;
-                            </button>
-                          )}
-                        </div>
-                      ))}
-                  </>
-                )}
-              />
-            </Suspense>
-          ) : (
-            <div style={{ padding: 40, textAlign: 'center', color: 'var(--gray-400)' }}>
-              Document Preview Unavailable
-            </div>
-          )}
+          <Suspense
+            fallback={
+              <div style={{ padding: 40, textAlign: 'center', color: 'var(--gray-400)' }}>
+                Loading PDF viewer...
+              </div>
+            }
+          >
+            <PDFViewer
+              url={getDocumentProxyUrl(token)}
+              pageCount={session.document.pageCount}
+              onPageClick={activeTool ? handlePdfClick : undefined}
+              renderOverlay={(pageIndex) => (
+                <>
+                  {placedItems
+                    .filter((item) => item.page === pageIndex + 1)
+                    .map((item) => (
+                      <div
+                        key={item.id}
+                        className={`placed-item ${item.completed ? 'completed' : 'pending'} type-${item.type}`}
+                        style={{
+                          left: `${item.x * 100}%`,
+                          top: `${item.y * 100}%`,
+                          width: `${item.width * 100}%`,
+                          height: `${item.height * 100}%`,
+                        }}
+                      >
+                        {item.type === 'signature' && item.value && (
+                          <img
+                            src={item.value}
+                            alt="Signature"
+                            style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                          />
+                        )}
+                        {item.type === 'text' && item.value && (
+                          <span style={{ fontSize: '10px', color: '#111' }}>{item.value}</span>
+                        )}
+                        {item.type === 'date' && item.value && (
+                          <span style={{ fontSize: '10px', color: '#111' }}>{item.value}</span>
+                        )}
+                        {item.type === 'checkbox' && item.value && (
+                          <span style={{ fontSize: '14px', color: '#111', fontWeight: 'bold' }}>✓</span>
+                        )}
+                        {!item.completed && !item.isLocal && (
+                          <span style={{ fontSize: '9px', color: 'var(--primary)' }}>
+                            {item.type}
+                          </span>
+                        )}
+                        {item.completed && (
+                          <button
+                            className="remove-item-btn"
+                            onClick={(e) => { e.stopPropagation(); removeItem(item.id); }}
+                            title="Remove"
+                          >
+                            &times;
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                </>
+              )}
+              onError={() => {
+                // PDF failed to load — show fallback
+                const container = document.querySelector('.document-container');
+                if (container) {
+                  container.innerHTML = '<div style="padding: 40px; text-align: center; color: #9ca3af;">Document Preview Unavailable</div>';
+                }
+              }}
+            />
+          </Suspense>
         </div>
       </div>
 
