@@ -607,7 +607,10 @@ Preview: ${previewUrl}`,
           if (e === senderEmail.toLowerCase()) return false;
           // Filter out common non-person emails
           if (e.includes('noreply') || e.includes('no-reply')) return false;
-          if (e.includes('resend.dev') || e.includes('lapen')) return false;
+          if (e.includes('resend.dev')) return false;
+          // Filter out the service's own email address
+          const serviceEmail = (process.env.IMAP_USER || '').replace(/@@/g, '@').toLowerCase();
+          if (serviceEmail && e === serviceEmail) return false;
           if (e.includes('unsubscribe')) return false;
           return true;
         }),
