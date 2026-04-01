@@ -631,8 +631,11 @@ Preview: ${previewUrl}`,
    * and common service/system addresses.
    */
   private extractEmailAddresses(body: string, senderEmail: string): string[] {
+    // Strip quoted reply text to avoid picking up example emails from our instructions
+    const strippedBody = this.stripQuotedReply(body);
+
     const emailRegex = /[\w.-]+@[\w.-]+\.\w+/g;
-    const matches = body.match(emailRegex) || [];
+    const matches = strippedBody.match(emailRegex) || [];
 
     const filtered = [...new Set(
       matches
@@ -642,6 +645,8 @@ Preview: ${previewUrl}`,
           // Filter out common non-person emails
           if (e.includes('noreply') || e.includes('no-reply')) return false;
           if (e.includes('resend.dev')) return false;
+          // Filter out example/test domains
+          if (e.endsWith('@example.com') || e.endsWith('@example.org') || e.endsWith('@example.net')) return false;
           // Filter out the service's own email address
           const serviceEmail = (process.env.IMAP_USER || '').replace(/@@/g, '@').toLowerCase();
           if (serviceEmail && e === serviceEmail) return false;
@@ -651,6 +656,29 @@ Preview: ${previewUrl}`,
     )];
 
     return filtered;
+  }
+
+  /**
+   * Strip quoted reply text from email body.
+   * Removes lines starting with > and content below "On ... wrote:" or "---" markers.
+   */
+  private stripQuotedReply(body: string): string {
+    const lines = body.split(/\r?\n/);
+    const result: string[] = [];
+
+    for (const line of lines) {
+      // Stop at "On ... wrote:" reply marker
+      if (/^On .+ wrote:$/i.test(line.trim())) break;
+      // Stop at "---" or "___" separator lines
+      if (/^[-_]{3,}\s*$/.test(line.trim())) break;
+      // Stop at forwarded message markers
+      if (/^-+\s*Original Message\s*-+$/i.test(line.trim())) break;
+      // Skip quoted lines (starting with >)
+      if (line.trim().startsWith('>')) continue;
+      result.push(line);
+    }
+
+    return result.join('\n');
   }
 
   /**
