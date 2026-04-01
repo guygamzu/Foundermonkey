@@ -218,7 +218,8 @@ export class EmailProcessor {
       const user = await this.userRepo.findByEmail(senderEmail);
       if (user) {
         const pendingDoc = await db('document_requests')
-          .where({ sender_id: user.id, status: 'pending_confirmation' })
+          .where({ sender_id: user.id })
+          .whereIn('status', ['pending_confirmation', 'insufficient_credits'])
           .orderBy('created_at', 'desc')
           .first();
 
@@ -480,16 +481,33 @@ Preview: ${previewUrl}`,
     // Extract custom cover text from the reply (look for text after "cover text:" or just use the body minus email addresses)
     const coverText = this.extractCoverText(body, signeeEmails);
 
-    // Check credits
+    // Check credits — mark document so we don't spam the user on every email
     if (user.credits < signeeEmails.length) {
-      const purchaseUrl = `${appUrl}/credits?user=${user.id}`;
-      await this.trySendEmail({
-        to: senderEmail,
-        subject: 'Insufficient credits - Action needed',
-        text: `This request requires ${signeeEmails.length} credit(s), but you have ${user.credits}.\n\nBuy more: ${purchaseUrl}\n\nOnce purchased, reply again with the signee emails.`,
-        inReplyTo: messageId,
-      });
+      // Only send the notification once: skip if already notified
+      if (pendingDoc.status !== 'insufficient_credits') {
+        await db('document_requests').where({ id: pendingDoc.id }).update({
+          status: 'insufficient_credits',
+        });
+        const purchaseUrl = `${appUrl}/credits?user=${user.id}`;
+        await this.emailService.sendInsufficientCreditsEmail(
+          senderEmail,
+          signeeEmails.length,
+          user.credits,
+          purchaseUrl,
+          messageId,
+        );
+        logger.info({ documentId: pendingDoc.id, required: signeeEmails.length, available: user.credits }, 'Insufficient credits — notified sender');
+      } else {
+        logger.info({ documentId: pendingDoc.id }, 'Insufficient credits — already notified, skipping duplicate email');
+      }
       return;
+    }
+
+    // If retrying after buying credits, reset status before proceeding
+    if (pendingDoc.status === 'insufficient_credits') {
+      await db('document_requests').where({ id: pendingDoc.id }).update({
+        status: 'pending_confirmation',
+      });
     }
 
     // Deduct credits
