@@ -578,6 +578,101 @@ body {
   margin-bottom: 20px;
 }
 
+/* Signing Toolbar */
+.signing-toolbar {
+  background: white;
+  border-bottom: 1px solid var(--gray-200);
+  padding: 8px 16px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow-x: auto;
+  position: sticky;
+  top: 49px;
+  z-index: 99;
+}
+
+.toolbar-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  border: 1px solid var(--gray-200);
+  border-radius: 6px;
+  background: white;
+  cursor: pointer;
+  font-size: 0.8125rem;
+  color: var(--gray-700);
+  white-space: nowrap;
+  transition: all 0.15s;
+}
+
+.toolbar-btn:hover {
+  background: var(--gray-50);
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.toolbar-btn.active {
+  background: var(--primary);
+  color: white;
+  border-color: var(--primary);
+}
+
+.toolbar-icon {
+  font-size: 1rem;
+}
+
+/* Placed items on PDF */
+.placed-item {
+  position: absolute;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 12;
+  pointer-events: auto;
+}
+
+.placed-item.completed {
+  border: 1px solid rgba(22, 163, 74, 0.4);
+  background: rgba(22, 163, 74, 0.05);
+}
+
+.placed-item.pending {
+  border: 2px dashed var(--primary);
+  background: rgba(37, 99, 235, 0.1);
+  animation: fieldPulse 2s ease-in-out infinite;
+}
+
+.placed-item.type-checkbox.completed {
+  border: 1px solid var(--gray-300);
+  background: transparent;
+}
+
+.remove-item-btn {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--danger);
+  color: white;
+  border: none;
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 13;
+}
+
+.placed-item:hover .remove-item-btn {
+  display: flex;
+}
+
 /* Responsive */
 @media (max-width: 640px) {
   .landing-title { font-size: 2.5rem; }

@@ -12,16 +12,16 @@ interface PDFViewerProps {
   url: string;
   pageCount: number;
   renderOverlay: (pageIndex: number, dimensions: { width: number; height: number }) => React.ReactNode;
+  onPageClick?: (pageIndex: number, relativeX: number, relativeY: number) => void;
   onError?: () => void;
 }
 
-export default function PDFViewer({ url, pageCount, renderOverlay, onError }: PDFViewerProps) {
+export default function PDFViewer({ url, pageCount, renderOverlay, onPageClick, onError }: PDFViewerProps) {
   const [loadError, setLoadError] = useState(false);
   const [numPages, setNumPages] = useState<number | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(0);
 
-  // Measure container width dynamically via ResizeObserver
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -65,6 +65,7 @@ export default function PDFViewer({ url, pageCount, renderOverlay, onError }: PD
               pageIndex={pageIndex}
               width={containerWidth}
               renderOverlay={renderOverlay}
+              onPageClick={onPageClick}
             />
           ))}
         </Document>
@@ -73,14 +74,11 @@ export default function PDFViewer({ url, pageCount, renderOverlay, onError }: PD
   );
 }
 
-/**
- * Renders a single PDF page with an overlay container that exactly matches
- * the canvas dimensions, ensuring percentage-based field positioning is accurate.
- */
-function PageWithOverlay({ pageIndex, width, renderOverlay }: {
+function PageWithOverlay({ pageIndex, width, renderOverlay, onPageClick }: {
   pageIndex: number;
   width: number;
   renderOverlay: PDFViewerProps['renderOverlay'];
+  onPageClick?: PDFViewerProps['onPageClick'];
 }) {
   const [canvasSize, setCanvasSize] = useState<{ width: number; height: number } | null>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -97,6 +95,14 @@ function PageWithOverlay({ pageIndex, width, renderOverlay }: {
     }
   }, []);
 
+  const handleClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (!onPageClick || !canvasSize) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const relativeX = (e.clientX - rect.left) / canvasSize.width;
+    const relativeY = (e.clientY - rect.top) / canvasSize.height;
+    onPageClick(pageIndex, relativeX, relativeY);
+  }, [onPageClick, pageIndex, canvasSize]);
+
   return (
     <div
       ref={wrapperRef}
@@ -105,6 +111,7 @@ function PageWithOverlay({ pageIndex, width, renderOverlay }: {
         position: 'relative',
         background: 'white',
         borderBottom: '1px solid var(--gray-200)',
+        cursor: onPageClick ? 'crosshair' : undefined,
       }}
     >
       <Page
@@ -124,8 +131,9 @@ function PageWithOverlay({ pageIndex, width, renderOverlay }: {
             width: canvasSize.width,
             height: canvasSize.height,
             zIndex: 10,
-            pointerEvents: 'none',
+            pointerEvents: onPageClick ? 'auto' : 'none',
           }}
+          onClick={handleClick}
         >
           <div style={{ position: 'relative', width: '100%', height: '100%', pointerEvents: 'auto' }}>
             {renderOverlay(pageIndex, canvasSize)}

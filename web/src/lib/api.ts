@@ -80,6 +80,29 @@ export async function submitFieldValue(token: string, fieldId: string, value: st
   });
 }
 
+export interface PlacedField {
+  id: string;
+  type: string;
+  page: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  value: string | null;
+  completed: boolean;
+}
+
+export async function createField(
+  token: string,
+  field: { type: string; page: number; x: number; y: number; width?: number; height?: number; value?: string },
+): Promise<PlacedField> {
+  const res = await apiFetch<{ field: PlacedField }>(`/api/signing/session/${token}/fields`, {
+    method: 'POST',
+    body: JSON.stringify(field),
+  });
+  return res.field;
+}
+
 export async function completeSigning(token: string): Promise<{ allCompleted: boolean }> {
   return apiFetch(`/api/signing/session/${token}/complete`, {
     method: 'POST',

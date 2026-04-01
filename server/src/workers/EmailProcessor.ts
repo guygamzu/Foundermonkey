@@ -36,7 +36,6 @@ export class EmailProcessor {
   }
 
   async start(): Promise<void> {
-    // Verify SMTP first
     this.smtpVerified = await this.emailService.verify();
 
     this.imap.on('ready', () => {
@@ -70,7 +69,6 @@ export class EmailProcessor {
         this.processUnseenMessages();
       });
 
-      // Poll every 60 seconds as fallback (IMAP IDLE can be unreliable)
       setInterval(() => {
         this.processUnseenMessages();
       }, 60000);
@@ -78,25 +76,18 @@ export class EmailProcessor {
   }
 
   private processUnseenMessages(): void {
-    // Search recent emails regardless of read status (Gmail may auto-mark as seen)
     const since = new Date();
-    since.setHours(since.getHours() - 2); // Last 2 hours
+    since.setHours(since.getHours() - 2);
     this.imap.search([['SINCE', since]], (err, results) => {
       if (err) {
         logger.error({ error: err.message }, 'IMAP search error');
         return;
       }
-      if (!results?.length) {
-        return;
-      }
+      if (!results?.length) return;
 
-      // Filter out already-processed sequence numbers
       const newResults = results.filter(seq => !this.processedUids.has(seq));
-      if (!newResults.length) {
-        return;
-      }
+      if (!newResults.length) return;
 
-      // Mark all as processed BEFORE fetching to prevent re-entry
       for (const seq of newResults) {
         this.processedUids.add(seq);
       }
@@ -117,7 +108,6 @@ export class EmailProcessor {
         });
       });
 
-      // Cap the processed set to avoid memory growth
       if (this.processedUids.size > 1000) {
         const arr = [...this.processedUids];
         this.processedUids = new Set(arr.slice(-500));
@@ -125,7 +115,7 @@ export class EmailProcessor {
     });
   }
 
-  private async trySendEmail(options: { to: string; subject: string; text: string; inReplyTo?: string }): Promise<void> {
+  private async trySendEmail(options: { to: string; subject: string; text: string; html?: string; inReplyTo?: string }): Promise<void> {
     try {
       await this.emailService.sendEmail(options);
     } catch (err) {
@@ -137,7 +127,6 @@ export class EmailProcessor {
   private async handleEmail(rawEmail: string): Promise<void> {
     const parsed = await simpleParser(rawEmail);
 
-    // Deduplicate by Message-ID to prevent reprocessing the same email
     const messageId = parsed.messageId || '';
     if (messageId && this.processedMessageIds.has(messageId)) {
       logger.info(`Skipping already-processed email messageId=${messageId}`);
@@ -145,7 +134,6 @@ export class EmailProcessor {
     }
     if (messageId) {
       this.processedMessageIds.add(messageId);
-      // Cap to prevent memory growth
       if (this.processedMessageIds.size > 2000) {
         const arr = [...this.processedMessageIds];
         this.processedMessageIds = new Set(arr.slice(-1000));
@@ -158,7 +146,6 @@ export class EmailProcessor {
       return;
     }
 
-    // Only process emails addressed directly TO our inbox
     const imapUser = (process.env.IMAP_USER || '').replace(/@@/g, '@').toLowerCase();
     const toAddresses = (parsed.to ? (Array.isArray(parsed.to) ? parsed.to : [parsed.to]) : [])
       .flatMap(addr => 'value' in addr ? addr.value : [addr])
@@ -169,7 +156,6 @@ export class EmailProcessor {
       return;
     }
 
-    // Skip obvious automated/notification emails
     const senderLower = senderEmail.toLowerCase();
     if (senderLower.includes('noreply') || senderLower.includes('no-reply') ||
         senderLower.includes('notification') || senderLower.includes('mailer-daemon') ||
@@ -180,27 +166,37 @@ export class EmailProcessor {
 
     const body = (parsed.text || '').trim();
     const subject = parsed.subject || '';
+    const attachments = parsed.attachments || [];
 
     const firstLine = body.split(/\r?\n/)[0].trim();
-    logger.info(`Processing incoming email: from=${senderEmail} subject="${subject}" bodyLen=${body.length} firstLine="${firstLine}"`);
+    logger.info(`Processing incoming email: from=${senderEmail} subject="${subject}" bodyLen=${body.length} attachments=${attachments.length} firstLine="${firstLine}"`);
 
-    // Check if this is a Y/N reply to a pending request
-    if (this.isConfirmationReply(body)) {
-      logger.info('Detected confirmation reply');
-      await this.handleConfirmationReply(senderEmail, body, parsed.inReplyTo as string);
-      return;
+    // ---------------------------------------------------------------
+    // STEP 2 REPLY: Sender is replying with signee email addresses
+    // (they already sent the PDF in step 1 and got the welcome response)
+    // ---------------------------------------------------------------
+    const hasSigneeEmails = this.extractEmailAddresses(body, senderEmail);
+    const db = getDatabase();
+
+    if (hasSigneeEmails.length > 0 && attachments.length === 0) {
+      // This looks like a reply with signee addresses
+      const user = await this.userRepo.findByEmail(senderEmail);
+      if (user) {
+        const pendingDoc = await db('document_requests')
+          .where({ sender_id: user.id, status: 'pending_confirmation' })
+          .orderBy('created_at', 'desc')
+          .first();
+
+        if (pendingDoc) {
+          logger.info({ documentId: pendingDoc.id, signeeCount: hasSigneeEmails.length }, 'Detected step 2 reply with signee emails');
+          await this.handleSigneeReply(senderEmail, user, pendingDoc, hasSigneeEmails, body, messageId);
+          return;
+        }
+      }
     }
 
-    // Check if this is a correction (N + instructions)
-    if (this.isCorrectionReply(body)) {
-      logger.info('Detected correction reply');
-      await this.handleCorrectionReply(senderEmail, body, parsed.inReplyTo as string);
-      return;
-    }
-
-    // Check if this email was already processed (persisted in DB, survives restarts)
+    // Check if this email was already processed (persisted in DB)
     if (messageId) {
-      const db = getDatabase();
       const existingDoc = await db('document_requests')
         .where({ original_email_message_id: messageId })
         .first();
@@ -210,41 +206,31 @@ export class EmailProcessor {
       }
     }
 
-    // New document request
-    const attachments = parsed.attachments || [];
-    const attachmentSummary = attachments.map(a => `${a.filename || 'unnamed'}(${a.contentType}, ${a.size}b)`).join(', ');
-    logger.info(`Email has ${attachments.length} attachment(s): ${attachmentSummary || 'none'}`);
-
-    // Broad PDF detection: match known PDF types, octet-stream, or .pdf extension
+    // ---------------------------------------------------------------
+    // STEP 1: New email with PDF attachment
+    // Upload PDF, generate AI summary + cover text, reply with instructions
+    // ---------------------------------------------------------------
     const pdfAttachment = attachments.find((a) => {
       const type = (a.contentType || '').toLowerCase();
       const name = (a.filename || '').toLowerCase();
-      return type === 'application/pdf' ||
-             type === 'application/x-pdf' ||
-             type === 'application/octet-stream' ||
-             type.includes('pdf') ||
+      return type === 'application/pdf' || type === 'application/x-pdf' ||
+             type === 'application/octet-stream' || type.includes('pdf') ||
              name.endsWith('.pdf');
     });
-
-    // If no PDF found, take the first attachment if it's the only one (likely a PDF with wrong mime type)
     const selectedAttachment = pdfAttachment || (attachments.length === 1 ? attachments[0] : null);
 
     if (!selectedAttachment) {
-      logger.warn(`No usable attachment found among: ${attachmentSummary}`);
-      await this.trySendEmail({
-        to: senderEmail,
-        subject: `Re: ${subject}`,
-        text: "I didn't find any PDF attachment. Please forward the document you'd like me to send for signature.",
-        inReplyTo: messageId,
-      });
+      // No attachment — could be a general question or accidental email
+      if (body.length > 0) {
+        await this.trySendEmail({
+          to: senderEmail,
+          subject: `Re: ${subject}`,
+          text: "Welcome to Lapen! To get started, send me an email with a PDF document attached that you'd like to get signed. I'll help you prepare and send it to your signees.",
+          inReplyTo: messageId,
+        });
+      }
       return;
     }
-
-    if (!pdfAttachment && selectedAttachment) {
-      logger.info(`No PDF mime type match, but using single attachment: ${selectedAttachment.filename}(${selectedAttachment.contentType})`);
-    }
-
-    logger.info(`PDF attachment found: ${selectedAttachment.filename} (${selectedAttachment.size}b, ${selectedAttachment.contentType})`);
 
     if (selectedAttachment.size > 25 * 1024 * 1024) {
       await this.trySendEmail({
@@ -256,160 +242,75 @@ export class EmailProcessor {
       return;
     }
 
-    // Step 1: Parse instructions with AI
-    logger.info('Step 1: Parsing email instructions...');
-    let instructions;
-    try {
-      const { AIService } = await import('../services/AIService.js');
-      const aiService = new AIService();
-      instructions = await aiService.parseEmailInstructions(body, subject);
-      logger.info({ recipientCount: instructions.recipients.length, recipients: instructions.recipients }, 'Step 1 done: AI parsed');
-    } catch (aiErr) {
-      const errMsg = aiErr instanceof Error ? aiErr.message : String(aiErr);
-      logger.error({ error: errMsg }, 'AI parsing failed, using fallback');
-      const emailMatches = body.match(/[\w.-]+@[\w.-]+\.\w+/g) || [];
-      // Filter out sender email, but keep it if it's the only recipient found
-      // (valid case: sender wants to sign the document themselves for testing)
-      let recipientEmails = emailMatches.filter(e => e.toLowerCase() !== senderEmail.toLowerCase());
-      if (recipientEmails.length === 0 && emailMatches.length > 0) {
-        recipientEmails = [...new Set(emailMatches.map(e => e.toLowerCase()))];
-        logger.info({ emails: recipientEmails }, 'Fallback: sender is also recipient, keeping');
-      }
-      instructions = {
-        recipients: recipientEmails.map((email, i) => ({
-          email,
-          channel: 'email' as const,
-          order: i + 1,
-        })),
-        isSequential: false,
-      };
-      logger.info({ recipientCount: instructions.recipients.length, emails: recipientEmails }, 'Step 1 done: Fallback');
-    }
+    await this.handleNewDocument(senderEmail, selectedAttachment, subject, messageId, body);
+  }
 
-    if (!instructions.recipients.length) {
-      logger.warn({ body: body.substring(0, 500), subject, senderEmail }, 'No recipients found in email');
-      await this.trySendEmail({
-        to: senderEmail,
-        subject: `Re: ${subject}`,
-        text: 'Who should I send this to? Please provide an email address or phone number.',
-        inReplyTo: messageId,
-      });
-      return;
-    }
+  // =========================================================================
+  // STEP 1: Handle new document — upload, summarize, reply with instructions
+  // =========================================================================
+  private async handleNewDocument(
+    senderEmail: string,
+    attachment: { content: Buffer; filename?: string; size: number; contentType?: string },
+    subject: string,
+    messageId: string,
+    body: string,
+  ): Promise<void> {
+    const fileName = attachment.filename || 'document.pdf';
+    logger.info(`Step 1: New document from ${senderEmail}: ${fileName} (${attachment.size}b)`);
 
-    // Step 2: Find or create user
-    logger.info('Step 2: Finding/creating user...');
+    // Create user
     const user = await this.userRepo.findOrCreateByEmail(senderEmail);
-    logger.info({ userId: user.id, credits: user.credits }, 'Step 2 done');
 
-    // Step 3: Create document record
-    logger.info('Step 3: Creating document record...');
+    // Upload to S3 and create document record
     let documentId: string;
-    let detectedFields: Array<{ type: string; page: number; x: number; y: number; width: number; height: number; signerIndex: number }> = [];
+    let documentText = '';
+    let pageCount = 1;
 
     if (process.env.AWS_ACCESS_KEY_ID) {
       try {
-        logger.info('Step 3a: Processing with S3 + AI...');
         const { StorageService } = await import('../services/StorageService.js');
-        const { AIService } = await import('../services/AIService.js');
-        const { DocumentService } = await import('../services/DocumentService.js');
         const storageService = new StorageService();
-        const aiService = new AIService();
-        const documentService = new DocumentService(
-          this.documentRepo,
-          this.auditRepo,
-          storageService,
-          aiService,
-        );
-        // Build signer descriptions so the AI can intelligently assign fields
-        const signerDescriptions = instructions.recipients.map((r: any) =>
-          [r.name, r.email, r.phone].filter(Boolean).join(' — ') || 'Unknown signer'
-        );
+        const pdfParseModule: any = await import('pdf-parse');
+        const pdfParse = pdfParseModule.default || pdfParseModule;
 
-        const result = await documentService.processUploadedDocument(
-          user.id,
-          selectedAttachment.content,
-          selectedAttachment.filename || 'document.pdf',
-          instructions.recipients.length,
-          signerDescriptions,
-        );
-        documentId = result.documentId;
-        detectedFields = result.fields;
-        logger.info({ documentId }, 'Step 3a done: S3 upload complete');
+        // Extract text
+        try {
+          const pdfData = await pdfParse(attachment.content);
+          documentText = pdfData.text || '';
+          pageCount = pdfData.numpages || 1;
+        } catch (parseErr) {
+          logger.warn({ error: parseErr instanceof Error ? parseErr.message : String(parseErr) }, 'PDF text extraction failed');
+        }
+
+        // Upload to S3
+        const s3Key = `documents/${user.id}/${crypto.randomUUID()}/${fileName}`;
+        await storageService.uploadDocument(s3Key, attachment.content, 'application/pdf');
+
+        const doc = await this.documentRepo.create({
+          sender_id: user.id,
+          status: 'pending_confirmation',
+          file_name: fileName,
+          file_size: attachment.size,
+          page_count: pageCount,
+          mime_type: 'application/pdf',
+          document_hash: crypto.createHash('sha256').update(attachment.content).digest('hex'),
+          s3_key: s3Key,
+          is_sequential: false,
+          credits_required: 1,
+          original_email_message_id: messageId,
+          subject,
+          expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+        });
+        documentId = doc.id;
       } catch (err) {
-        const errMsg = err instanceof Error ? err.message : String(err);
-        const errStack = err instanceof Error ? err.stack : undefined;
-        logger.error(`S3 processing failed: ${errMsg}${errStack ? '\n' + errStack : ''}`);
-        logger.info('Falling back to basic record');
-        documentId = await this.createBasicDocument(user.id, selectedAttachment, messageId, subject);
+        logger.error({ error: err instanceof Error ? err.message : String(err) }, 'S3 upload failed, using basic record');
+        documentId = await this.createBasicDocument(user.id, attachment, messageId, subject);
       }
     } else {
-      logger.info('No AWS configured, creating basic document record');
-      documentId = await this.createBasicDocument(user.id, selectedAttachment, messageId, subject);
-    }
-    logger.info({ documentId }, 'Step 3 done');
-
-    // Step 4: Create signers
-    logger.info('Step 4: Creating signers...');
-    const db = getDatabase();
-    await db('document_requests').where({ id: documentId }).update({
-      is_sequential: instructions.isSequential,
-      credits_required: instructions.recipients.length,
-      original_email_message_id: messageId,
-      subject,
-    });
-
-    for (const recipient of instructions.recipients) {
-      const r = recipient as any;
-      const signingToken = crypto.randomBytes(32).toString('base64url');
-      await this.documentRepo.createSigner({
-        document_request_id: documentId,
-        email: r.email || null,
-        phone: r.phone || null,
-        name: r.name || null,
-        status: 'pending',
-        delivery_channel: r.channel || 'email',
-        signing_order: r.order || 1,
-        signing_token: signingToken,
-        custom_message: r.customMessage || null,
-      });
+      documentId = await this.createBasicDocument(user.id, attachment, messageId, subject);
     }
 
-    const signers = await this.documentRepo.findSignersByDocumentId(documentId);
-
-    // Create fields
-    if (detectedFields.length > 0) {
-      const fieldData = detectedFields.map((field) => ({
-        document_request_id: documentId,
-        signer_id: signers[field.signerIndex]?.id || signers[0].id,
-        type: field.type,
-        page: field.page,
-        x: field.x,
-        y: field.y,
-        width: field.width,
-        height: field.height,
-        required: true,
-      }));
-      await this.documentRepo.createFields(fieldData);
-    } else {
-      for (const signer of signers) {
-        await this.documentRepo.createFields([{
-          document_request_id: documentId,
-          signer_id: signer.id,
-          type: 'signature',
-          page: 1,
-          x: 0.1,
-          y: 0.85,
-          width: 0.35,
-          height: 0.06,
-          required: true,
-        }]);
-      }
-    }
-    logger.info({ signerCount: signers.length }, 'Step 4 done');
-
-    // Step 5: Audit log
-    logger.info('Step 5: Audit log...');
+    // Audit log
     await this.auditRepo.log({
       document_request_id: documentId,
       signer_id: null,
@@ -418,66 +319,239 @@ export class EmailProcessor {
       user_agent: 'email-agent',
       metadata: { senderEmail, subject },
     });
-    logger.info('Step 5 done');
 
-    // Step 6: Check credits
-    logger.info({ userCredits: user.credits, required: instructions.recipients.length }, 'Step 6: Credits check...');
-    if (user.credits < instructions.recipients.length) {
-      const purchaseUrl = `${process.env.APP_URL}/credits?user=${user.id}`;
-      await db('pending_requests').insert({
-        user_id: user.id,
-        document_request_id: documentId,
-        original_email_message_id: messageId,
+    // Generate AI summary and suggested cover text
+    let summary = '';
+    let suggestedCoverText = '';
+    try {
+      const { AIService } = await import('../services/AIService.js');
+      const aiService = new AIService();
+      const result = await aiService.summarizeDocumentForSender(documentText, fileName);
+      summary = result.summary;
+      suggestedCoverText = result.suggestedCoverText;
+    } catch (err) {
+      logger.warn({ error: err instanceof Error ? err.message : String(err) }, 'AI summary generation failed');
+      summary = `Document "${fileName}" (${pageCount} pages) has been uploaded.`;
+      suggestedCoverText = `Hi,\n\nPlease review and sign the attached document "${fileName}".\n\nThank you`;
+    }
+
+    // Preview URL for the sender to see what signees will see
+    const appUrl = process.env.APP_URL || 'http://localhost:3000';
+    const previewUrl = `${appUrl}/preview/${documentId}`;
+
+    // Send the welcome/instructions email
+    const html = `
+<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; color: #111827;">
+  <div style="background: #2563eb; color: white; padding: 20px 24px; border-radius: 8px 8px 0 0;">
+    <h1 style="margin: 0; font-size: 20px; font-weight: 700;">Lapen</h1>
+    <p style="margin: 4px 0 0; opacity: 0.9; font-size: 14px;">E-Signature Service</p>
+  </div>
+
+  <div style="background: white; padding: 24px; border: 1px solid #e5e7eb; border-top: none;">
+    <p style="margin: 0 0 16px;">Hi ${user.name || senderEmail.split('@')[0]},</p>
+
+    <p style="margin: 0 0 16px;">I've received your document <strong>${fileName}</strong>. Here's a quick summary:</p>
+
+    <div style="background: #f9fafb; border-left: 4px solid #2563eb; padding: 12px 16px; margin: 0 0 20px; border-radius: 0 4px 4px 0;">
+      <p style="margin: 0; font-size: 14px; color: #374151;">${summary}</p>
+    </div>
+
+    <h3 style="margin: 0 0 8px; font-size: 16px;">What happens next?</h3>
+    <ol style="margin: 0 0 20px; padding-left: 20px; color: #374151; font-size: 14px; line-height: 1.8;">
+      <li><strong>Reply to this email</strong> with the email addresses of all people who need to sign</li>
+      <li>I'll send each signee a link to review and sign the document</li>
+      <li>Signees can place signatures, text, dates, and checkboxes anywhere on the document</li>
+      <li>You'll get notified when each person signs</li>
+      <li>Once everyone has signed, you'll receive the completed document</li>
+    </ol>
+
+    <h3 style="margin: 0 0 8px; font-size: 16px;">Suggested cover text for signees:</h3>
+    <div style="background: #f9fafb; padding: 12px 16px; margin: 0 0 20px; border-radius: 4px; border: 1px solid #e5e7eb;">
+      <p style="margin: 0; font-size: 14px; color: #374151; white-space: pre-line;">${suggestedCoverText}</p>
+    </div>
+    <p style="margin: 0 0 20px; font-size: 13px; color: #6b7280;">
+      You can edit this text in your reply — I'll include it in the email to your signees.
+    </p>
+
+    <div style="background: #eff6ff; border: 1px solid #bfdbfe; padding: 16px; border-radius: 8px; margin: 0 0 20px;">
+      <p style="margin: 0; font-size: 14px; font-weight: 600; color: #1e40af;">📝 How to reply:</p>
+      <p style="margin: 8px 0 0; font-size: 13px; color: #374151;">
+        Simply reply to this email with:<br>
+        • The signee email addresses (one per line, or comma-separated)<br>
+        • Optionally edit the cover text above<br><br>
+        <em>Example:</em><br>
+        john@example.com<br>
+        jane@example.com<br><br>
+        Cover text: Please review and sign at your earliest convenience.
+      </p>
+    </div>
+
+    <p style="margin: 0; font-size: 13px; color: #6b7280;">
+      <a href="${previewUrl}" style="color: #2563eb;">Preview how signees will see this document →</a>
+    </p>
+  </div>
+
+  <div style="padding: 16px 24px; font-size: 12px; color: #9ca3af; text-align: center;">
+    Lapen E-Signature Service • Secure • Legally Binding
+  </div>
+</div>`;
+
+    await this.trySendEmail({
+      to: senderEmail,
+      subject: `Re: ${subject || fileName}`,
+      text: `Hi ${user.name || senderEmail.split('@')[0]},
+
+I've received your document "${fileName}". Here's a quick summary:
+
+${summary}
+
+WHAT HAPPENS NEXT:
+1. Reply to this email with the email addresses of all people who need to sign
+2. I'll send each signee a link to review and sign the document
+3. Signees can place signatures, text, dates, and checkboxes anywhere on the document
+4. You'll get notified when each person signs
+
+SUGGESTED COVER TEXT:
+${suggestedCoverText}
+
+You can edit this text in your reply — I'll include it in the email to your signees.
+
+HOW TO REPLY:
+Simply reply with the signee email addresses (one per line or comma-separated), and optionally edit the cover text.
+
+Preview: ${previewUrl}`,
+      html,
+      inReplyTo: messageId,
+    });
+
+    logger.info({ documentId, senderEmail }, 'Step 1 complete: welcome email sent with AI summary');
+  }
+
+  // =========================================================================
+  // STEP 2: Sender replies with signee emails — create signers, send links
+  // =========================================================================
+  private async handleSigneeReply(
+    senderEmail: string,
+    user: { id: string; name: string | null; email: string; credits: number },
+    pendingDoc: any,
+    signeeEmails: string[],
+    body: string,
+    messageId: string,
+  ): Promise<void> {
+    const db = getDatabase();
+    const appUrl = process.env.APP_URL || 'http://localhost:3000';
+
+    // Extract custom cover text from the reply (look for text after "cover text:" or just use the body minus email addresses)
+    const coverText = this.extractCoverText(body, signeeEmails);
+
+    // Check credits
+    if (user.credits < signeeEmails.length) {
+      const purchaseUrl = `${appUrl}/credits?user=${user.id}`;
+      await this.trySendEmail({
+        to: senderEmail,
+        subject: 'Insufficient credits - Action needed',
+        text: `This request requires ${signeeEmails.length} credit(s), but you have ${user.credits}.\n\nBuy more: ${purchaseUrl}\n\nOnce purchased, reply again with the signee emails.`,
+        inReplyTo: messageId,
       });
-
-      // Rate limit: only send "insufficient credits" email once per hour per user
-      const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
-      const recentCreditEmail = await db('document_requests')
-        .where({ sender_id: user.id, status: 'pending_confirmation' })
-        .where('created_at', '>', oneHourAgo)
-        .count('id as cnt')
-        .first();
-      const recentCount = Number(recentCreditEmail?.cnt || 0);
-
-      if (recentCount <= 1) {
-        await this.trySendEmail({
-          to: senderEmail,
-          subject: 'Insufficient credits - Action needed',
-          text: `This request requires ${instructions.recipients.length} credits, but you only have ${user.credits}.\n\nBuy more: ${purchaseUrl}\n\nOnce purchased, reply "Y" to proceed.`,
-          inReplyTo: messageId,
-        });
-        logger.info('Step 6 done: Insufficient credits, notified sender');
-      } else {
-        logger.info(`Step 6 done: Insufficient credits, suppressed email (${recentCount} pending docs in last hour)`);
-      }
       return;
     }
 
-    // Step 7: Send confirmation email
-    logger.info('Step 7: Sending confirmation email...');
-    const recipientNames = signers.map(s => s.name || s.email || s.phone).join(', ');
-    const previewUrl = `${process.env.APP_URL}/preview/${documentId}`;
+    // Deduct credits
+    await this.userRepo.deductCredits(user.id, signeeEmails.length, pendingDoc.id);
 
-    try {
-      await this.emailService.sendConfirmationEmail(
-        senderEmail,
-        user.name || senderEmail.split('@')[0],
-        selectedAttachment.filename || 'document.pdf',
-        detectedFields.length || signers.length,
-        signers.length,
-        instructions.recipients.length,
-        user.credits,
-        previewUrl,
-        `Document will be sent to: ${recipientNames}`,
-        messageId,
-      );
-      logger.info({ documentId, senderEmail, signerCount: signers.length }, 'Step 7 done: Confirmation email sent!');
-    } catch (err) {
-      const errMsg = err instanceof Error ? err.message : String(err);
-      logger.error({ error: errMsg }, 'Step 7 FAILED: Could not send confirmation email');
+    // Update document status
+    await db('document_requests').where({ id: pendingDoc.id }).update({
+      status: 'sent',
+      credits_required: signeeEmails.length,
+    });
+
+    // Create signers and send notifications
+    const signerNames: string[] = [];
+    for (let i = 0; i < signeeEmails.length; i++) {
+      const email = signeeEmails[i];
+      const signingToken = crypto.randomBytes(32).toString('base64url');
+
+      await this.documentRepo.createSigner({
+        document_request_id: pendingDoc.id,
+        email,
+        phone: null,
+        name: null,
+        status: 'pending',
+        delivery_channel: 'email',
+        signing_order: i + 1,
+        signing_token: signingToken,
+        custom_message: coverText || null,
+      });
+
+      const signingUrl = `${appUrl}/sign/${signingToken}`;
+
+      try {
+        await this.emailService.sendSigningNotification(
+          email,
+          undefined,
+          user.name || senderEmail.split('@')[0],
+          pendingDoc.file_name,
+          signingUrl,
+          coverText || undefined,
+        );
+
+        // Update signer status to notified
+        const signer = await db('signers')
+          .where({ document_request_id: pendingDoc.id, email })
+          .first();
+        if (signer) {
+          await this.documentRepo.updateSignerStatus(signer.id, 'notified', { notified_at: new Date() } as any);
+        }
+
+        logger.info({ signerEmail: email }, 'Signing notification sent');
+        signerNames.push(email);
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        logger.error({ error: errMsg, signerEmail: email }, 'Failed to send signing notification');
+      }
     }
+
+    // Audit log
+    await this.auditRepo.log({
+      document_request_id: pendingDoc.id,
+      signer_id: null,
+      action: 'document_sent',
+      ip_address: 'email',
+      user_agent: 'email-agent',
+      metadata: { signeeEmails },
+    });
+
+    // Send confirmation to sender
+    const statusUrl = `${appUrl}/status/${pendingDoc.id}`;
+    const signerList = signerNames.map(e => `  • ${e}`).join('\n');
+
+    await this.trySendEmail({
+      to: senderEmail,
+      subject: `✓ Document sent for signature: ${pendingDoc.file_name}`,
+      text: `Done! I've sent "${pendingDoc.file_name}" for signature to:\n\n${signerList}\n\nI'll notify you as each person signs.\n\nTrack status: ${statusUrl}`,
+      html: `
+<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; color: #111827;">
+  <div style="background: #16a34a; color: white; padding: 20px 24px; border-radius: 8px 8px 0 0;">
+    <h1 style="margin: 0; font-size: 20px;">✓ Document Sent</h1>
+  </div>
+  <div style="background: white; padding: 24px; border: 1px solid #e5e7eb; border-top: none; border-radius: 0 0 8px 8px;">
+    <p>I've sent <strong>${pendingDoc.file_name}</strong> for signature to:</p>
+    <ul style="margin: 12px 0; padding-left: 20px;">
+      ${signerNames.map(e => `<li style="margin: 4px 0;">${e}</li>`).join('')}
+    </ul>
+    <p>I'll notify you as each person signs.</p>
+    <p><a href="${statusUrl}" style="color: #2563eb;">Track signing status →</a></p>
+  </div>
+</div>`,
+      inReplyTo: messageId,
+    });
+
+    logger.info({ documentId: pendingDoc.id, signerCount: signerNames.length }, 'Step 2 complete: signing emails sent, sender notified');
   }
 
+  // =========================================================================
+  // Helpers
+  // =========================================================================
   private async createBasicDocument(
     senderId: string,
     attachment: { content: Buffer; filename?: string; size: number },
@@ -495,98 +569,68 @@ export class EmailProcessor {
       s3_key: `pending/${crypto.randomUUID()}.pdf`,
       is_sequential: false,
       credits_required: 1,
+      original_email_message_id: messageId,
+      subject,
       expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
     });
     return doc.id;
   }
 
-  private async handleConfirmationReply(senderEmail: string, body: string, inReplyTo: string): Promise<void> {
-    logger.info(`Handling confirmation reply from=${senderEmail}`);
-    const user = await this.userRepo.findByEmail(senderEmail);
-    if (!user) {
-      logger.warn(`User not found for confirmation reply: ${senderEmail}`);
-      return;
-    }
+  /**
+   * Extract email addresses from body text, excluding the sender's own email
+   * and common service/system addresses.
+   */
+  private extractEmailAddresses(body: string, senderEmail: string): string[] {
+    const emailRegex = /[\w.-]+@[\w.-]+\.\w+/g;
+    const matches = body.match(emailRegex) || [];
 
-    const db = getDatabase();
-    const pendingDoc = await db('document_requests')
-      .where({ sender_id: user.id, status: 'pending_confirmation' })
-      .orderBy('created_at', 'desc')
-      .first();
+    const filtered = [...new Set(
+      matches
+        .map(e => e.toLowerCase())
+        .filter(e => {
+          if (e === senderEmail.toLowerCase()) return false;
+          // Filter out common non-person emails
+          if (e.includes('noreply') || e.includes('no-reply')) return false;
+          if (e.includes('resend.dev') || e.includes('lapen')) return false;
+          if (e.includes('unsubscribe')) return false;
+          return true;
+        }),
+    )];
 
-    if (!pendingDoc) {
-      logger.warn(`No pending document found for user=${senderEmail} userId=${user.id}`);
-      // Log what documents exist for debugging
-      const allDocs = await db('document_requests').where({ sender_id: user.id }).select('id', 'status', 'file_name').orderBy('created_at', 'desc').limit(5);
-      logger.info(`User's recent documents: ${JSON.stringify(allDocs)}`);
-      return;
-    }
-
-    const signers = await this.documentRepo.findSignersByDocumentId(pendingDoc.id);
-
-    await this.userRepo.deductCredits(user.id, pendingDoc.credits_required, pendingDoc.id);
-    await this.documentRepo.updateStatus(pendingDoc.id, 'sent');
-
-    const appUrl = process.env.APP_URL || 'http://localhost:3000';
-    const signersToNotify = pendingDoc.is_sequential ? [signers[0]] : signers;
-
-    for (const signer of signersToNotify) {
-      const signingUrl = `${appUrl}/sign/${signer.signing_token}`;
-      if (signer.email) {
-        try {
-          await this.emailService.sendSigningNotification(
-            signer.email,
-            signer.name || undefined,
-            user.name || senderEmail.split('@')[0],
-            pendingDoc.file_name,
-            signingUrl,
-            signer.custom_message || undefined,
-          );
-          await this.documentRepo.updateSignerStatus(signer.id, 'notified', { notified_at: new Date() } as any);
-          logger.info({ signerEmail: signer.email }, 'Signing notification sent');
-        } catch (err) {
-          const errMsg = err instanceof Error ? err.message : String(err);
-          logger.error({ error: errMsg, signerEmail: signer.email }, 'Failed to send signing notification');
-        }
-      }
-    }
-
-    await this.auditRepo.log({
-      document_request_id: pendingDoc.id,
-      signer_id: null,
-      action: 'document_sent',
-      ip_address: 'email',
-      user_agent: 'email-agent',
-    });
-
-    const signerList = signers.map(s => s.name || s.email || s.phone).join(', ');
-    await this.trySendEmail({
-      to: senderEmail,
-      subject: 'Your document has been sent',
-      text: `I've sent ${pendingDoc.file_name} to ${signerList} for signature. I'll notify you as soon as it's completed.\n\nView status: ${process.env.APP_URL}/status/${pendingDoc.id}`,
-      inReplyTo,
-    });
-    logger.info({ documentId: pendingDoc.id }, 'Confirmation reply handled successfully');
+    return filtered;
   }
 
-  private async handleCorrectionReply(senderEmail: string, body: string, inReplyTo: string): Promise<void> {
-    await this.trySendEmail({
-      to: senderEmail,
-      subject: 'Re: Correction received',
-      text: "Got it! I'm re-analyzing your document with the updated instructions. I'll get back to you shortly.",
-      inReplyTo,
-    });
-  }
+  /**
+   * Extract custom cover text from the reply body.
+   * Looks for text after "cover text:" or similar markers.
+   * Falls back to extracting non-email text content.
+   */
+  private extractCoverText(body: string, signeeEmails: string[]): string {
+    // Look for explicit cover text marker
+    const coverMatch = body.match(/cover\s*text\s*[:：]\s*([\s\S]*?)(?=\n\n|$)/i);
+    if (coverMatch && coverMatch[1].trim().length > 10) {
+      return coverMatch[1].trim();
+    }
 
-  private isConfirmationReply(body: string): boolean {
-    // Gmail replies include quoted text — only check the first line
-    const firstLine = body.trim().split(/\r?\n/)[0].trim().toLowerCase();
-    return firstLine === 'y' || firstLine === 'yes' || firstLine === 'proceed';
-  }
+    // Remove email addresses and quoted text, see if meaningful text remains
+    let cleaned = body;
+    // Remove quoted text (lines starting with >)
+    cleaned = cleaned.replace(/^>.*$/gm, '');
+    // Remove email addresses
+    for (const email of signeeEmails) {
+      cleaned = cleaned.replace(new RegExp(email.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), '');
+    }
+    // Remove "On ... wrote:" lines
+    cleaned = cleaned.replace(/on\s+.*\s+wrote\s*:/gi, '');
+    // Remove blank lines and trim
+    cleaned = cleaned.replace(/\n{3,}/g, '\n\n').trim();
 
-  private isCorrectionReply(body: string): boolean {
-    const firstLine = body.trim().split(/\r?\n/)[0].trim().toLowerCase();
-    return firstLine.startsWith('n') && firstLine.length > 1;
+    // If there's substantial remaining text, use it as cover text
+    if (cleaned.length > 20) {
+      return cleaned;
+    }
+
+    return '';
   }
 
   private extractEmail(fromText: string): string | null {

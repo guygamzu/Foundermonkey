@@ -1,31 +1,47 @@
 'use client';
 
-import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
+import { useState, useEffect, useCallback, lazy, Suspense, useRef } from 'react';
 import { useParams } from 'next/navigation';
 import SignatureCanvas from '@/components/SignatureCanvas';
 import ChatWidget from '@/components/ChatWidget';
 import {
   getSigningSession,
   submitFieldValue,
+  createField,
   completeSigning,
   declineSigning,
   getDocumentProxyUrl,
+  askDocumentQuestion,
   type SigningSession,
+  type PlacedField,
 } from '@/lib/api';
 
 const PDFViewer = lazy(() => import('@/components/PDFViewer'));
 
-type FieldState = SigningSession['fields'][number];
+type ToolType = 'signature' | 'text' | 'date' | 'checkbox' | null;
+
+interface PlacedItem {
+  id: string;
+  type: string;
+  page: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  value: string | null;
+  completed: boolean;
+  isLocal?: boolean; // not yet saved to server
+}
 
 export default function SigningPage() {
   const params = useParams();
   const token = params.token as string;
 
   const [session, setSession] = useState<SigningSession | null>(null);
-  const [fields, setFields] = useState<FieldState[]>([]);
-  const [currentFieldIndex, setCurrentFieldIndex] = useState(0);
+  const [placedItems, setPlacedItems] = useState<PlacedItem[]>([]);
+  const [activeTool, setActiveTool] = useState<ToolType>(null);
   const [showSignatureModal, setShowSignatureModal] = useState(false);
-  const [activeFieldId, setActiveFieldId] = useState<string | null>(null);
+  const [activeItemId, setActiveItemId] = useState<string | null>(null);
   const [consent, setConsent] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isCompleted, setIsCompleted] = useState(false);
@@ -36,13 +52,22 @@ export default function SigningPage() {
   const [loading, setLoading] = useState(true);
   const [showTextInput, setShowTextInput] = useState(false);
   const [textInputValue, setTextInputValue] = useState('');
+  const [showAISummary, setShowAISummary] = useState(false);
+  const [aiSummary, setAiSummary] = useState<string | null>(null);
+  const [aiSummaryLoading, setAiSummaryLoading] = useState(false);
 
   useEffect(() => {
     async function load() {
       try {
         const data = await getSigningSession(token);
         setSession(data);
-        setFields(data.fields);
+        // Load any pre-existing fields (from previous partial sessions)
+        if (data.fields.length > 0) {
+          setPlacedItems(data.fields.map(f => ({
+            ...f,
+            completed: !!f.completed,
+          })));
+        }
       } catch (err: any) {
         setError(err.message);
       } finally {
@@ -52,66 +77,152 @@ export default function SigningPage() {
     load();
   }, [token]);
 
-  const incompleteFields = fields.filter((f) => f.required && !f.completed);
-  const allFieldsCompleted = incompleteFields.length === 0;
-  const currentField = incompleteFields[0];
+  const hasSignature = placedItems.some(item => item.type === 'signature' && item.completed);
 
-  const handleFieldClick = useCallback((field: FieldState) => {
-    if (field.completed) return;
-    setActiveFieldId(field.id);
+  // Handle clicking on the PDF to place a tool
+  const handlePdfClick = useCallback((pageIndex: number, relativeX: number, relativeY: number) => {
+    if (!activeTool) return;
 
-    if (field.type === 'signature' || field.type === 'initial') {
+    const toolType = activeTool;
+
+    if (toolType === 'signature') {
+      // Open signature modal, then place at this position
+      setActiveItemId(`pending-${Date.now()}`);
+      // Store the pending position
+      const pendingItem: PlacedItem = {
+        id: `pending-${Date.now()}`,
+        type: 'signature',
+        page: pageIndex + 1,
+        x: Math.max(0, Math.min(0.75, relativeX - 0.125)),
+        y: Math.max(0, Math.min(0.95, relativeY - 0.025)),
+        width: 0.25,
+        height: 0.05,
+        value: null,
+        completed: false,
+        isLocal: true,
+      };
+      setPlacedItems(prev => [...prev, pendingItem]);
       setShowSignatureModal(true);
-    } else if (field.type === 'date') {
+      setActiveTool(null);
+    } else if (toolType === 'date') {
+      // Auto-fill with today's date
       const today = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
-      setTextInputValue(today);
-      setShowTextInput(true);
-    } else if (field.type === 'name') {
-      // Pre-fill with signer's name if available
-      setTextInputValue(session?.signer.name || '');
-      setShowTextInput(true);
-    } else {
+      placeAndSaveField(toolType, pageIndex + 1, relativeX, relativeY, today);
+      setActiveTool(null);
+    } else if (toolType === 'checkbox') {
+      placeAndSaveField(toolType, pageIndex + 1, relativeX, relativeY, '✓');
+      setActiveTool(null);
+    } else if (toolType === 'text') {
+      // Show text input modal, then place
+      setActiveItemId(`pending-${Date.now()}`);
+      const pendingItem: PlacedItem = {
+        id: `pending-${Date.now()}`,
+        type: 'text',
+        page: pageIndex + 1,
+        x: Math.max(0, Math.min(0.85, relativeX - 0.075)),
+        y: Math.max(0, Math.min(0.95, relativeY - 0.015)),
+        width: 0.15,
+        height: 0.035,
+        value: null,
+        completed: false,
+        isLocal: true,
+      };
+      setPlacedItems(prev => [...prev, pendingItem]);
       setTextInputValue('');
       setShowTextInput(true);
+      setActiveTool(null);
     }
-  }, [session]);
+  }, [activeTool, token]);
 
-  const handleSignatureSave = useCallback(async (value: string) => {
-    if (!activeFieldId) return;
-    setShowSignatureModal(false);
+  const placeAndSaveField = useCallback(async (
+    type: string, page: number, relativeX: number, relativeY: number, value: string,
+  ) => {
+    const dims = {
+      signature: { w: 0.25, h: 0.05 },
+      text: { w: 0.15, h: 0.035 },
+      date: { w: 0.12, h: 0.03 },
+      checkbox: { w: 0.025, h: 0.025 },
+    }[type] || { w: 0.15, h: 0.035 };
+
+    const x = Math.max(0, Math.min(1 - dims.w, relativeX - dims.w / 2));
+    const y = Math.max(0, Math.min(1 - dims.h, relativeY - dims.h / 2));
 
     try {
-      await submitFieldValue(token, activeFieldId, value);
-      setFields((prev) =>
-        prev.map((f) =>
-          f.id === activeFieldId ? { ...f, value, completed: true } : f,
-        ),
-      );
-    } catch (err: any) {
-      setError(err.message);
-    }
-    setActiveFieldId(null);
-  }, [activeFieldId, token]);
-
-  const handleTextFieldSubmit = useCallback(async (fieldId: string, value: string) => {
-    try {
-      await submitFieldValue(token, fieldId, value);
-      setFields((prev) =>
-        prev.map((f) =>
-          f.id === fieldId ? { ...f, value, completed: true } : f,
-        ),
-      );
+      const saved = await createField(token, { type, page, x, y, width: dims.w, height: dims.h, value });
+      setPlacedItems(prev => [...prev, { ...saved, completed: true }]);
     } catch (err: any) {
       setError(err.message);
     }
   }, [token]);
 
+  const handleSignatureSave = useCallback(async (signatureData: string) => {
+    setShowSignatureModal(false);
+    const pendingItem = placedItems.find(item => item.id === activeItemId);
+    if (!pendingItem) return;
+
+    try {
+      const saved = await createField(token, {
+        type: 'signature',
+        page: pendingItem.page,
+        x: pendingItem.x,
+        y: pendingItem.y,
+        width: pendingItem.width,
+        height: pendingItem.height,
+        value: signatureData,
+      });
+      setPlacedItems(prev =>
+        prev.map(item => item.id === activeItemId ? { ...saved, completed: true } : item),
+      );
+    } catch (err: any) {
+      setError(err.message);
+      setPlacedItems(prev => prev.filter(item => item.id !== activeItemId));
+    }
+    setActiveItemId(null);
+  }, [activeItemId, placedItems, token]);
+
+  const handleTextSubmit = useCallback(async () => {
+    const value = textInputValue.trim();
+    if (!value) return;
+    setShowTextInput(false);
+
+    const pendingItem = placedItems.find(item => item.id === activeItemId);
+    if (!pendingItem) return;
+
+    try {
+      const saved = await createField(token, {
+        type: 'text',
+        page: pendingItem.page,
+        x: pendingItem.x,
+        y: pendingItem.y,
+        width: pendingItem.width,
+        height: pendingItem.height,
+        value,
+      });
+      setPlacedItems(prev =>
+        prev.map(item => item.id === activeItemId ? { ...saved, completed: true } : item),
+      );
+    } catch (err: any) {
+      setError(err.message);
+      setPlacedItems(prev => prev.filter(item => item.id !== activeItemId));
+    }
+    setActiveItemId(null);
+  }, [activeItemId, placedItems, textInputValue, token]);
+
+  const handleCancelModal = useCallback(() => {
+    setShowSignatureModal(false);
+    setShowTextInput(false);
+    // Remove the pending item
+    if (activeItemId) {
+      setPlacedItems(prev => prev.filter(item => item.id !== activeItemId));
+    }
+    setActiveItemId(null);
+  }, [activeItemId]);
+
   const handleComplete = useCallback(async () => {
     if (!consent || isSubmitting) return;
     setIsSubmitting(true);
-
     try {
-      const result = await completeSigning(token);
+      await completeSigning(token);
       setIsCompleted(true);
     } catch (err: any) {
       setError(err.message);
@@ -129,6 +240,24 @@ export default function SigningPage() {
       setError(err.message);
     }
   }, [token, declineReason]);
+
+  const handleAISummary = useCallback(async () => {
+    setShowAISummary(true);
+    if (aiSummary) return; // Already loaded
+    setAiSummaryLoading(true);
+    try {
+      const res = await askDocumentQuestion(token, 'Please provide a brief summary of this document. What is it about and what are the key terms?', []);
+      setAiSummary(res.answer);
+    } catch {
+      setAiSummary('Unable to generate summary at this time.');
+    } finally {
+      setAiSummaryLoading(false);
+    }
+  }, [token, aiSummary]);
+
+  const removeItem = useCallback((itemId: string) => {
+    setPlacedItems(prev => prev.filter(item => item.id !== itemId));
+  }, []);
 
   if (loading) {
     return (
@@ -202,14 +331,78 @@ export default function SigningPage() {
       <div className="signing-header">
         <span className="logo">Lapen</span>
         <h1>{session.document.fileName}</h1>
-        <button
-          className="btn btn-danger"
-          style={{ padding: '6px 12px', fontSize: '0.75rem', minHeight: 'auto' }}
-          onClick={() => setShowDeclineModal(true)}
-        >
-          Decline
-        </button>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <button
+            className="btn"
+            style={{
+              padding: '6px 12px', fontSize: '0.75rem', minHeight: 'auto',
+              background: '#f0f7ff', color: 'var(--primary)', border: '1px solid var(--primary)',
+            }}
+            onClick={handleAISummary}
+            title="AI Document Summary"
+          >
+            <span style={{ marginRight: 4 }}>&#x2728;</span> AI Summary
+          </button>
+          <button
+            className="btn btn-danger"
+            style={{ padding: '6px 12px', fontSize: '0.75rem', minHeight: 'auto' }}
+            onClick={() => setShowDeclineModal(true)}
+          >
+            Decline
+          </button>
+        </div>
       </div>
+
+      {/* AI Summary Panel */}
+      {showAISummary && (
+        <div style={{
+          background: '#eff6ff', borderBottom: '1px solid #bfdbfe', padding: '12px 16px',
+          fontSize: '0.875rem', color: '#1e40af', position: 'relative',
+        }}>
+          <button
+            onClick={() => setShowAISummary(false)}
+            style={{ position: 'absolute', top: 8, right: 12, background: 'none', border: 'none', cursor: 'pointer', fontSize: '1rem', color: '#6b7280' }}
+          >&times;</button>
+          <strong>AI Document Summary</strong>
+          <p style={{ margin: '8px 0 0', color: '#374151', lineHeight: 1.5 }}>
+            {aiSummaryLoading ? 'Analyzing document...' : aiSummary}
+          </p>
+        </div>
+      )}
+
+      {/* Toolbar */}
+      <div className="signing-toolbar">
+        <span style={{ fontSize: '0.75rem', color: 'var(--gray-500)', marginRight: 8 }}>Place on document:</span>
+        {(['signature', 'text', 'date', 'checkbox'] as ToolType[]).map(tool => (
+          <button
+            key={tool!}
+            className={`toolbar-btn ${activeTool === tool ? 'active' : ''}`}
+            onClick={() => setActiveTool(activeTool === tool ? null : tool)}
+          >
+            <span className="toolbar-icon">
+              {tool === 'signature' && '✍'}
+              {tool === 'text' && 'T'}
+              {tool === 'date' && '📅'}
+              {tool === 'checkbox' && '☑'}
+            </span>
+            <span className="toolbar-label">
+              {tool === 'signature' && 'Signature'}
+              {tool === 'text' && 'Text'}
+              {tool === 'date' && 'Date'}
+              {tool === 'checkbox' && 'Checkbox'}
+            </span>
+          </button>
+        ))}
+      </div>
+
+      {activeTool && (
+        <div style={{
+          background: '#fef3c7', borderBottom: '1px solid #fbbf24', padding: '8px 16px',
+          fontSize: '0.8125rem', color: '#92400e', textAlign: 'center',
+        }}>
+          Click anywhere on the document to place {activeTool === 'signature' ? 'your signature' : `a ${activeTool} field`}
+        </div>
+      )}
 
       {/* Document Viewer */}
       <div className="document-viewer">
@@ -225,38 +418,51 @@ export default function SigningPage() {
               <PDFViewer
                 url={getDocumentProxyUrl(token)}
                 pageCount={session.document.pageCount}
+                onPageClick={activeTool ? handlePdfClick : undefined}
                 renderOverlay={(pageIndex) => (
                   <>
-                    {fields
-                      .filter((f) => f.page === pageIndex + 1)
-                      .map((field) => (
+                    {placedItems
+                      .filter((item) => item.page === pageIndex + 1)
+                      .map((item) => (
                         <div
-                          key={field.id}
-                          className={`field-overlay ${field.completed ? 'completed' : ''} ${activeFieldId === field.id ? 'active' : ''}`}
+                          key={item.id}
+                          className={`placed-item ${item.completed ? 'completed' : 'pending'} type-${item.type}`}
                           style={{
-                            left: `${field.x * 100}%`,
-                            top: `${field.y * 100}%`,
-                            width: `${field.width * 100}%`,
-                            height: `${field.height * 100}%`,
+                            left: `${item.x * 100}%`,
+                            top: `${item.y * 100}%`,
+                            width: `${item.width * 100}%`,
+                            height: `${item.height * 100}%`,
                           }}
-                          onClick={() => handleFieldClick(field)}
-                          role="button"
-                          tabIndex={0}
-                          aria-label={`${field.type} field${field.completed ? ' (completed)' : ''}`}
                         >
-                          {field.completed ? (
-                            <span className="field-label" style={{ color: 'var(--success)' }}>
-                              {field.type === 'signature' ? 'Signed' : field.value || 'Done'}
+                          {item.type === 'signature' && item.value && (
+                            <img
+                              src={item.value}
+                              alt="Signature"
+                              style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                            />
+                          )}
+                          {item.type === 'text' && item.value && (
+                            <span style={{ fontSize: '10px', color: '#111' }}>{item.value}</span>
+                          )}
+                          {item.type === 'date' && item.value && (
+                            <span style={{ fontSize: '10px', color: '#111' }}>{item.value}</span>
+                          )}
+                          {item.type === 'checkbox' && item.value && (
+                            <span style={{ fontSize: '14px', color: '#111', fontWeight: 'bold' }}>✓</span>
+                          )}
+                          {!item.completed && !item.isLocal && (
+                            <span style={{ fontSize: '9px', color: 'var(--primary)' }}>
+                              {item.type}
                             </span>
-                          ) : (
-                            <span className="field-label">
-                              {field.type === 'signature' ? 'Click to sign' :
-                               field.type === 'initial' ? 'Click to initial' :
-                               field.type === 'date' ? 'Click to add date' :
-                               field.type === 'name' ? 'Click to enter name' :
-                               field.type === 'title' ? 'Click to enter title' :
-                               'Click to fill'}
-                            </span>
+                          )}
+                          {item.completed && (
+                            <button
+                              className="remove-item-btn"
+                              onClick={(e) => { e.stopPropagation(); removeItem(item.id); }}
+                              title="Remove"
+                            >
+                              &times;
+                            </button>
                           )}
                         </div>
                       ))}
@@ -265,56 +471,15 @@ export default function SigningPage() {
               />
             </Suspense>
           ) : (
-            /* Placeholder pages when no PDF is available */
-            Array.from({ length: session.document.pageCount }, (_, pageIndex) => (
-              <div key={pageIndex} className="document-page" style={{ position: 'relative', minHeight: 700, background: 'white', borderBottom: '1px solid var(--gray-200)' }}>
-                <div style={{ padding: '24px 40px', color: 'var(--gray-400)', fontSize: '0.8125rem', borderBottom: '1px solid var(--gray-100)' }}>
-                  {session.document.fileName} — Page {pageIndex + 1} of {session.document.pageCount}
-                </div>
-                <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', color: 'var(--gray-200)', fontSize: '1.5rem', fontWeight: 600, pointerEvents: 'none' }}>
-                  Document Preview Unavailable
-                </div>
-
-                {/* Field overlays for this page */}
-                {fields
-                  .filter((f) => f.page === pageIndex + 1)
-                  .map((field) => (
-                    <div
-                      key={field.id}
-                      className={`field-overlay ${field.completed ? 'completed' : ''} ${activeFieldId === field.id ? 'active' : ''}`}
-                      style={{
-                        left: `${field.x * 100}%`,
-                        top: `${field.y * 100}%`,
-                        width: `${field.width * 100}%`,
-                        height: `${field.height * 100}%`,
-                      }}
-                      onClick={() => handleFieldClick(field)}
-                      role="button"
-                      tabIndex={0}
-                      aria-label={`${field.type} field${field.completed ? ' (completed)' : ''}`}
-                    >
-                      {field.completed ? (
-                        <span className="field-label" style={{ color: 'var(--success)' }}>
-                          {field.type === 'signature' ? 'Signed' : field.value || 'Done'}
-                        </span>
-                      ) : (
-                        <span className="field-label">
-                          {field.type === 'signature' ? 'Click to sign' :
-                           field.type === 'initial' ? 'Click to initial' :
-                           field.type === 'date' ? 'Click to add date' :
-                           'Click to fill'}
-                        </span>
-                      )}
-                    </div>
-                  ))}
-              </div>
-            ))
+            <div style={{ padding: 40, textAlign: 'center', color: 'var(--gray-400)' }}>
+              Document Preview Unavailable
+            </div>
           )}
         </div>
       </div>
 
       {/* Consent & Complete */}
-      {allFieldsCompleted && (
+      {hasSignature && (
         <div className="consent-banner">
           <div className="consent-checkbox">
             <input
@@ -338,83 +503,47 @@ export default function SigningPage() {
         </div>
       )}
 
-      {/* Start Signing FAB (when fields remain) */}
-      {!allFieldsCompleted && currentField && (
-        <button
-          className="fab btn btn-primary"
-          onClick={() => handleFieldClick(currentField)}
-        >
-          {currentField.type === 'signature' ? 'Sign Here' :
-           currentField.type === 'initial' ? 'Initial Here' :
-           currentField.type === 'date' ? 'Add Date' :
-           currentField.type === 'name' ? 'Enter Name' :
-           currentField.type === 'title' ? 'Enter Title' :
-           `Fill ${currentField.type}`}
-          {` (${incompleteFields.length} remaining)`}
-        </button>
-      )}
-
       {/* Signature Modal */}
       {showSignatureModal && (
         <SignatureCanvas
           onSave={handleSignatureSave}
-          onCancel={() => { setShowSignatureModal(false); setActiveFieldId(null); }}
+          onCancel={handleCancelModal}
         />
       )}
 
-      {/* Text/Date Input Modal */}
-      {showTextInput && activeFieldId && (
-        <div className="modal-overlay" onClick={() => { setShowTextInput(false); setActiveFieldId(null); }}>
+      {/* Text Input Modal */}
+      {showTextInput && activeItemId && (
+        <div className="modal-overlay" onClick={handleCancelModal}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h2>{{
-                date: 'Add Date',
-                name: 'Enter Your Name',
-                title: 'Enter Your Title',
-              }[fields.find(f => f.id === activeFieldId)?.type || ''] || 'Enter Value'}</h2>
-              <button className="modal-close" onClick={() => { setShowTextInput(false); setActiveFieldId(null); }}>&times;</button>
+              <h2>Enter Text</h2>
+              <button className="modal-close" onClick={handleCancelModal}>&times;</button>
             </div>
             <input
               type="text"
               value={textInputValue}
               onChange={(e) => setTextInputValue(e.target.value)}
-              placeholder={{
-                date: 'Date',
-                name: 'Your full name',
-                title: 'Your title (e.g. CEO, Director)',
-              }[fields.find(f => f.id === activeFieldId)?.type || ''] || 'Enter value'}
+              placeholder="Type here..."
               autoFocus
               style={{
-                width: '100%',
-                padding: 12,
-                border: '1px solid var(--gray-200)',
-                borderRadius: 'var(--radius)',
-                marginBottom: 12,
-                fontSize: '1rem',
+                width: '100%', padding: 12,
+                border: '1px solid var(--gray-200)', borderRadius: 'var(--radius)',
+                marginBottom: 12, fontSize: '1rem',
               }}
               onKeyDown={(e) => {
-                if (e.key === 'Enter' && textInputValue.trim()) {
-                  handleTextFieldSubmit(activeFieldId, textInputValue.trim());
-                  setShowTextInput(false);
-                  setActiveFieldId(null);
-                }
+                if (e.key === 'Enter' && textInputValue.trim()) handleTextSubmit();
               }}
             />
             <div style={{ display: 'flex', gap: 8 }}>
-              <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => { setShowTextInput(false); setActiveFieldId(null); }}>
+              <button className="btn btn-secondary" style={{ flex: 1 }} onClick={handleCancelModal}>
                 Cancel
               </button>
               <button
-                className="btn btn-primary"
-                style={{ flex: 1 }}
+                className="btn btn-primary" style={{ flex: 1 }}
                 disabled={!textInputValue.trim()}
-                onClick={() => {
-                  handleTextFieldSubmit(activeFieldId, textInputValue.trim());
-                  setShowTextInput(false);
-                  setActiveFieldId(null);
-                }}
+                onClick={handleTextSubmit}
               >
-                Confirm
+                Place
               </button>
             </div>
           </div>
@@ -430,7 +559,7 @@ export default function SigningPage() {
               <button className="modal-close" onClick={() => setShowDeclineModal(false)}>&times;</button>
             </div>
             <p style={{ marginBottom: 12, color: 'var(--gray-500)' }}>
-              Are you sure you want to decline? The sender will be notified.
+              Are you sure? The sender will be notified.
             </p>
             <textarea
               value={declineReason}
@@ -438,13 +567,9 @@ export default function SigningPage() {
               placeholder="Reason (optional)"
               rows={3}
               style={{
-                width: '100%',
-                padding: 12,
-                border: '1px solid var(--gray-200)',
-                borderRadius: 'var(--radius)',
-                marginBottom: 12,
-                fontSize: '0.875rem',
-                resize: 'vertical',
+                width: '100%', padding: 12,
+                border: '1px solid var(--gray-200)', borderRadius: 'var(--radius)',
+                marginBottom: 12, fontSize: '0.875rem', resize: 'vertical',
               }}
             />
             <div style={{ display: 'flex', gap: 8 }}>

@@ -142,6 +142,68 @@ export function createSigningRouter(): Router {
     }
   });
 
+  // Create a new field (free-form placement by signee)
+  router.post('/session/:token/fields', async (req: Request<{ token: string }>, res: Response) => {
+    try {
+      const signer = await documentRepo.findSignerByToken(req.params.token);
+      if (!signer || signer.status === 'signed') {
+        res.status(403).json({ error: 'Invalid signing session' });
+        return;
+      }
+
+      const { type, page, x, y, width, height, value } = req.body;
+      if (!type || !page || x === undefined || y === undefined) {
+        res.status(400).json({ error: 'type, page, x, y are required' });
+        return;
+      }
+
+      const fields = await documentRepo.createFields([{
+        document_request_id: signer.document_request_id,
+        signer_id: signer.id,
+        type,
+        page,
+        x,
+        y,
+        width: width || (type === 'signature' ? 0.25 : type === 'checkbox' ? 0.03 : 0.15),
+        height: height || (type === 'signature' ? 0.05 : type === 'checkbox' ? 0.03 : 0.035),
+        required: false,
+      }]);
+
+      const field = fields[0];
+
+      // If value provided, set it immediately
+      if (value && field) {
+        await documentRepo.updateFieldValue(field.id, value);
+      }
+
+      await auditRepo.log({
+        document_request_id: signer.document_request_id,
+        signer_id: signer.id,
+        action: 'field_completed',
+        ip_address: req.ip || 'unknown',
+        user_agent: req.headers['user-agent'] || 'unknown',
+        metadata: { fieldId: field?.id, fieldType: type },
+      });
+
+      res.json({
+        success: true,
+        field: {
+          id: field?.id,
+          type,
+          page,
+          x, y,
+          width: width || 0.15,
+          height: height || 0.035,
+          value,
+          completed: !!value,
+        },
+      });
+    } catch (err) {
+      logger.error({ err }, 'Error creating field');
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
   // Submit field value
   router.post('/session/:token/fields/:fieldId', async (req: Request<{ token: string; fieldId: string }>, res: Response) => {
     try {
@@ -191,10 +253,11 @@ export function createSigningRouter(): Router {
         return;
       }
 
-      // Check all required fields are completed
-      const allCompleted = await documentRepo.areAllFieldsCompleted(signer.document_request_id, signer.id);
-      if (!allCompleted) {
-        res.status(400).json({ error: 'All required fields must be completed before signing' });
+      // Check that at least one field (signature) has been placed
+      const fields = await documentRepo.findFieldsBySignerId(signer.id);
+      const hasSignature = fields.some(f => f.type === 'signature' && f.completed_at);
+      if (!hasSignature) {
+        res.status(400).json({ error: 'Please place and complete at least one signature before finishing' });
         return;
       }
 

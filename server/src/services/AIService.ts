@@ -288,4 +288,40 @@ Now answer the following question. Respond in JSON format:
     }
     return JSON.parse(jsonMatch[0]) as QAResponse;
   }
+
+  /**
+   * Summarize a document and generate a suggested cover email text for the sender.
+   */
+  async summarizeDocumentForSender(documentText: string, fileName: string): Promise<{ summary: string; suggestedCoverText: string }> {
+    const response = await this.client.messages.create({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 1024,
+      messages: [{
+        role: 'user',
+        content: `You are an AI assistant for Lapen, an e-signature service. Read this document and provide:
+1. A concise summary (2-4 sentences) of what this document is about
+2. A suggested cover email text that the sender could use when sending this document for signature
+
+Document name: ${fileName}
+Document content:
+${documentText.substring(0, 15000)}
+
+Respond in JSON format:
+{
+  "summary": "Brief summary of the document...",
+  "suggestedCoverText": "Hi,\\n\\nPlease review and sign the attached document...\\n\\nThank you"
+}`,
+      }],
+    });
+
+    const text = response.content[0].type === 'text' ? response.content[0].text : '';
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      return {
+        summary: 'Document uploaded successfully.',
+        suggestedCoverText: `Hi,\n\nPlease review and sign the attached document "${fileName}".\n\nThank you`,
+      };
+    }
+    return JSON.parse(jsonMatch[0]);
+  }
 }
