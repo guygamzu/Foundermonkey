@@ -473,16 +473,15 @@ export function createSigningRouter(): Router {
       if (process.env.AWS_ACCESS_KEY_ID && doc.s3_key && !doc.s3_key.startsWith('pending/')) {
         try {
           const { StorageService } = await import('../services/StorageService.js');
-          const pdfParseModule: any = await import('pdf-parse');
-          const pdfParse = pdfParseModule.default || pdfParseModule;
+          const { extractPdfText } = await import('../services/pdfTextExtractor.js');
           const storageService = new StorageService();
           const pdfBuffer = await storageService.getDocument(doc.s3_key);
-          const parsed = await pdfParse(pdfBuffer);
-          if (parsed.text && parsed.text.trim().length > 0) {
-            documentText = `Document: ${doc.file_name} (${doc.page_count} pages)\n\nContent:\n${parsed.text}`;
+          const { text } = await extractPdfText(pdfBuffer);
+          if (text.trim().length > 0) {
+            documentText = `Document: ${doc.file_name} (${doc.page_count} pages)\n\nContent:\n${text}`;
           }
         } catch (pdfErr) {
-          logger.warn({ error: pdfErr instanceof Error ? pdfErr.message : String(pdfErr) }, 'Could not extract PDF text for Q&A, using metadata only');
+          logger.warn(`Could not extract PDF text for Q&A: ${pdfErr instanceof Error ? pdfErr.message : String(pdfErr)}`);
         }
       }
 

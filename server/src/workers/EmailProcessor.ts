@@ -291,19 +291,12 @@ export class EmailProcessor {
     let documentText = '';
     let pageCount = 1;
     try {
-      const pdfParseModule: any = await import('pdf-parse');
-      const pdfParse = pdfParseModule.default || pdfParseModule;
-      const pdfData = await pdfParse(attachment.content);
-      documentText = pdfData.text || '';
-      pageCount = pdfData.numpages || 1;
+      const { extractPdfText } = await import('../services/pdfTextExtractor.js');
+      const result = await extractPdfText(attachment.content);
+      documentText = result.text;
+      pageCount = result.pageCount;
     } catch (parseErr) {
       logger.warn(`PDF text extraction failed: ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`);
-      // Fallback: count pages from PDF header
-      try {
-        const pdfContent = attachment.content.toString('binary');
-        const pageMatches = pdfContent.match(/\/Type\s*\/Page[^s]/g);
-        if (pageMatches) pageCount = pageMatches.length;
-      } catch { /* ignore */ }
     }
 
     // Upload to S3 and create document record

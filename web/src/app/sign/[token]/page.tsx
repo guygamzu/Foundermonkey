@@ -3,7 +3,6 @@
 import { useState, useEffect, useCallback, lazy, Suspense, useRef } from 'react';
 import { useParams } from 'next/navigation';
 import SignatureCanvas from '@/components/SignatureCanvas';
-import ChatWidget from '@/components/ChatWidget';
 import {
   getSigningSession,
   submitFieldValue,
@@ -55,6 +54,10 @@ export default function SigningPage() {
   const [showAISummary, setShowAISummary] = useState(false);
   const [aiSummary, setAiSummary] = useState<string | null>(null);
   const [aiSummaryLoading, setAiSummaryLoading] = useState(false);
+  const [chatMessages, setChatMessages] = useState<Array<{ role: 'user' | 'assistant'; content: string }>>([]);
+  const [chatInput, setChatInput] = useState('');
+  const [chatLoading, setChatLoading] = useState(false);
+  const chatEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     async function load() {
@@ -242,18 +245,39 @@ export default function SigningPage() {
   }, [token, declineReason]);
 
   const handleAISummary = useCallback(async () => {
-    setShowAISummary(true);
+    setShowAISummary(prev => !prev);
     if (aiSummary) return; // Already loaded
+    setShowAISummary(true);
     setAiSummaryLoading(true);
     try {
-      const res = await askDocumentQuestion(token, 'Please provide a brief summary of this document. What is it about and what are the key terms?', []);
+      const res = await askDocumentQuestion(token, 'Please provide a concise summary of this document, including its purpose, key parties involved, and important terms or conditions.', []);
       setAiSummary(res.answer);
+      setChatMessages([{ role: 'assistant', content: res.answer }]);
     } catch {
       setAiSummary('Unable to generate summary at this time.');
     } finally {
       setAiSummaryLoading(false);
     }
   }, [token, aiSummary]);
+
+  const handleChatSubmit = useCallback(async (e?: React.FormEvent) => {
+    e?.preventDefault();
+    if (!chatInput.trim() || chatLoading) return;
+    const question = chatInput.trim();
+    setChatInput('');
+    const newMessages = [...chatMessages, { role: 'user' as const, content: question }];
+    setChatMessages(newMessages);
+    setChatLoading(true);
+    try {
+      const res = await askDocumentQuestion(token, question, newMessages.slice(0, -1));
+      setChatMessages(prev => [...prev, { role: 'assistant', content: res.answer }]);
+    } catch {
+      setChatMessages(prev => [...prev, { role: 'assistant', content: 'Sorry, I could not process your question.' }]);
+    } finally {
+      setChatLoading(false);
+      setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
+    }
+  }, [token, chatInput, chatLoading, chatMessages]);
 
   const removeItem = useCallback((itemId: string) => {
     setPlacedItems(prev => prev.filter(item => item.id !== itemId));
@@ -353,20 +377,78 @@ export default function SigningPage() {
         </div>
       </div>
 
-      {/* AI Summary Panel */}
+      {/* AI Summary + Chat Panel */}
       {showAISummary && (
         <div style={{
-          background: '#eff6ff', borderBottom: '1px solid #bfdbfe', padding: '12px 16px',
-          fontSize: '0.875rem', color: '#1e40af', position: 'relative',
+          background: '#eff6ff', borderBottom: '1px solid #bfdbfe', padding: '16px',
+          fontSize: '0.875rem', position: 'relative', maxHeight: '50vh', display: 'flex', flexDirection: 'column',
         }}>
-          <button
-            onClick={() => setShowAISummary(false)}
-            style={{ position: 'absolute', top: 8, right: 12, background: 'none', border: 'none', cursor: 'pointer', fontSize: '1rem', color: '#6b7280' }}
-          >&times;</button>
-          <strong>AI Document Summary</strong>
-          <p style={{ margin: '8px 0 0', color: '#374151', lineHeight: 1.5 }}>
-            {aiSummaryLoading ? 'Analyzing document...' : aiSummary}
-          </p>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <strong style={{ color: '#1e40af' }}>AI Document Assistant</strong>
+            <button
+              onClick={() => setShowAISummary(false)}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.25rem', color: '#6b7280', lineHeight: 1 }}
+            >&times;</button>
+          </div>
+
+          {aiSummaryLoading ? (
+            <div style={{ padding: 16, textAlign: 'center', color: '#6b7280' }}>
+              <div className="spinner" style={{ width: 20, height: 20, margin: '0 auto 8px' }} />
+              Analyzing document...
+            </div>
+          ) : (
+            <>
+              <div style={{ flex: 1, overflowY: 'auto', marginBottom: 12, maxHeight: '35vh' }}>
+                {chatMessages.map((msg, i) => (
+                  <div
+                    key={i}
+                    style={{
+                      padding: '8px 12px',
+                      margin: '4px 0',
+                      borderRadius: 8,
+                      background: msg.role === 'user' ? '#dbeafe' : 'white',
+                      borderLeft: msg.role === 'assistant' ? '3px solid #2563eb' : 'none',
+                      fontSize: '0.8125rem',
+                      lineHeight: 1.5,
+                      color: '#374151',
+                      whiteSpace: 'pre-wrap',
+                    }}
+                  >
+                    {msg.role === 'user' && <strong style={{ color: '#2563eb' }}>You: </strong>}
+                    {msg.content}
+                  </div>
+                ))}
+                {chatLoading && (
+                  <div style={{ padding: '8px 12px', color: '#6b7280', fontSize: '0.8125rem' }}>Thinking...</div>
+                )}
+                <div ref={chatEndRef} />
+              </div>
+
+              <form onSubmit={handleChatSubmit} style={{ display: 'flex', gap: 8 }}>
+                <input
+                  type="text"
+                  value={chatInput}
+                  onChange={(e) => setChatInput(e.target.value)}
+                  placeholder="Ask a question about this document..."
+                  style={{
+                    flex: 1, padding: '8px 12px', border: '1px solid #bfdbfe', borderRadius: 8,
+                    fontSize: '0.8125rem', outline: 'none', background: 'white',
+                  }}
+                />
+                <button
+                  type="submit"
+                  disabled={!chatInput.trim() || chatLoading}
+                  style={{
+                    padding: '8px 14px', background: '#2563eb', color: 'white', border: 'none',
+                    borderRadius: 8, cursor: chatInput.trim() && !chatLoading ? 'pointer' : 'not-allowed',
+                    opacity: chatInput.trim() && !chatLoading ? 1 : 0.5, fontSize: '0.8125rem', fontWeight: 600,
+                  }}
+                >
+                  Ask
+                </button>
+              </form>
+            </>
+          )}
         </div>
       )}
 
@@ -585,8 +667,6 @@ export default function SigningPage() {
         </div>
       )}
 
-      {/* Chat Widget for Document Q&A */}
-      <ChatWidget token={token} />
     </div>
   );
 }

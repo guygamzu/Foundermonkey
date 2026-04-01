@@ -236,13 +236,12 @@ export function createDocumentsRouter(): Router {
       if (process.env.AWS_ACCESS_KEY_ID && doc.s3_key && !doc.s3_key.startsWith('pending/')) {
         try {
           const { StorageService } = await import('../services/StorageService.js');
+          const { extractPdfText } = await import('../services/pdfTextExtractor.js');
           const storageService = new StorageService();
           const pdfBuffer = await storageService.getDocument(doc.s3_key);
-          const pdfParseModule: any = await import('pdf-parse');
-          const pdfParse = pdfParseModule.default || pdfParseModule;
-          const parsed = await pdfParse(pdfBuffer);
-          if (parsed.text && parsed.text.trim().length > 0) {
-            documentText = `Document: ${doc.file_name} (${doc.page_count} pages)\n\nContent:\n${parsed.text}`;
+          const { text } = await extractPdfText(pdfBuffer);
+          if (text.trim().length > 0) {
+            documentText = `Document: ${doc.file_name} (${doc.page_count} pages)\n\nContent:\n${text}`;
           }
         } catch (pdfErr) {
           logger.warn(`Could not extract PDF text for preview Q&A: ${pdfErr instanceof Error ? pdfErr.message : String(pdfErr)}`);
