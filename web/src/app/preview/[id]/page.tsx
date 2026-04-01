@@ -2,7 +2,7 @@
 
 import { useState, useEffect, lazy, Suspense } from 'react';
 import { useParams } from 'next/navigation';
-import { getPreviewDocumentProxyUrl } from '@/lib/api';
+import { getPreviewDocumentProxyUrl, askPreviewQuestion } from '@/lib/api';
 
 const PDFViewer = lazy(() => import('@/components/PDFViewer'));
 
@@ -30,14 +30,10 @@ interface DocumentPreview {
   }>;
 }
 
-const fieldTypeColors: Record<string, string> = {
-  signature: '#2563eb',
-  initial: '#7c3aed',
-  date: '#059669',
-  text: '#d97706',
-  name: '#0891b2',
-  title: '#be185d',
-};
+interface ChatMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
 
 export default function PreviewPage() {
   const params = useParams();
@@ -47,6 +43,14 @@ export default function PreviewPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [pdfFailed, setPdfFailed] = useState(false);
+
+  // AI Summary & Chat
+  const [showAI, setShowAI] = useState(false);
+  const [aiSummary, setAiSummary] = useState('');
+  const [aiLoading, setAiLoading] = useState(false);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [chatInput, setChatInput] = useState('');
+  const [chatLoading, setChatLoading] = useState(false);
 
   useEffect(() => {
     async function load() {
@@ -65,6 +69,48 @@ export default function PreviewPage() {
     }
     load();
   }, [documentId]);
+
+  const handleAISummary = async () => {
+    if (aiSummary) {
+      setShowAI(!showAI);
+      return;
+    }
+    setShowAI(true);
+    setAiLoading(true);
+    try {
+      const result = await askPreviewQuestion(
+        documentId,
+        'Please provide a concise summary of this document, including its purpose, key parties involved, and important terms or conditions.',
+        [],
+      );
+      setAiSummary(result.answer);
+      setChatMessages([{ role: 'assistant', content: result.answer }]);
+    } catch {
+      setAiSummary('Unable to generate summary at this time.');
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  const handleChatSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!chatInput.trim() || chatLoading) return;
+
+    const question = chatInput.trim();
+    setChatInput('');
+    const newMessages: ChatMessage[] = [...chatMessages, { role: 'user', content: question }];
+    setChatMessages(newMessages);
+    setChatLoading(true);
+
+    try {
+      const result = await askPreviewQuestion(documentId, question, newMessages.slice(0, -1));
+      setChatMessages([...newMessages, { role: 'assistant', content: result.answer }]);
+    } catch {
+      setChatMessages([...newMessages, { role: 'assistant', content: 'Sorry, I could not process your question.' }]);
+    } finally {
+      setChatLoading(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -99,14 +145,14 @@ export default function PreviewPage() {
               top: `${field.y * 100}%`,
               width: `${field.width * 100}%`,
               height: `${field.height * 100}%`,
-              border: `2px dashed ${fieldTypeColors[field.type] || '#6b7280'}`,
-              background: `${fieldTypeColors[field.type] || '#6b7280'}20`,
+              border: '2px dashed #2563eb',
+              background: '#2563eb20',
               borderRadius: 4,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               fontSize: '0.625rem',
-              color: fieldTypeColors[field.type] || '#6b7280',
+              color: '#2563eb',
               fontWeight: 600,
               textTransform: 'uppercase' as const,
               pointerEvents: 'none' as const,
@@ -122,14 +168,111 @@ export default function PreviewPage() {
 
   return (
     <div className="status-page">
-      <div style={{ marginBottom: 24 }}>
+      <div style={{ marginBottom: 24, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div style={{ fontSize: '1.125rem', fontWeight: 800, color: 'var(--primary)' }}>Lapen</div>
+        <button
+          onClick={handleAISummary}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            padding: '8px 16px',
+            background: showAI ? '#2563eb' : '#eff6ff',
+            color: showAI ? 'white' : '#2563eb',
+            border: '1px solid #bfdbfe',
+            borderRadius: 8,
+            cursor: 'pointer',
+            fontSize: '0.875rem',
+            fontWeight: 600,
+          }}
+        >
+          ✨ AI Summary & Chat
+        </button>
       </div>
+
+      {/* AI Summary & Chat Panel */}
+      {showAI && (
+        <div className="status-card" style={{ borderLeft: '4px solid #2563eb' }}>
+          <h2 style={{ fontSize: '0.875rem', fontWeight: 600, color: '#2563eb', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 12 }}>
+            AI Document Assistant
+          </h2>
+
+          {aiLoading ? (
+            <div style={{ padding: 20, textAlign: 'center', color: 'var(--gray-400)' }}>
+              <div className="spinner" style={{ width: 24, height: 24, margin: '0 auto 8px' }} />
+              Analyzing document...
+            </div>
+          ) : (
+            <>
+              <div style={{ maxHeight: 300, overflowY: 'auto', marginBottom: 12 }}>
+                {chatMessages.map((msg, i) => (
+                  <div
+                    key={i}
+                    style={{
+                      padding: '10px 14px',
+                      margin: '6px 0',
+                      borderRadius: 8,
+                      background: msg.role === 'user' ? '#eff6ff' : '#f9fafb',
+                      borderLeft: msg.role === 'assistant' ? '3px solid #2563eb' : 'none',
+                      fontSize: '0.875rem',
+                      lineHeight: 1.6,
+                      color: '#374151',
+                      whiteSpace: 'pre-wrap',
+                    }}
+                  >
+                    {msg.role === 'user' && <strong style={{ color: '#2563eb' }}>You: </strong>}
+                    {msg.content}
+                  </div>
+                ))}
+                {chatLoading && (
+                  <div style={{ padding: '10px 14px', color: 'var(--gray-400)', fontSize: '0.875rem' }}>
+                    Thinking...
+                  </div>
+                )}
+              </div>
+
+              <form onSubmit={handleChatSubmit} style={{ display: 'flex', gap: 8 }}>
+                <input
+                  type="text"
+                  value={chatInput}
+                  onChange={(e) => setChatInput(e.target.value)}
+                  placeholder="Ask a question about this document..."
+                  style={{
+                    flex: 1,
+                    padding: '10px 14px',
+                    border: '1px solid #d1d5db',
+                    borderRadius: 8,
+                    fontSize: '0.875rem',
+                    outline: 'none',
+                  }}
+                />
+                <button
+                  type="submit"
+                  disabled={!chatInput.trim() || chatLoading}
+                  style={{
+                    padding: '10px 16px',
+                    background: '#2563eb',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: 8,
+                    cursor: chatInput.trim() && !chatLoading ? 'pointer' : 'not-allowed',
+                    opacity: chatInput.trim() && !chatLoading ? 1 : 0.5,
+                    fontSize: '0.875rem',
+                    fontWeight: 600,
+                  }}
+                >
+                  Ask
+                </button>
+              </form>
+            </>
+          )}
+        </div>
+      )}
 
       <div className="status-card">
         <h1 style={{ fontSize: '1.25rem', fontWeight: 700, marginBottom: 8 }}>{preview.fileName}</h1>
         <p style={{ color: 'var(--gray-500)', fontSize: '0.875rem' }}>
-          {preview.pageCount} page{preview.pageCount > 1 ? 's' : ''} &middot; {preview.fields.length} field{preview.fields.length !== 1 ? 's' : ''} detected
+          {preview.pageCount} page{preview.pageCount > 1 ? 's' : ''}
         </p>
       </div>
 
@@ -138,36 +281,28 @@ export default function PreviewPage() {
         <h2 style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--gray-500)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 12 }}>
           Signers ({preview.signers.length})
         </h2>
-        {preview.signers.map((signer, i) => (
-          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: i < preview.signers.length - 1 ? '1px solid var(--gray-100)' : 'none' }}>
-            <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'var(--primary)', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', fontWeight: 700, flexShrink: 0 }}>
-              {signer.order}
+        {preview.signers.length === 0 ? (
+          <p style={{ color: 'var(--gray-400)', fontSize: '0.875rem' }}>No signers assigned yet. Reply to the email with signee addresses.</p>
+        ) : (
+          preview.signers.map((signer, i) => (
+            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: i < preview.signers.length - 1 ? '1px solid var(--gray-100)' : 'none' }}>
+              <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'var(--primary)', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', fontWeight: 700, flexShrink: 0 }}>
+                {signer.order}
+              </div>
+              <div>
+                <div style={{ fontWeight: 600, fontSize: '0.9375rem' }}>{signer.name || 'Unnamed'}</div>
+                <div style={{ color: 'var(--gray-500)', fontSize: '0.8125rem' }}>{signer.email || signer.phone || 'No contact'}</div>
+              </div>
             </div>
-            <div>
-              <div style={{ fontWeight: 600, fontSize: '0.9375rem' }}>{signer.name || 'Unnamed'}</div>
-              <div style={{ color: 'var(--gray-500)', fontSize: '0.8125rem' }}>{signer.email || signer.phone || 'No contact'}</div>
-            </div>
-          </div>
-        ))}
+          ))
+        )}
       </div>
 
-      {/* Document preview with fields */}
+      {/* Document preview */}
       <div className="status-card">
         <h2 style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--gray-500)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 12 }}>
           Document Preview
         </h2>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
-          {Object.entries(fieldTypeColors).map(([type, color]) => {
-            const count = preview.fields.filter(f => f.type === type).length;
-            if (!count) return null;
-            return (
-              <span key={type} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: '0.75rem', color }}>
-                <span style={{ width: 10, height: 10, borderRadius: 2, background: color, opacity: 0.3, display: 'inline-block' }} />
-                {type} ({count})
-              </span>
-            );
-          })}
-        </div>
 
         {showPdf ? (
           <Suspense fallback={<div style={{ padding: 40, textAlign: 'center', color: 'var(--gray-400)' }}>Loading PDF...</div>}>

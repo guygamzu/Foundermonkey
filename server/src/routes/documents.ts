@@ -209,6 +209,59 @@ export function createDocumentsRouter(): Router {
     }
   });
 
+  // AI Document Q&A for preview (sender-facing)
+  router.post('/preview/:documentId/qa', async (req: Request<{ documentId: string }>, res: Response) => {
+    try {
+      if (!process.env.ANTHROPIC_API_KEY) {
+        res.status(503).json({ error: 'AI Q&A is not configured' });
+        return;
+      }
+
+      const doc = await documentRepo.findById(req.params.documentId);
+      if (!doc) {
+        res.status(404).json({ error: 'Document not found' });
+        return;
+      }
+
+      const { question, history } = req.body;
+      if (!question) {
+        res.status(400).json({ error: 'Question is required' });
+        return;
+      }
+
+      const { AIService } = await import('../services/AIService.js');
+      const aiService = new AIService();
+
+      let documentText = `Document: ${doc.file_name}, ${doc.page_count} pages`;
+      if (process.env.AWS_ACCESS_KEY_ID && doc.s3_key && !doc.s3_key.startsWith('pending/')) {
+        try {
+          const { StorageService } = await import('../services/StorageService.js');
+          const storageService = new StorageService();
+          const pdfBuffer = await storageService.getDocument(doc.s3_key);
+          const pdfParseModule: any = await import('pdf-parse');
+          const pdfParse = pdfParseModule.default || pdfParseModule;
+          const parsed = await pdfParse(pdfBuffer);
+          if (parsed.text && parsed.text.trim().length > 0) {
+            documentText = `Document: ${doc.file_name} (${doc.page_count} pages)\n\nContent:\n${parsed.text}`;
+          }
+        } catch (pdfErr) {
+          logger.warn(`Could not extract PDF text for preview Q&A: ${pdfErr instanceof Error ? pdfErr.message : String(pdfErr)}`);
+        }
+      }
+
+      const answer = await aiService.answerDocumentQuestion(
+        documentText,
+        question,
+        history || [],
+      );
+
+      res.json(answer);
+    } catch (err) {
+      logger.error({ err }, 'Error in preview Q&A');
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
   // Get completed document archive
   router.get('/archive/:documentId', async (req: Request<{ documentId: string }>, res: Response) => {
     try {

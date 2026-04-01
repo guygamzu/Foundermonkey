@@ -131,3 +131,14 @@ export async function askDocumentQuestion(
     body: JSON.stringify({ question, history }),
   });
 }
+
+export async function askPreviewQuestion(
+  documentId: string,
+  question: string,
+  history: Array<{ role: 'user' | 'assistant'; content: string }>,
+): Promise<QAResponse> {
+  return apiFetch(`/api/documents/preview/${documentId}/qa`, {
+    method: 'POST',
+    body: JSON.stringify({ question, history }),
+  });
+}
