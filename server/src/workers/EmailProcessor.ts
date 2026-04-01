@@ -157,6 +157,15 @@ export class EmailProcessor {
     }
 
     const senderLower = senderEmail.toLowerCase();
+
+    // Skip emails sent BY the service itself (prevent reply loops).
+    // Resend-sent emails have Message-IDs containing 'resend.com'.
+    const rawMessageId = parsed.messageId || '';
+    if (rawMessageId.includes('resend.com')) {
+      logger.info(`Skipping service-sent email (Resend Message-ID): from=${senderEmail} msgId=${rawMessageId}`);
+      return;
+    }
+
     if (senderLower.includes('noreply') || senderLower.includes('no-reply') ||
         senderLower.includes('notification') || senderLower.includes('mailer-daemon') ||
         senderLower.includes('postmaster')) {
@@ -304,7 +313,7 @@ export class EmailProcessor {
         documentId = doc.id;
       } catch (err) {
         const errDetail = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
-        logger.error({ error: errDetail, stack: err instanceof Error ? err.stack : undefined }, 'S3 upload failed, using basic record');
+        logger.error(`S3 upload failed: ${errDetail}. Using basic record.`);
         documentId = await this.createBasicDocument(user.id, attachment, messageId, subject);
       }
     } else {
