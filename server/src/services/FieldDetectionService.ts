@@ -23,12 +23,22 @@ interface TextItem {
   height: number;     // normalized
 }
 
+/** A horizontal line drawn in the PDF (vector graphic, not text) */
+interface DrawnLine {
+  page: number;       // 1-based
+  x: number;          // normalized 0–1, left edge of line
+  y: number;          // normalized 0–1, top-left origin
+  width: number;      // normalized length of line
+}
+
 /**
- * Multi-layer field detection inspired by DocuSign's architecture:
+ * Multi-layer field detection inspired by DocuSign's proven pipeline:
  *
- * Layer 1: AcroForm parsing — deterministic extraction of existing PDF form fields
- * Layer 2: Text anchor matching — find "Signature:", "Date:", underlines with exact positions
- * Layer 3: AI semantic matching — Claude matches signers to detected field regions
+ * Layer 1: AcroForm/XFA parsing — deterministic, near-perfect accuracy
+ * Layer 2: Text + vector line extraction — spatial layout data
+ * Layer 3: Deterministic text-anchor + drawn-line placement
+ * Layer 4: AI visual validation — jointly reasons over text + layout + visual
+ * Layer 5: Post-processing rules — resolve overlaps, validate positions
  */
 export class FieldDetectionService {
   private anthropic: Anthropic;
@@ -58,44 +68,65 @@ export class FieldDetectionService {
       }
     }
 
-    // --- Layer 2: Extract text positions ---
+    // --- Layer 2: Extract text positions + drawn lines (spatial layout data) ---
     let textItems: TextItem[] = [];
+    let drawnLines: DrawnLine[] = [];
     try {
-      textItems = await this.extractTextPositions(pdfBuffer);
-      logger.info({ textItems: textItems.length }, 'Text positions extracted');
+      const extracted = await this.extractTextAndLines(pdfBuffer);
+      textItems = extracted.textItems;
+      drawnLines = extracted.drawnLines;
+      logger.info({ textItems: textItems.length, drawnLines: drawnLines.length }, 'Layer 2: text + vector lines extracted');
     } catch (err) {
-      logger.error({ error: err instanceof Error ? err.message : String(err) }, 'Text extraction failed completely');
+      logger.error({ error: err instanceof Error ? err.message : String(err) }, 'Text/line extraction failed');
     }
 
-    // --- Layer 3: Deterministic text-based field placement ---
-    // Find signer names and nearby signature/date patterns using exact text positions.
-    // This does NOT rely on AI for coordinates — positions come from actual text extraction.
+    // --- Layer 3: Deterministic text-anchor + drawn-line placement ---
+    let deterministicFields: DetectedField[] = [];
     if (textItems.length > 0) {
-      const deterministicFields = this.placeFieldsByTextPositions(
-        textItems, pageCount, signerCount, signerDescriptions,
+      deterministicFields = this.placeFieldsByTextPositions(
+        textItems, drawnLines, pageCount, signerCount, signerDescriptions,
       );
-      if (deterministicFields.length > 0) {
-        logger.info({
-          count: deterministicFields.length,
-          fields: deterministicFields.map(f => `${f.type}@p${f.page}(${f.x.toFixed(3)},${f.y.toFixed(3)}) signer=${f.signerIndex}`),
-        }, 'Using deterministic text-position field placement');
-        return deterministicFields;
+      logger.info({
+        count: deterministicFields.length,
+        fields: deterministicFields.map(f => `${f.type}@p${f.page}(${f.x.toFixed(3)},${f.y.toFixed(3)}) signer=${f.signerIndex}`),
+      }, 'Layer 3 (deterministic): candidate fields');
+    }
+
+    // --- Layer 4: AI visual validation ---
+    // Instead of short-circuiting, pass deterministic candidates to AI for verification.
+    // This implements joint text+spatial+visual reasoning (LayoutLM principle).
+    if (deterministicFields.length > 0) {
+      try {
+        const validated = await this.aiValidateFields(
+          pdfBuffer, deterministicFields, textItems, drawnLines,
+          pageCount, signerCount, signerDescriptions, documentText,
+        );
+        if (validated.length > 0) {
+          const postProcessed = this.postProcessFields(validated, textItems, pageCount);
+          logger.info({ count: postProcessed.length }, 'Using AI-validated deterministic fields');
+          return postProcessed;
+        }
+      } catch (err) {
+        logger.warn({ error: err instanceof Error ? err.message : String(err) }, 'AI validation failed, using deterministic results directly');
+        const postProcessed = this.postProcessFields(deterministicFields, textItems, pageCount);
+        return postProcessed;
       }
     }
 
-    // --- Layer 4: AI visual analysis with text calibration ---
-    // Only if deterministic placement couldn't find enough fields
+    // --- Layer 4b: Full AI detection (no deterministic candidates found) ---
     try {
       const aiFields = await this.aiDetectWithTextContext(
         pdfBuffer, textItems, pageCount, signerCount, signerDescriptions, documentText,
       );
-      logger.info({ count: aiFields.length }, 'Layer 4 (AI): fields detected');
-      if (aiFields.length > 0) return aiFields;
+      logger.info({ count: aiFields.length }, 'Layer 4b (AI full): fields detected');
+      if (aiFields.length > 0) {
+        return this.postProcessFields(aiFields, textItems, pageCount);
+      }
     } catch (err) {
       logger.error({ error: err instanceof Error ? err.message : String(err) }, 'AI field detection failed completely');
     }
 
-    // --- Fallback: place based on any text extraction data we have ---
+    // --- Fallback ---
     if (textItems.length > 0) {
       const lastResort = this.placeFieldsLastResort(textItems, pageCount, signerCount);
       if (lastResort.length > 0) {
@@ -115,6 +146,7 @@ export class FieldDetectionService {
   // =========================================================================
   private placeFieldsByTextPositions(
     textItems: TextItem[],
+    drawnLines: DrawnLine[],
     pageCount: number,
     signerCount: number,
     signerDescriptions?: string[],
@@ -159,7 +191,7 @@ export class FieldDetectionService {
       // Score each occurrence to find the one most likely to be a signature block label.
       // Signature block labels are typically SHORT standalone text (just the name),
       // not names embedded in long paragraph sentences.
-      const nameItem = this.pickSignatureBlockName(nameItems, signerName, textItems, signatureBlockPages);
+      const nameItem = this.pickSignatureBlockName(nameItems, signerName, textItems, signatureBlockPages, drawnLines);
       logger.info({
         signerIdx,
         signerName,
@@ -173,9 +205,32 @@ export class FieldDetectionService {
         Math.abs(item.y - nameItem.y) < 0.12,
       );
 
+      // CV Layer: Find drawn horizontal lines near this name (vector graphics)
+      // These are the actual signature lines drawn in the PDF, invisible to text extraction
+      const nearbyLines = drawnLines.filter(line =>
+        line.page === nameItem.page &&
+        line.y < nameItem.y &&                  // line is above the name
+        nameItem.y - line.y < 0.06 &&           // within 6% vertical distance
+        line.width > 0.15,                      // substantial line (not a dash or decoration)
+      );
+
       // Find "By:", "Signature:", or underline patterns near the name
       let signatureY = nameItem.y - 0.045; // Default: just above the name
       let signatureX = nameItem.x;
+
+      // If we found a drawn line above the name, use its exact position
+      if (nearbyLines.length > 0) {
+        // Pick the closest line above the name
+        const closestLine = nearbyLines.reduce((best, line) =>
+          (nameItem.y - line.y) < (nameItem.y - best.y) ? line : best,
+        );
+        signatureY = closestLine.y - 0.045; // Place field so bottom is at the line
+        signatureX = closestLine.x;
+        logger.info({
+          signerName: signerDescriptions?.[signerIdx],
+          lineAt: { x: closestLine.x.toFixed(3), y: closestLine.y.toFixed(3), w: closestLine.width.toFixed(3) },
+        }, 'Using drawn line for precise signature placement');
+      }
       let dateY: number | null = null;
       let dateX: number | null = null;
       let titleY: number | null = null;
@@ -283,6 +338,7 @@ export class FieldDetectionService {
     signerName: string,
     allTextItems: TextItem[],
     signatureBlockPages: Set<number>,
+    drawnLines: DrawnLine[] = [],
   ): TextItem {
     if (nameItems.length === 1) return nameItems[0];
 
@@ -330,6 +386,17 @@ export class FieldDetectionService {
       );
       if (hasSignatureLabel) {
         score += 20;
+      }
+
+      // CV: Has a drawn horizontal line above (strong signal: this is a signature block)
+      const hasDrawnLineAbove = drawnLines.some(line =>
+        line.page === item.page &&
+        line.y < item.y &&
+        item.y - line.y < 0.06 &&
+        line.width > 0.15,
+      );
+      if (hasDrawnLineAbove) {
+        score += 40; // Very strong signal — drawn lines are placed by document authors
       }
 
       logger.debug({
@@ -469,12 +536,13 @@ export class FieldDetectionService {
   }
 
   // =========================================================================
-  // Layer 2: Text anchor matching using pdfjs-dist
+  // Layer 2: Combined text + vector line extraction using pdfjs-dist
+  // Implements CV-based region detection (drawn lines) alongside text extraction.
   // =========================================================================
-  private async extractTextPositions(pdfBuffer: Buffer): Promise<TextItem[]> {
-    const items: TextItem[] = [];
+  private async extractTextAndLines(pdfBuffer: Buffer): Promise<{ textItems: TextItem[]; drawnLines: DrawnLine[] }> {
+    const textItems: TextItem[] = [];
+    const drawnLines: DrawnLine[] = [];
     try {
-      // Dynamic import for ESM compatibility
       const pdfjsLib = await import('pdfjs-dist/legacy/build/pdf.mjs');
 
       const loadingTask = pdfjsLib.getDocument({
@@ -483,22 +551,14 @@ export class FieldDetectionService {
         disableFontFace: true,
       });
       const pdf = await loadingTask.promise;
-
-      // Also load with pdf-lib to get page dimensions for cross-reference
       const pdfLibDoc = await PDFDocument.load(pdfBuffer, { ignoreEncryption: true });
 
       for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
         const page = await pdf.getPage(pageNum);
         const viewport = page.getViewport({ scale: 1.0 });
-        const textContent = await page.getTextContent();
 
-        // Check if pdfjs-dist and pdf-lib agree on page dimensions
         const pdfLibPage = pdfLibDoc.getPage(pageNum - 1);
         const pdfLibSize = pdfLibPage.getSize();
-
-        // Use pdf-lib dimensions for normalization since that's what
-        // applySignaturesToDocument uses for rendering. This ensures
-        // consistent coordinates across detection and rendering.
         const normWidth = pdfLibSize.width;
         const normHeight = pdfLibSize.height;
 
@@ -507,22 +567,20 @@ export class FieldDetectionService {
             page: pageNum,
             pdfjs: { w: viewport.width, h: viewport.height },
             pdflib: { w: normWidth, h: normHeight },
-          }, 'Page dimension mismatch between pdfjs-dist and pdf-lib — using pdf-lib dimensions');
+          }, 'Page dimension mismatch — using pdf-lib dimensions');
         }
 
+        // --- Extract text positions ---
+        const textContent = await page.getTextContent();
         for (const item of textContent.items) {
           if (!('str' in item) || !item.str.trim()) continue;
-
           const tx = item.transform;
-          // transform: [scaleX, skewY, skewX, scaleY, translateX, translateY]
           const pdfX = tx[4];
           const pdfY = tx[5];
           const textWidth = item.width || 0;
           const textHeight = item.height || Math.abs(tx[3]);
 
-          // Normalize using pdf-lib page dimensions (consistent with rendering)
-          // Y is flipped: PDF uses bottom-left origin, we use top-left
-          items.push({
+          textItems.push({
             text: item.str,
             page: pageNum,
             x: pdfX / normWidth,
@@ -532,13 +590,71 @@ export class FieldDetectionService {
           });
         }
 
+        // --- Extract drawn lines (CV-based region detection) ---
+        // Find horizontal line segments drawn as vector graphics.
+        // These are the signature lines that text extraction misses.
+        try {
+          const opList = await page.getOperatorList();
+          const OPS = pdfjsLib.OPS;
+          let curX = 0, curY = 0;
+
+          for (let i = 0; i < opList.fnArray.length; i++) {
+            const fn = opList.fnArray[i];
+            const args = opList.argsArray[i];
+
+            if (fn === OPS.moveTo) {
+              curX = args[0];
+              curY = args[1];
+            } else if (fn === OPS.lineTo) {
+              const x2 = args[0] as number;
+              const y2 = args[1] as number;
+
+              // Horizontal line: Y coords nearly equal, significant X distance
+              // Min length ~100 PDF units (roughly 1.4 inches) to filter decorations
+              if (Math.abs(curY - y2) < 2 && Math.abs(x2 - curX) > 100) {
+                const minX = Math.min(curX, x2);
+                const maxX = Math.max(curX, x2);
+                drawnLines.push({
+                  page: pageNum,
+                  x: minX / normWidth,
+                  y: 1 - (curY / normHeight), // flip Y to top-left origin
+                  width: (maxX - minX) / normWidth,
+                });
+              }
+              curX = x2;
+              curY = y2;
+            } else if (fn === OPS.rectangle) {
+              // Thin rectangles can also be signature lines
+              const [rx, ry, rw, rh] = args as number[];
+              if (Math.abs(rw) > 100 && Math.abs(rh) < 3) {
+                drawnLines.push({
+                  page: pageNum,
+                  x: rx / normWidth,
+                  y: 1 - (ry / normHeight),
+                  width: Math.abs(rw) / normWidth,
+                });
+              }
+            }
+          }
+        } catch (lineErr) {
+          // Non-fatal: some PDFs may have issues with operator list extraction
+          logger.debug({ page: pageNum, error: lineErr instanceof Error ? lineErr.message : String(lineErr) },
+            'Could not extract drawn lines from page');
+        }
+
         page.cleanup();
       }
       pdf.cleanup();
+
+      if (drawnLines.length > 0) {
+        logger.info({
+          lines: drawnLines.map(l => `p${l.page} x=${l.x.toFixed(3)} y=${l.y.toFixed(3)} w=${l.width.toFixed(3)}`),
+        }, 'Drawn horizontal lines detected (CV layer)');
+      }
     } catch (err) {
-      logger.warn({ error: err instanceof Error ? err.message : String(err) }, 'pdfjs-dist text extraction failed');
+      logger.warn({ error: err instanceof Error ? err.message : String(err) }, 'Text/line extraction failed');
     }
-    return items;
+    return { textItems, drawnLines };
   }
 
   private findFieldsByTextAnchors(textItems: TextItem[], pageCount: number): DetectedField[] {
@@ -670,7 +786,188 @@ export class FieldDetectionService {
   }
 
   // =========================================================================
-  // Layer 3: AI semantic matching
+  // AI validation: verify deterministic candidates with visual analysis
+  // Instead of blindly trusting text matching, ask AI to confirm/adjust.
+  // This implements joint text+spatial+visual reasoning (LayoutLM principle).
+  // =========================================================================
+  private async aiValidateFields(
+    pdfBuffer: Buffer,
+    candidates: DetectedField[],
+    textItems: TextItem[],
+    drawnLines: DrawnLine[],
+    pageCount: number,
+    signerCount: number,
+    signerDescriptions?: string[],
+    documentText?: string,
+  ): Promise<DetectedField[]> {
+    const candidateSummary = candidates.map((f, i) =>
+      `  Field ${i}: type=${f.type}, page=${f.page}, x=${f.x.toFixed(3)}, y=${f.y.toFixed(3)}, w=${f.width.toFixed(3)}, h=${f.height.toFixed(3)}, signer=${f.signerIndex}, label="${f.label || ''}"`,
+    ).join('\n');
+
+    const drawnLineSummary = drawnLines.length > 0
+      ? drawnLines.map(l => `  Page ${l.page}: x=${l.x.toFixed(3)}, y=${l.y.toFixed(3)}, width=${l.width.toFixed(3)}`).join('\n')
+      : '  (no drawn lines detected)';
+
+    const signerList = signerDescriptions
+      ? signerDescriptions.map((d, i) => `  Signer ${i}: ${d}`).join('\n')
+      : `  ${signerCount} signer(s)`;
+
+    const prompt = `You are validating e-signature field positions detected by an automated system.
+
+SIGNERS:
+${signerList}
+
+CANDIDATE FIELDS (detected by text analysis):
+${candidateSummary}
+
+DRAWN HORIZONTAL LINES (vector graphics in PDF — these are signature lines):
+${drawnLineSummary}
+
+TASK: Look at the PDF and validate each candidate field. For each field:
+1. Is it on the correct PAGE? (signature blocks are usually on the last content page, near "IN WITNESS HEREOF")
+2. Is the (x, y) position correct? The field should be ON or just above the blank signature line, NOT on body text.
+3. Is the signer assignment correct?
+
+COORDINATE SYSTEM: (0,0) = top-left, (1,1) = bottom-right. (x,y) = top-left corner of field.
+
+If a field position looks wrong, adjust it. If it looks correct, keep it as-is.
+
+Return ONLY a JSON array with the validated/adjusted fields:
+[{"type":"signature","page":4,"x":0.30,"y":0.55,"width":0.25,"height":0.045,"signerIndex":0,"label":"Litan Yahav Signature"}]`;
+
+    const content: Anthropic.MessageParam['content'] = [];
+    content.push({
+      type: 'document',
+      source: {
+        type: 'base64',
+        media_type: 'application/pdf',
+        data: pdfBuffer.toString('base64'),
+      },
+    } as any);
+    content.push({ type: 'text', text: prompt });
+
+    const response = await this.anthropic.messages.create({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 4096,
+      messages: [{ role: 'user', content }],
+    });
+
+    const text = response.content[0].type === 'text' ? response.content[0].text : '';
+    logger.info({ rawResponse: text.substring(0, 1000) }, 'AI validation response');
+
+    const jsonMatch = text.match(/\[[\s\S]*\]/);
+    if (!jsonMatch) {
+      logger.warn('AI validation returned no JSON, using original candidates');
+      return candidates;
+    }
+
+    let validated = JSON.parse(jsonMatch[0]) as DetectedField[];
+    validated = validated.filter(f => {
+      if (!f.type || !f.page || f.page < 1 || f.page > pageCount) return false;
+      if (typeof f.x !== 'number' || typeof f.y !== 'number') return false;
+      return true;
+    }).map(f => ({
+      ...f,
+      type: (['signature', 'initial', 'date', 'text', 'name', 'title'].includes(f.type) ? f.type : 'text') as DetectedField['type'],
+      x: Math.max(0, Math.min(0.95, f.x)),
+      y: Math.max(0, Math.min(0.95, f.y)),
+      width: Math.max(0.05, Math.min(0.5, f.width || 0.25)),
+      height: Math.max(0.02, Math.min(0.1, f.height || 0.04)),
+      signerIndex: Math.max(0, Math.min(signerCount - 1, f.signerIndex || 0)),
+      source: 'ai' as const,
+    }));
+
+    // Log what changed
+    for (const orig of candidates) {
+      const match = validated.find(v => v.type === orig.type && v.signerIndex === orig.signerIndex);
+      if (match) {
+        const pageDiff = match.page !== orig.page;
+        const posDiff = Math.abs(match.x - orig.x) > 0.02 || Math.abs(match.y - orig.y) > 0.02;
+        if (pageDiff || posDiff) {
+          logger.info({
+            type: orig.type,
+            signer: orig.signerIndex,
+            original: { page: orig.page, x: orig.x.toFixed(3), y: orig.y.toFixed(3) },
+            adjusted: { page: match.page, x: match.x.toFixed(3), y: match.y.toFixed(3) },
+          }, 'AI adjusted field position');
+        }
+      }
+    }
+
+    return validated.length > 0 ? validated : candidates;
+  }
+
+  // =========================================================================
+  // Post-processing rules: validate and adjust field positions
+  // =========================================================================
+  private postProcessFields(fields: DetectedField[], textItems: TextItem[], pageCount: number): DetectedField[] {
+    let result = [...fields];
+
+    // Rule 1: Deduplicate overlapping fields of the same type
+    result = this.deduplicateFields(result);
+
+    // Rule 2: Ensure fields don't overlap with existing body text
+    for (const field of result) {
+      const overlappingText = textItems.filter(item =>
+        item.page === field.page &&
+        item.x < field.x + field.width &&
+        item.x + item.width > field.x &&
+        item.y < field.y + field.height &&
+        item.y + item.height > field.y,
+      );
+
+      // If the field overlaps body text (not just labels), it's probably misplaced
+      const bodyTextOverlap = overlappingText.filter(item =>
+        item.text.trim().length > 30 // Long text = body paragraph, not a label
+      );
+
+      if (bodyTextOverlap.length > 0) {
+        logger.warn({
+          fieldType: field.type,
+          page: field.page,
+          pos: { x: field.x.toFixed(3), y: field.y.toFixed(3) },
+          overlapsText: bodyTextOverlap.map(t => t.text.substring(0, 40)),
+        }, 'Post-processing: field overlaps body text — shifting upward');
+        // Move field upward to clear the text
+        field.y = Math.max(0, field.y - field.height - 0.01);
+      }
+    }
+
+    // Rule 3: Ensure fields are within page bounds
+    for (const field of result) {
+      field.x = Math.max(0.02, Math.min(0.93, field.x));
+      field.y = Math.max(0.02, Math.min(0.93, field.y));
+      field.page = Math.max(1, Math.min(pageCount, field.page));
+    }
+
+    // Rule 4: Ensure no two fields of the same signer overlap each other
+    for (let i = 0; i < result.length; i++) {
+      for (let j = i + 1; j < result.length; j++) {
+        const a = result[i];
+        const b = result[j];
+        if (a.page !== b.page || a.signerIndex !== b.signerIndex) continue;
+        if (a.type === b.type) continue; // already handled by dedup
+
+        // Check overlap
+        if (a.x < b.x + b.width && a.x + a.width > b.x &&
+            a.y < b.y + b.height && a.y + a.height > b.y) {
+          // Move the smaller field (date/title) to the right of the larger (signature)
+          if (b.type !== 'signature') {
+            b.x = a.x + a.width + 0.02;
+            b.x = Math.min(0.93, b.x);
+          } else if (a.type !== 'signature') {
+            a.x = b.x + b.width + 0.02;
+            a.x = Math.min(0.93, a.x);
+          }
+        }
+      }
+    }
+
+    return result;
+  }
+
+  // =========================================================================
+  // Full AI detection (when no deterministic candidates found)
   // =========================================================================
   private async aiDetectWithTextContext(
     pdfBuffer: Buffer,
