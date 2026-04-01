@@ -287,30 +287,36 @@ export class EmailProcessor {
     // Create user
     const user = await this.userRepo.findOrCreateByEmail(senderEmail);
 
-    // Upload to S3 and create document record
-    let documentId: string;
+    // Extract text from PDF (independent of S3)
     let documentText = '';
     let pageCount = 1;
+    try {
+      const pdfParseModule: any = await import('pdf-parse');
+      const pdfParse = pdfParseModule.default || pdfParseModule;
+      const pdfData = await pdfParse(attachment.content);
+      documentText = pdfData.text || '';
+      pageCount = pdfData.numpages || 1;
+    } catch (parseErr) {
+      logger.warn(`PDF text extraction failed: ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`);
+      // Fallback: count pages from PDF header
+      try {
+        const pdfContent = attachment.content.toString('binary');
+        const pageMatches = pdfContent.match(/\/Type\s*\/Page[^s]/g);
+        if (pageMatches) pageCount = pageMatches.length;
+      } catch { /* ignore */ }
+    }
+
+    // Upload to S3 and create document record
+    let documentId: string;
 
     if (process.env.AWS_ACCESS_KEY_ID) {
       try {
         const { StorageService } = await import('../services/StorageService.js');
         const storageService = new StorageService();
-        const pdfParseModule: any = await import('pdf-parse');
-        const pdfParse = pdfParseModule.default || pdfParseModule;
 
-        // Extract text
-        try {
-          const pdfData = await pdfParse(attachment.content);
-          documentText = pdfData.text || '';
-          pageCount = pdfData.numpages || 1;
-        } catch (parseErr) {
-          logger.warn({ error: parseErr instanceof Error ? parseErr.message : String(parseErr) }, 'PDF text extraction failed');
-        }
-
-        // Upload to S3
         const s3Key = `documents/${user.id}/${crypto.randomUUID()}/${fileName}`;
         await storageService.uploadDocument(s3Key, attachment.content, 'application/pdf');
+        logger.info(`S3 upload successful: key=${s3Key}`);
 
         const doc = await this.documentRepo.create({
           sender_id: user.id,
@@ -334,6 +340,7 @@ export class EmailProcessor {
         documentId = await this.createBasicDocument(user.id, attachment, messageId, subject);
       }
     } else {
+      logger.warn('AWS_ACCESS_KEY_ID not set, skipping S3 upload');
       documentId = await this.createBasicDocument(user.id, attachment, messageId, subject);
     }
 
