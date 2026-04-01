@@ -95,17 +95,26 @@ export class EmailProcessor {
       logger.info(`Found ${newResults.length} new emails to process`);
       const fetch = this.imap.fetch(newResults, { bodies: '', markSeen: true });
 
+      // Collect all messages first, then process sequentially to prevent
+      // duplicate Step 2 processing when multiple replies exist
+      const buffers: string[] = [];
       fetch.on('message', (msg) => {
         let buffer = '';
         msg.on('body', (stream) => {
           stream.on('data', (chunk: Buffer) => { buffer += chunk.toString(); });
-          stream.on('end', () => {
-            this.handleEmail(buffer).catch((handleErr) => {
-              const errMsg = handleErr instanceof Error ? handleErr.message : String(handleErr);
-              logger.error(`Failed to process email: ${errMsg}`);
-            });
-          });
+          stream.on('end', () => { buffers.push(buffer); });
         });
+      });
+
+      fetch.once('end', async () => {
+        for (const buffer of buffers) {
+          try {
+            await this.handleEmail(buffer);
+          } catch (handleErr) {
+            const errMsg = handleErr instanceof Error ? handleErr.message : String(handleErr);
+            logger.error(`Failed to process email: ${errMsg}`);
+          }
+        }
       });
 
       if (this.processedUids.size > 1000) {
@@ -486,7 +495,7 @@ Preview: ${previewUrl}`,
     // Deduct credits
     await this.userRepo.deductCredits(user.id, signeeEmails.length, pendingDoc.id);
 
-    // Update document status
+    // Update document status immediately to prevent duplicate processing
     await db('document_requests').where({ id: pendingDoc.id }).update({
       status: 'sent',
       credits_required: signeeEmails.length,
@@ -627,7 +636,8 @@ Preview: ${previewUrl}`,
     // Strip quoted reply text to avoid picking up example emails from our instructions
     const strippedBody = this.stripQuotedReply(body);
 
-    const emailRegex = /[\w.-]+@[\w.-]+\.\w+/g;
+    // Match emails with at least 2 chars before @ to avoid fragments like i@gmail.com
+    const emailRegex = /\b[\w.-]{2,}@[\w.-]+\.\w{2,}\b/g;
     const matches = strippedBody.match(emailRegex) || [];
 
     const filtered = [...new Set(
