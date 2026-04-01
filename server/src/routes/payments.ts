@@ -76,6 +76,60 @@ export function createPaymentsRouter(): Router {
     }
   });
 
+  // Verify checkout session and ensure credits are applied (fallback for delayed webhooks)
+  router.post('/verify-session', async (req: Request, res: Response) => {
+    try {
+      if (!process.env.STRIPE_SECRET_KEY) {
+        res.status(503).json({ error: 'Payment processing is not configured' });
+        return;
+      }
+
+      const { sessionId } = req.body;
+      if (!sessionId) {
+        res.status(400).json({ error: 'sessionId is required' });
+        return;
+      }
+
+      const Stripe = (await import('stripe')).default;
+      const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
+
+      const session = await stripe.checkout.sessions.retrieve(sessionId);
+      if (session.payment_status !== 'paid') {
+        res.status(400).json({ error: 'Payment not completed', status: session.payment_status });
+        return;
+      }
+
+      const userId = session.metadata?.userId;
+      const credits = Number(session.metadata?.credits);
+      if (!userId || !credits) {
+        res.status(400).json({ error: 'Invalid session metadata' });
+        return;
+      }
+
+      // Check if credits were already granted
+      const paymentIntentId = session.payment_intent as string;
+      const existing = await db('credit_transactions')
+        .where({ stripe_payment_intent_id: paymentIntentId })
+        .first();
+
+      if (existing) {
+        const user = await userRepo.findById(userId);
+        res.json({ message: 'Credits already applied', credits: user?.credits });
+        return;
+      }
+
+      // Apply credits now (webhook was delayed or failed)
+      await userRepo.addCredits(userId, credits, paymentIntentId);
+      const user = await userRepo.findById(userId);
+      logger.info({ userId, credits, paymentIntentId }, 'Credits applied via session verification (webhook fallback)');
+      res.json({ message: `${credits} credits added`, credits: user?.credits });
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      logger.error({ error: errMsg }, 'Error verifying checkout session');
+      res.status(500).json({ error: 'Failed to verify payment' });
+    }
+  });
+
   // Manual payment verification - recover credits from a completed Stripe payment
   router.post('/verify-payment', async (req: Request, res: Response) => {
     try {
