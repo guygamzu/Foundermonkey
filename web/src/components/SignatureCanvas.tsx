@@ -88,7 +88,21 @@ export default function SignatureCanvas({ onSave, onCancel }: SignatureCanvasPro
 
   const handleSave = useCallback(() => {
     if (mode === 'type') {
-      onSave(typedName);
+      // Render typed name as an image data URL so it displays correctly
+      const canvas = document.createElement('canvas');
+      canvas.width = 600;
+      canvas.height = 120;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.fillStyle = 'transparent';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = '#1a1a2e';
+        ctx.font = 'italic 48px "Dancing Script", cursive, serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(typedName, canvas.width / 2, canvas.height / 2);
+      }
+      onSave(canvas.toDataURL('image/png'));
       return;
     }
 

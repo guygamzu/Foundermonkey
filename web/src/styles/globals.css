@@ -472,6 +472,7 @@ body {
   padding: 16px;
   position: sticky;
   bottom: 0;
+  z-index: 50;
 }
 
 .consent-checkbox {
@@ -484,13 +485,18 @@ body {
 .consent-checkbox input[type="checkbox"] {
   width: 20px;
   height: 20px;
+  min-width: 20px;
+  min-height: 20px;
   margin-top: 2px;
   flex-shrink: 0;
+  cursor: pointer;
+  accent-color: var(--primary);
 }
 
 .consent-checkbox label {
   font-size: 0.875rem;
   color: var(--gray-700);
+  cursor: pointer;
 }
 
 /* Loading */
