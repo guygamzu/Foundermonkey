@@ -226,8 +226,9 @@ export class EmailProcessor {
           .first();
 
         if (pendingDoc) {
-          logger.info({ documentId: pendingDoc.id, signeeCount: hasSigneeEmails.length, signees: hasSigneeEmails, docStatus: pendingDoc.status, hasAttachments: attachments.length }, 'Detected step 2 reply with signee emails');
-          await this.handleSigneeReply(senderEmail, user, pendingDoc, hasSigneeEmails, body, messageId);
+          const signeesWithNames = this.extractSigneesWithNames(body, senderEmail);
+          logger.info({ documentId: pendingDoc.id, signeeCount: signeesWithNames.length, signees: signeesWithNames, docStatus: pendingDoc.status, hasAttachments: attachments.length }, 'Detected step 2 reply with signee emails');
+          await this.handleSigneeReply(senderEmail, user, pendingDoc, signeesWithNames, body, messageId);
           return;
         } else {
           logger.warn({ userId: user.id, signees: hasSigneeEmails }, 'Found signee emails but no pending/insufficient_credits document — checking for recent docs');
@@ -488,18 +489,24 @@ Preview: ${previewUrl}`,
     senderEmail: string,
     user: { id: string; name: string | null; email: string; credits: number },
     pendingDoc: any,
-    signeeEmails: string[],
+    signees: Array<{ email: string; name: string | null }>,
     body: string,
     messageId: string,
   ): Promise<void> {
     const db = getDatabase();
     const appUrl = process.env.APP_URL || 'http://localhost:3000';
+    const signeeEmails = signees.map(s => s.email);
 
     // Extract custom cover text from the reply, or fall back to AI-generated cover text from step 1
     let coverText = this.extractCoverText(body, signeeEmails);
     if (!coverText && pendingDoc.suggested_cover_text) {
       coverText = pendingDoc.suggested_cover_text;
       logger.info({ docId: pendingDoc.id }, 'Using stored AI-generated cover text (user did not provide custom text)');
+    }
+    // Final fallback — generate a sensible default
+    if (!coverText) {
+      const senderDisplayName = user.name || senderEmail.split('@')[0];
+      coverText = `Please review and sign the attached document "${pendingDoc.file_name}".\n\nThank you,\n${senderDisplayName}`;
     }
 
     logger.info({ userId: user.id, credits: user.credits, required: signeeEmails.length, docId: pendingDoc.id, docStatus: pendingDoc.status, hasCoverText: !!coverText }, 'handleSigneeReply — starting credit check');
@@ -565,15 +572,16 @@ Preview: ${previewUrl}`,
     // Create signers and send notifications
     const sentEmails: string[] = [];
     const failedEmails: string[] = [];
-    for (let i = 0; i < signeeEmails.length; i++) {
-      const email = signeeEmails[i];
+    const senderDisplayName = user.name || senderEmail.split('@')[0];
+    for (let i = 0; i < signees.length; i++) {
+      const { email, name: signeeName } = signees[i];
       const signingToken = crypto.randomBytes(32).toString('base64url');
 
       await this.documentRepo.createSigner({
         document_request_id: pendingDoc.id,
         email,
         phone: null,
-        name: null,
+        name: signeeName,
         status: 'pending',
         delivery_channel: 'email',
         signing_order: i + 1,
@@ -586,8 +594,8 @@ Preview: ${previewUrl}`,
       try {
         await this.emailService.sendSigningNotification(
           email,
-          undefined,
-          user.name || senderEmail.split('@')[0],
+          signeeName || undefined,
+          senderDisplayName,
           senderEmail,
           pendingDoc.file_name,
           signingUrl,
@@ -694,6 +702,10 @@ Preview: ${previewUrl}`,
    * Extract email addresses from body text, excluding the sender's own email
    * and common service/system addresses.
    */
+  /**
+   * Extract email addresses from body, returning both the email and any associated name.
+   * Supports formats: "email@example.com", "Name <email@example.com>", "Name email@example.com"
+   */
   private extractEmailAddresses(body: string, senderEmail: string): string[] {
     // Strip quoted reply text to avoid picking up example emails from our instructions
     const strippedBody = this.stripQuotedReply(body);
@@ -707,12 +719,9 @@ Preview: ${previewUrl}`,
         .map(e => e.toLowerCase())
         .filter(e => {
           if (e === senderEmail.toLowerCase()) return false;
-          // Filter out common non-person emails
           if (e.includes('noreply') || e.includes('no-reply')) return false;
           if (e.includes('resend.dev')) return false;
-          // Filter out example/test domains
           if (e.endsWith('@example.com') || e.endsWith('@example.org') || e.endsWith('@example.net')) return false;
-          // Filter out the service's own email address
           const serviceEmail = (process.env.IMAP_USER || '').replace(/@@/g, '@').toLowerCase();
           if (serviceEmail && e === serviceEmail) return false;
           if (e.includes('unsubscribe')) return false;
@@ -721,6 +730,51 @@ Preview: ${previewUrl}`,
     )];
 
     return filtered;
+  }
+
+  /**
+   * Extract name-email pairs from the body. Supports:
+   * - "Name <email@example.com>"
+   * - "Name email@example.com"
+   * - Just "email@example.com" (name derived from email prefix)
+   */
+  private extractSigneesWithNames(body: string, senderEmail: string): Array<{ email: string; name: string | null }> {
+    const strippedBody = this.stripQuotedReply(body);
+    const emails = this.extractEmailAddresses(body, senderEmail);
+    const result: Array<{ email: string; name: string | null }> = [];
+
+    for (const email of emails) {
+      let name: string | null = null;
+
+      // Try "Name <email>" pattern
+      const bracketPattern = new RegExp(`([\\w\\s.-]+?)\\s*<${email.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}>`, 'i');
+      const bracketMatch = strippedBody.match(bracketPattern);
+      if (bracketMatch && bracketMatch[1].trim().length > 1) {
+        name = bracketMatch[1].trim();
+      }
+
+      // Try "Name email" on the same line (word(s) before the email)
+      if (!name) {
+        const linePattern = new RegExp(`^\\s*([A-Z][a-zA-Z]+(?:\\s+[A-Z][a-zA-Z]+)*)\\s+${email.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'mi');
+        const lineMatch = strippedBody.match(linePattern);
+        if (lineMatch && lineMatch[1].trim().length > 1) {
+          name = lineMatch[1].trim();
+        }
+      }
+
+      // Fall back to deriving a name from the email prefix
+      if (!name) {
+        const prefix = email.split('@')[0];
+        // Turn "john.doe" or "john_doe" into "John Doe"
+        name = prefix
+          .replace(/[._-]/g, ' ')
+          .replace(/\b\w/g, c => c.toUpperCase());
+      }
+
+      result.push({ email, name });
+    }
+
+    return result;
   }
 
   /**
@@ -792,30 +846,15 @@ Preview: ${previewUrl}`,
   }
 
   private extractCoverText(body: string, signeeEmails: string[]): string {
-    // Look for explicit cover text marker
+    // Look for explicit "cover text:" marker — this is the only way to override
     const coverMatch = body.match(/cover\s*text\s*[:：]\s*([\s\S]*?)(?=\n\n|$)/i);
     if (coverMatch && coverMatch[1].trim().length > 10) {
       return coverMatch[1].trim();
     }
 
-    // Remove email addresses and quoted text, see if meaningful text remains
-    let cleaned = body;
-    // Remove quoted text (lines starting with >)
-    cleaned = cleaned.replace(/^>.*$/gm, '');
-    // Remove email addresses
-    for (const email of signeeEmails) {
-      cleaned = cleaned.replace(new RegExp(email.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), '');
-    }
-    // Remove "On ... wrote:" lines
-    cleaned = cleaned.replace(/on\s+.*\s+wrote\s*:/gi, '');
-    // Remove blank lines and trim
-    cleaned = cleaned.replace(/\n{3,}/g, '\n\n').trim();
-
-    // If there's substantial remaining text, use it as cover text
-    if (cleaned.length > 20) {
-      return cleaned;
-    }
-
+    // Don't try to infer cover text from remaining body — it's usually just
+    // email signatures, names, URLs, etc. Return empty and let the caller
+    // fall back to the AI-generated cover text stored on the document.
     return '';
   }
 

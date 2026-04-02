@@ -161,46 +161,41 @@ export class EmailService {
     customMessage?: string,
     channel: 'email' | 'sms' | 'whatsapp' = 'email',
   ): Promise<string> {
-    const greeting = signerName ? `Hi ${signerName},` : 'Hi,';
+    const greeting = signerName ? `Hi ${signerName},` : 'Hi there,';
 
-    const coverHtml = customMessage
-      ? `<div style="background: #f9fafb; border-left: 4px solid #2563eb; padding: 12px 16px; margin: 0 0 20px; border-radius: 0 4px 4px 0;">
-          <p style="margin: 0; font-size: 14px; color: #374151; white-space: pre-line;">${customMessage}</p>
-        </div>`
-      : '';
-
-    const coverPlain = customMessage ? `\n${customMessage}\n` : '';
+    const coverPlain = customMessage || '';
 
     const html = `
       <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; color: #111827;">
         <!-- Header -->
         <div style="background: linear-gradient(135deg, #2563eb 0%, #1e40af 100%); padding: 24px; border-radius: 12px 12px 0 0; text-align: center;">
-          <h1 style="margin: 0; color: white; font-size: 18px; font-weight: 700;">You have a document to sign</h1>
+          <h1 style="margin: 0; color: white; font-size: 18px; font-weight: 700;">${senderName} sent you a document to sign</h1>
         </div>
 
         <!-- Body -->
         <div style="background: white; padding: 24px; border: 1px solid #e5e7eb; border-top: none;">
-          <p style="margin: 0 0 16px; font-size: 15px;">${greeting}</p>
+          <p style="margin: 0 0 20px; font-size: 15px; line-height: 1.5;">${greeting}</p>
 
-          <!-- Sender identity -->
-          <div style="background: #f0f7ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 16px; margin: 0 0 20px;">
-            <p style="margin: 0 0 4px; font-size: 14px; color: #6b7280;">Sent by:</p>
-            <p style="margin: 0; font-size: 16px; font-weight: 700; color: #1e40af;">${senderName}</p>
-            <p style="margin: 2px 0 0; font-size: 13px; color: #6b7280;">${senderEmail}</p>
+          <p style="margin: 0 0 20px; font-size: 15px; line-height: 1.5;">
+            <strong>${senderName}</strong> (<a href="mailto:${senderEmail}" style="color: #2563eb;">${senderEmail}</a>)
+            has requested your electronic signature on the following document:
+          </p>
+
+          <!-- Document card -->
+          <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 16px 20px; margin: 0 0 20px;">
+            <p style="margin: 0 0 4px; font-size: 15px; font-weight: 700; color: #1e293b;">${fileName}</p>
+            <p style="margin: 0; font-size: 13px; color: #64748b;">Requires your electronic signature</p>
           </div>
 
-          <!-- Document info -->
-          <div style="display: flex; align-items: center; gap: 12px; margin: 0 0 16px;">
-            <div style="width: 40px; height: 40px; background: #fee2e2; border-radius: 8px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
-              <span style="font-size: 20px;">📄</span>
-            </div>
-            <div>
-              <p style="margin: 0; font-size: 14px; font-weight: 600; color: #374151;">${fileName}</p>
-              <p style="margin: 2px 0 0; font-size: 12px; color: #9ca3af;">Requires your electronic signature</p>
+          <!-- Cover text / message from sender -->
+          ${customMessage ? `
+          <div style="margin: 0 0 24px;">
+            <p style="margin: 0 0 6px; font-size: 12px; font-weight: 600; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px;">Message from ${senderName}:</p>
+            <div style="background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 14px 16px;">
+              <p style="margin: 0; font-size: 14px; color: #374151; line-height: 1.6; white-space: pre-line;">${customMessage}</p>
             </div>
           </div>
-
-          ${coverHtml}
+          ` : ''}
 
           <!-- CTA -->
           <div style="text-align: center; margin: 24px 0 16px;">

@@ -299,8 +299,13 @@ Now answer the following question. Respond in JSON format:
       messages: [{
         role: 'user',
         content: `You are an AI assistant for Lapen, an e-signature service. Read this document and provide:
-1. A concise summary (2-4 sentences) of what this document is about
-2. A suggested cover email text that the sender could use when sending this document for signature
+1. A concise summary (2-4 sentences) of what this document is about, including the key parties and purpose
+2. A suggested cover email text to include in the email sent to signers. This text should:
+   - Briefly explain what the document is about and why the recipient is receiving it
+   - Be professional but warm
+   - Be 2-3 sentences max
+   - NOT include "Hi" or greetings (those are added automatically)
+   - NOT include signature/sign-off (that's added automatically)
 
 Document name: ${fileName}
 Document content:
@@ -309,7 +314,7 @@ ${documentText.substring(0, 15000)}
 Respond in JSON format:
 {
   "summary": "Brief summary of the document...",
-  "suggestedCoverText": "Hi,\\n\\nPlease review and sign the attached document...\\n\\nThank you"
+  "suggestedCoverText": "This is a [document type] regarding [purpose]. It outlines [key terms]. Please review carefully before signing."
 }`,
       }],
     });
