@@ -33,7 +33,8 @@ async function main() {
       await runMigrations();
       logger.info('Database migrations completed');
     } catch (err) {
-      logger.error({ err }, 'Failed to run migrations');
+      const errMsg = err instanceof Error ? err.message : String(err);
+      logger.error({ err: errMsg }, 'Failed to run migrations');
     }
   } else {
     logger.warn('DATABASE_URL not configured, skipping migrations');

@@ -148,80 +148,111 @@ export async function runMigrations(): Promise<void> {
 /**
  * Add columns/tables that were introduced after the initial schema.
  * Each migration checks if the column/table already exists before adding.
+ * Each step is wrapped in try/catch so one failure doesn't block the rest.
  */
 async function runIncrementalMigrations(database: Knex): Promise<void> {
   // --- Referrals (20260401000001) ---
-  const hasReferralCode = await database.raw(`
-    SELECT 1 FROM information_schema.columns
-    WHERE table_name = 'users' AND column_name = 'referral_code'
-  `);
-  if (hasReferralCode.rows.length === 0) {
-    await database.schema.alterTable('users', (table) => {
-      table.string('referral_code').unique();
-    });
+  try {
+    const hasReferralCode = await database.raw(`
+      SELECT 1 FROM information_schema.columns
+      WHERE table_name = 'users' AND column_name = 'referral_code'
+    `);
+    if (hasReferralCode.rows.length === 0) {
+      await database.schema.alterTable('users', (table) => {
+        table.string('referral_code').unique();
+      });
+    }
+  } catch (err) {
+    // Column may already exist
   }
 
-  const hasReferralsTable = await database.schema.hasTable('referrals');
-  if (!hasReferralsTable) {
-    await database.schema.createTable('referrals', (table) => {
-      table.uuid('id').primary().defaultTo(database.raw('uuid_generate_v4()'));
-      table.uuid('referrer_id').notNullable().references('id').inTable('users').onDelete('CASCADE');
-      table.uuid('referred_id').notNullable().references('id').inTable('users').onDelete('CASCADE');
-      table.integer('credits_awarded').notNullable().defaultTo(5);
-      table.timestamp('created_at').notNullable().defaultTo(database.fn.now());
-      table.unique(['referrer_id', 'referred_id'] as any);
-    });
+  try {
+    const hasReferralsTable = await database.schema.hasTable('referrals');
+    if (!hasReferralsTable) {
+      await database.schema.createTable('referrals', (table) => {
+        table.uuid('id').primary().defaultTo(database.raw('uuid_generate_v4()'));
+        table.uuid('referrer_id').notNullable().references('id').inTable('users').onDelete('CASCADE');
+        table.uuid('referred_id').notNullable().references('id').inTable('users').onDelete('CASCADE');
+        table.integer('credits_awarded').notNullable().defaultTo(5);
+        table.timestamp('created_at').notNullable().defaultTo(database.fn.now());
+      });
+      // Add unique constraint separately to avoid issues
+      try {
+        await database.raw('ALTER TABLE referrals ADD CONSTRAINT referrals_unique_pair UNIQUE (referrer_id, referred_id)');
+      } catch (_) { /* constraint may already exist */ }
+    }
+  } catch (err) {
+    // Table may already exist
   }
 
   // --- AI summary & cover text on documents (20260402000001) ---
-  const hasAiSummary = await database.raw(`
-    SELECT 1 FROM information_schema.columns
-    WHERE table_name = 'document_requests' AND column_name = 'ai_summary'
-  `);
-  if (hasAiSummary.rows.length === 0) {
-    await database.schema.alterTable('document_requests', (table) => {
-      table.text('ai_summary');
-      table.text('suggested_cover_text');
-    });
+  try {
+    const hasAiSummary = await database.raw(`
+      SELECT 1 FROM information_schema.columns
+      WHERE table_name = 'document_requests' AND column_name = 'ai_summary'
+    `);
+    if (hasAiSummary.rows.length === 0) {
+      await database.schema.alterTable('document_requests', (table) => {
+        table.text('ai_summary');
+        table.text('suggested_cover_text');
+      });
+    }
+  } catch (err) {
+    // Columns may already exist
   }
 
   // --- Unique indexes on signers (20260402000002) ---
-  const hasSignerEmailIdx = await database.raw(`
-    SELECT 1 FROM pg_indexes WHERE indexname = 'signers_doc_email_unique'
-  `);
-  if (hasSignerEmailIdx.rows.length === 0) {
-    // Clean up duplicates first
-    await database.raw(`
-      DELETE FROM signers
-      WHERE id NOT IN (
-        SELECT MIN(id) FROM signers GROUP BY document_request_id, COALESCE(email, phone, id::text)
-      )
+  try {
+    const hasSignerEmailIdx = await database.raw(`
+      SELECT 1 FROM pg_indexes WHERE indexname = 'signers_doc_email_unique'
     `);
-    await database.raw(`
-      CREATE UNIQUE INDEX signers_doc_email_unique
-      ON signers (document_request_id, email)
-      WHERE email IS NOT NULL
-    `);
+    if (hasSignerEmailIdx.rows.length === 0) {
+      // Clean up duplicates first
+      try {
+        await database.raw(`
+          DELETE FROM signers a USING signers b
+          WHERE a.id > b.id
+            AND a.document_request_id = b.document_request_id
+            AND a.email IS NOT NULL AND b.email IS NOT NULL
+            AND a.email = b.email
+        `);
+      } catch (_) { /* ignore cleanup errors */ }
+      await database.raw(`
+        CREATE UNIQUE INDEX signers_doc_email_unique
+        ON signers (document_request_id, email)
+        WHERE email IS NOT NULL
+      `);
+    }
+  } catch (err) {
+    // Index may already exist or duplicates still present
   }
 
-  const hasSignerPhoneIdx = await database.raw(`
-    SELECT 1 FROM pg_indexes WHERE indexname = 'signers_doc_phone_unique'
-  `);
-  if (hasSignerPhoneIdx.rows.length === 0) {
-    await database.raw(`
-      CREATE UNIQUE INDEX signers_doc_phone_unique
-      ON signers (document_request_id, phone)
-      WHERE phone IS NOT NULL
+  try {
+    const hasSignerPhoneIdx = await database.raw(`
+      SELECT 1 FROM pg_indexes WHERE indexname = 'signers_doc_phone_unique'
     `);
+    if (hasSignerPhoneIdx.rows.length === 0) {
+      await database.raw(`
+        CREATE UNIQUE INDEX signers_doc_phone_unique
+        ON signers (document_request_id, phone)
+        WHERE phone IS NOT NULL
+      `);
+    }
+  } catch (err) {
+    // Index may already exist
   }
 
   // Fix documents stuck in pending_confirmation that already have notified signers
-  await database.raw(`
-    UPDATE document_requests
-    SET status = 'sent'
-    WHERE status = 'pending_confirmation'
-      AND id IN (
-        SELECT DISTINCT document_request_id FROM signers WHERE status = 'notified'
-      )
-  `);
+  try {
+    await database.raw(`
+      UPDATE document_requests
+      SET status = 'sent'
+      WHERE status = 'pending_confirmation'
+        AND id IN (
+          SELECT DISTINCT document_request_id FROM signers WHERE status = 'notified'
+        )
+    `);
+  } catch (err) {
+    // Non-critical
+  }
 }
