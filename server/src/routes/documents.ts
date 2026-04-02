@@ -81,7 +81,7 @@ export function createDocumentsRouter(): Router {
         user_agent: req.headers['user-agent'] || 'unknown',
       });
 
-      const appUrl = process.env.APP_URL || 'http://localhost:3000';
+      const appUrl = process.env.APP_URL || 'https://app.lapen.ai';
 
       res.json({
         documentId: doc.id,

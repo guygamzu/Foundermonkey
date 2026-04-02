@@ -459,7 +459,7 @@ export class EmailProcessor {
     });
 
     // Preview URL for the sender to see what signees will see
-    const appUrl = process.env.APP_URL || 'http://localhost:3000';
+    const appUrl = process.env.APP_URL || 'https://app.lapen.ai';
     const previewUrl = `${appUrl}/preview/${documentId}`;
 
     // Send the welcome/instructions email
@@ -532,7 +532,7 @@ Preview: ${previewUrl}`,
     messageId: string,
   ): Promise<void> {
     const db = getDatabase();
-    const appUrl = process.env.APP_URL || 'http://localhost:3000';
+    const appUrl = process.env.APP_URL || 'https://app.lapen.ai';
     const signeeEmails = signees.filter(s => s.email).map(s => s.email!);
     const signeeCount = signees.length;
 
