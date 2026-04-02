@@ -44,10 +44,9 @@ export default function PreviewPage() {
   const [loading, setLoading] = useState(true);
   const [pdfFailed, setPdfFailed] = useState(false);
 
-  // AI Summary & Chat
-  const [showAI, setShowAI] = useState(false);
+  // AI Summary & Chat — always visible
   const [aiSummary, setAiSummary] = useState('');
-  const [aiLoading, setAiLoading] = useState(false);
+  const [aiLoading, setAiLoading] = useState(true);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
@@ -61,36 +60,30 @@ export default function PreviewPage() {
           throw new Error(body.error || `HTTP ${res.status}`);
         }
         setPreview(await res.json());
+
+        // Auto-fetch AI summary
+        try {
+          const result = await askPreviewQuestion(
+            documentId,
+            'Summarize this document in 1-2 sentences. State what it is, its purpose, and the key parties.',
+            [],
+          );
+          setAiSummary(result.answer);
+          setChatMessages([{ role: 'assistant', content: result.answer }]);
+        } catch {
+          setAiSummary('Unable to generate summary at this time.');
+        } finally {
+          setAiLoading(false);
+        }
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load preview');
+        setAiLoading(false);
       } finally {
         setLoading(false);
       }
     }
     load();
   }, [documentId]);
-
-  const handleAISummary = async () => {
-    if (aiSummary) {
-      setShowAI(!showAI);
-      return;
-    }
-    setShowAI(true);
-    setAiLoading(true);
-    try {
-      const result = await askPreviewQuestion(
-        documentId,
-        'Please provide a concise summary of this document, including its purpose, key parties involved, and important terms or conditions.',
-        [],
-      );
-      setAiSummary(result.answer);
-      setChatMessages([{ role: 'assistant', content: result.answer }]);
-    } catch {
-      setAiSummary('Unable to generate summary at this time.');
-    } finally {
-      setAiLoading(false);
-    }
-  };
 
   const handleChatSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -168,30 +161,12 @@ export default function PreviewPage() {
 
   return (
     <div className="status-page">
-      <div style={{ marginBottom: 24, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+      <div style={{ marginBottom: 24 }}>
         <div style={{ fontSize: '1.125rem', fontWeight: 800, color: 'var(--primary)' }}>Lapen</div>
-        <button
-          onClick={handleAISummary}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 6,
-            padding: '8px 16px',
-            background: showAI ? '#2563eb' : '#eff6ff',
-            color: showAI ? 'white' : '#2563eb',
-            border: '1px solid #bfdbfe',
-            borderRadius: 8,
-            cursor: 'pointer',
-            fontSize: '0.875rem',
-            fontWeight: 600,
-          }}
-        >
-          ✨ AI Summary & Chat
-        </button>
       </div>
 
-      {/* AI Summary & Chat Panel */}
-      {showAI && (
+      {/* AI Summary & Chat Panel — always visible */}
+      {(
         <div className="status-card" style={{ borderLeft: '4px solid #2563eb' }}>
           <h2 style={{ fontSize: '0.875rem', fontWeight: 600, color: '#2563eb', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 12 }}>
             AI Document Assistant

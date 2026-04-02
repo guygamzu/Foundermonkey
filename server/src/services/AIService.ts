@@ -299,7 +299,7 @@ Now answer the following question. Respond in JSON format:
       messages: [{
         role: 'user',
         content: `You are an AI assistant for Lapen, an e-signature service. Read this document and provide:
-1. A concise summary (2-4 sentences) of what this document is about, including the key parties and purpose
+1. A very concise summary (1-2 sentences max) of what this document is about, its purpose, and the key parties
 2. A suggested cover email text to include in the email sent to signers. This text should:
    - Briefly explain what the document is about and why the recipient is receiving it
    - Be professional but warm
