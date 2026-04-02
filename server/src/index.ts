@@ -45,6 +45,8 @@ async function main() {
     process.env.APP_URL,
     'http://localhost:3000',
     'https://web-frontend-production-6687.up.railway.app',
+    'https://app.lapen.ai',
+    'https://lapen.ai',
   ].filter(Boolean) as string[];
   app.use(cors({
     origin: allowedOrigins,
