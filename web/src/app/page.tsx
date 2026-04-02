@@ -58,8 +58,8 @@ export default function Home() {
         </div>
       </section>
 
-      {/* How it works — light */}
-      <section className="lp-section lp-section-light" id="how">
+      {/* How it works */}
+      <section className="lp-section" id="how">
         <div className="lp-section-inner">
           <div className="lp-section-label">HOW IT WORKS</div>
           <h2 className="lp-section-h2">Three steps. No account needed.</h2>
@@ -94,7 +94,7 @@ export default function Home() {
       </section>
 
       {/* Features */}
-      <section className="lp-section lp-section-dark" id="features">
+      <section className="lp-section lp-section-alt" id="features">
         <div className="lp-section-inner">
           <div className="lp-section-label">CAPABILITIES</div>
           <h2 className="lp-section-h2">Everything you need, nothing you don&apos;t</h2>
@@ -133,8 +133,8 @@ export default function Home() {
         </div>
       </section>
 
-      {/* Pricing — light */}
-      <section className="lp-section lp-section-light" id="pricing">
+      {/* Pricing */}
+      <section className="lp-section" id="pricing">
         <div className="lp-section-inner">
           <div className="lp-section-label">PRICING</div>
           <h2 className="lp-section-h2">Simple, transparent pricing</h2>
