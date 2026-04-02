@@ -40,7 +40,9 @@ export class EmailProcessor {
 
     this.imap.on('ready', () => {
       logger.info('IMAP connected, starting email monitoring');
-      this.openInbox();
+      this.markAllAsRead(() => {
+        this.openInbox();
+      });
     });
 
     this.imap.on('error', (err: Error) => {
@@ -55,30 +57,53 @@ export class EmailProcessor {
     this.imap.connect();
   }
 
-  private openInbox(): void {
+  /**
+   * Mark all existing UNSEEN emails as read on startup so we don't reprocess
+   * old emails every time the server restarts.
+   */
+  private markAllAsRead(callback: () => void): void {
     this.imap.openBox('INBOX', false, (err) => {
       if (err) {
-        logger.error({ error: err.message }, 'Failed to open inbox');
+        logger.error({ error: err.message }, 'Failed to open inbox for marking read');
+        callback();
         return;
       }
-
-      this.processUnseenMessages();
-
-      this.imap.on('mail', () => {
-        logger.info('IMAP mail event received');
-        this.processUnseenMessages();
+      this.imap.search(['UNSEEN'], (searchErr, results) => {
+        if (searchErr || !results?.length) {
+          if (searchErr) logger.error({ error: searchErr.message }, 'IMAP search error during mark-all-read');
+          else logger.info('No unseen emails to mark as read on startup');
+          callback();
+          return;
+        }
+        logger.info(`Marking ${results.length} existing unseen emails as read to prevent reprocessing`);
+        this.imap.setFlags(results, ['\\Seen'], (flagErr) => {
+          if (flagErr) {
+            logger.error({ error: flagErr.message }, 'Failed to mark emails as read');
+          } else {
+            logger.info(`Marked ${results.length} emails as read`);
+          }
+          callback();
+        });
       });
-
-      setInterval(() => {
-        this.processUnseenMessages();
-      }, 60000);
     });
   }
 
+  private openInbox(): void {
+    // Inbox is already open from markAllAsRead — just set up listeners
+    logger.info('Setting up IMAP listeners for new mail');
+
+    this.imap.on('mail', () => {
+      logger.info('IMAP mail event received');
+      this.processUnseenMessages();
+    });
+
+    setInterval(() => {
+      this.processUnseenMessages();
+    }, 60000);
+  }
+
   private processUnseenMessages(): void {
-    const since = new Date();
-    since.setHours(since.getHours() - 2);
-    this.imap.search([['SINCE', since]], (err, results) => {
+    this.imap.search(['UNSEEN'], (err, results) => {
       if (err) {
         logger.error({ error: err.message }, 'IMAP search error');
         return;
@@ -560,10 +585,17 @@ Preview: ${previewUrl}`,
       });
     }
 
+    // Guard: check if signers already exist for this document (prevents duplicate sends on reprocessing)
+    const existingSigners = await db('signers').where({ document_request_id: pendingDoc.id }).select('email');
+    if (existingSigners.length > 0) {
+      logger.info({ docId: pendingDoc.id, existingSignerCount: existingSigners.length }, 'Signers already exist — skipping duplicate processing');
+      return;
+    }
+
     // Deduct credits
     await this.userRepo.deductCredits(user.id, signeeEmails.length, pendingDoc.id);
 
-    // Update document status immediately to prevent duplicate processing
+    // Update document status FIRST to prevent duplicate processing on restart
     await db('document_requests').where({ id: pendingDoc.id }).update({
       status: 'sent',
       credits_required: signeeEmails.length,
