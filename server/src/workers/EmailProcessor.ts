@@ -213,8 +213,10 @@ export class EmailProcessor {
     const hasSigneeEmails = this.extractEmailAddresses(body, senderEmail);
     const db = getDatabase();
 
-    if (hasSigneeEmails.length > 0 && attachments.length === 0) {
-      // This looks like a reply with signee addresses
+    if (hasSigneeEmails.length > 0) {
+      // This looks like a reply with signee addresses — check for a pending document
+      // Note: don't require attachments.length === 0 because email clients may
+      // re-attach the original PDF or include inline images in the reply
       const user = await this.userRepo.findByEmail(senderEmail);
       if (user) {
         const pendingDoc = await db('document_requests')
@@ -224,9 +226,18 @@ export class EmailProcessor {
           .first();
 
         if (pendingDoc) {
-          logger.info({ documentId: pendingDoc.id, signeeCount: hasSigneeEmails.length }, 'Detected step 2 reply with signee emails');
+          logger.info({ documentId: pendingDoc.id, signeeCount: hasSigneeEmails.length, signees: hasSigneeEmails, docStatus: pendingDoc.status, hasAttachments: attachments.length }, 'Detected step 2 reply with signee emails');
           await this.handleSigneeReply(senderEmail, user, pendingDoc, hasSigneeEmails, body, messageId);
           return;
+        } else {
+          logger.warn({ userId: user.id, signees: hasSigneeEmails }, 'Found signee emails but no pending/insufficient_credits document — checking for recent docs');
+          const recentDoc = await db('document_requests')
+            .where({ sender_id: user.id })
+            .orderBy('created_at', 'desc')
+            .first();
+          if (recentDoc) {
+            logger.warn({ documentId: recentDoc.id, status: recentDoc.status, fileName: recentDoc.file_name }, 'Most recent document for this user');
+          }
         }
       }
     }
@@ -480,6 +491,8 @@ Preview: ${previewUrl}`,
 
     // Extract custom cover text from the reply (look for text after "cover text:" or just use the body minus email addresses)
     const coverText = this.extractCoverText(body, signeeEmails);
+
+    logger.info({ userId: user.id, credits: user.credits, required: signeeEmails.length, docId: pendingDoc.id, docStatus: pendingDoc.status }, 'handleSigneeReply — starting credit check');
 
     // If user appears to have insufficient credits, try recovering from Stripe first
     if (user.credits < signeeEmails.length && process.env.STRIPE_SECRET_KEY) {
