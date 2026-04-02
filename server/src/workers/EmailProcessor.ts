@@ -281,8 +281,8 @@ export class EmailProcessor {
     }
 
     // ---------------------------------------------------------------
-    // STEP 1: New email with PDF attachment
-    // Upload PDF, generate AI summary + cover text, reply with instructions
+    // STEP 1: New email with document attachment
+    // Accept PDF directly, or convert DOC/DOCX/etc. to PDF first
     // ---------------------------------------------------------------
     const pdfAttachment = attachments.find((a) => {
       const type = (a.contentType || '').toLowerCase();
@@ -291,7 +291,17 @@ export class EmailProcessor {
              type === 'application/octet-stream' || type.includes('pdf') ||
              name.endsWith('.pdf');
     });
-    const selectedAttachment = pdfAttachment || (attachments.length === 1 ? attachments[0] : null);
+
+    // Check for convertible documents (DOC, DOCX, etc.)
+    let convertibleAttachment: typeof attachments[0] | null = null;
+    if (!pdfAttachment) {
+      const { isConvertibleToPage } = await import('../services/DocumentConverter.js');
+      convertibleAttachment = attachments.find(a =>
+        isConvertibleToPage(a.filename || '', a.contentType)
+      ) || null;
+    }
+
+    const selectedAttachment = pdfAttachment || convertibleAttachment || (attachments.length === 1 ? attachments[0] : null);
 
     if (!selectedAttachment) {
       // No attachment — could be a general question or accidental email
@@ -299,7 +309,7 @@ export class EmailProcessor {
         await this.trySendEmail({
           to: senderEmail,
           subject: `Re: ${subject}`,
-          text: "Welcome to Lapen! To get started, send me an email with a PDF document attached that you'd like to get signed. I'll help you prepare and send it to your signees.",
+          text: "Welcome to Lapen! To get started, send me an email with a document attached (PDF, DOC, DOCX, or other office formats) that you'd like to get signed. I'll help you prepare and send it to your signees.",
           inReplyTo: messageId,
         });
       }
@@ -356,8 +366,38 @@ export class EmailProcessor {
     messageId: string,
     body: string,
   ): Promise<void> {
-    const fileName = attachment.filename || 'document.pdf';
-    logger.info(`Step 1: New document from ${senderEmail}: ${fileName} (${attachment.size}b)`);
+    let fileName = attachment.filename || 'document.pdf';
+    let content = attachment.content;
+    let size = attachment.size;
+
+    // Convert non-PDF documents (DOC, DOCX, etc.) to PDF
+    const isPdf = (attachment.contentType || '').toLowerCase().includes('pdf') ||
+                  (fileName).toLowerCase().endsWith('.pdf');
+    if (!isPdf) {
+      try {
+        const { isConvertibleToPage, convertToPdf } = await import('../services/DocumentConverter.js');
+        if (isConvertibleToPage(fileName, attachment.contentType)) {
+          logger.info(`Converting ${fileName} to PDF...`);
+          const result = await convertToPdf(content, fileName);
+          content = result.pdfBuffer;
+          fileName = result.pdfFilename;
+          size = content.length;
+          logger.info(`Converted to PDF: ${fileName} (${size}b)`);
+        }
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        logger.error({ error: errMsg }, `Failed to convert ${fileName} to PDF`);
+        await this.trySendEmail({
+          to: senderEmail,
+          subject: `Re: ${subject}`,
+          text: `I couldn't convert your document "${fileName}" to PDF. Please convert it to PDF and resend it, or try sending it in a different format (DOC, DOCX, etc.).`,
+          inReplyTo: messageId,
+        });
+        return;
+      }
+    }
+
+    logger.info(`Step 1: New document from ${senderEmail}: ${fileName} (${size}b)`);
 
     // Create user
     const user = await this.userRepo.findOrCreateByEmail(senderEmail);
@@ -367,7 +407,7 @@ export class EmailProcessor {
     let pageCount = 1;
     try {
       const { extractPdfText } = await import('../services/pdfTextExtractor.js');
-      const result = await extractPdfText(attachment.content);
+      const result = await extractPdfText(content);
       documentText = result.text;
       pageCount = result.pageCount;
     } catch (parseErr) {
@@ -383,17 +423,17 @@ export class EmailProcessor {
         const storageService = new StorageService();
 
         const s3Key = `documents/${user.id}/${crypto.randomUUID()}/${fileName}`;
-        await storageService.uploadDocument(s3Key, attachment.content, 'application/pdf');
+        await storageService.uploadDocument(s3Key, content, 'application/pdf');
         logger.info(`S3 upload successful: key=${s3Key}`);
 
         const doc = await this.documentRepo.create({
           sender_id: user.id,
           status: 'pending_confirmation',
           file_name: fileName,
-          file_size: attachment.size,
+          file_size: size,
           page_count: pageCount,
           mime_type: 'application/pdf',
-          document_hash: crypto.createHash('sha256').update(attachment.content).digest('hex'),
+          document_hash: crypto.createHash('sha256').update(content).digest('hex'),
           s3_key: s3Key,
           is_sequential: false,
           credits_required: 1,
@@ -405,7 +445,7 @@ export class EmailProcessor {
       } catch (err) {
         const errDetail = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
         logger.error(`S3 upload failed: ${errDetail}. Using basic record.`);
-        documentId = await this.createBasicDocument(user.id, attachment, messageId, subject);
+        documentId = await this.createBasicDocument(user.id, { content, filename: fileName, size }, messageId, subject);
       }
     } else {
       logger.warn('AWS_ACCESS_KEY_ID not set, skipping S3 upload');
