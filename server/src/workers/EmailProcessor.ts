@@ -232,16 +232,15 @@ export class EmailProcessor {
     logger.info(`Processing incoming email: from=${senderEmail} subject="${subject}" bodyLen=${body.length} attachments=${attachments.length} firstLine="${firstLine}"`);
 
     // ---------------------------------------------------------------
-    // STEP 2 REPLY: Sender is replying with signee email addresses
-    // (they already sent the PDF in step 1 and got the welcome response)
+    // STEP 2 REPLY: Sender is replying with signee contacts
+    // (email addresses, phone numbers, or WhatsApp numbers)
     // ---------------------------------------------------------------
     const hasSigneeEmails = this.extractEmailAddresses(body, senderEmail);
+    const hasPhoneNumbers = /\+[\d\s()-]{7,20}/.test(this.stripQuotedReply(body));
     const db = getDatabase();
 
-    if (hasSigneeEmails.length > 0) {
-      // This looks like a reply with signee addresses — check for a pending document
-      // Note: don't require attachments.length === 0 because email clients may
-      // re-attach the original PDF or include inline images in the reply
+    if (hasSigneeEmails.length > 0 || hasPhoneNumbers) {
+      // This looks like a reply with signee contacts — check for a pending document
       const user = await this.userRepo.findByEmail(senderEmail);
       if (user) {
         const pendingDoc = await db('document_requests')
@@ -252,11 +251,13 @@ export class EmailProcessor {
 
         if (pendingDoc) {
           const signeesWithNames = this.extractSigneesWithNames(body, senderEmail);
-          logger.info({ documentId: pendingDoc.id, signeeCount: signeesWithNames.length, signees: signeesWithNames, docStatus: pendingDoc.status, hasAttachments: attachments.length }, 'Detected step 2 reply with signee emails');
-          await this.handleSigneeReply(senderEmail, user, pendingDoc, signeesWithNames, body, messageId);
-          return;
+          if (signeesWithNames.length > 0) {
+            logger.info({ documentId: pendingDoc.id, signeeCount: signeesWithNames.length, signees: signeesWithNames, docStatus: pendingDoc.status, hasAttachments: attachments.length }, 'Detected step 2 reply with signee contacts');
+            await this.handleSigneeReply(senderEmail, user, pendingDoc, signeesWithNames, body, messageId);
+            return;
+          }
         } else {
-          logger.warn({ userId: user.id, signees: hasSigneeEmails }, 'Found signee emails but no pending/insufficient_credits document — checking for recent docs');
+          logger.warn({ userId: user.id, signees: hasSigneeEmails }, 'Found signee contacts but no pending/insufficient_credits document — checking for recent docs');
           const recentDoc = await db('document_requests')
             .where({ sender_id: user.id })
             .orderBy('created_at', 'desc')
@@ -438,31 +439,34 @@ export class EmailProcessor {
 
     <h3 style="margin: 0 0 8px; font-size: 16px;">What happens next?</h3>
     <ol style="margin: 0 0 20px; padding-left: 20px; color: #374151; font-size: 14px; line-height: 1.8;">
-      <li><strong>Reply to this email</strong> with the email addresses of all people who need to sign</li>
-      <li>I'll send each signee a link to review and sign the document</li>
-      <li>Signees can place signatures, text, dates, and checkboxes anywhere on the document</li>
+      <li><strong>Reply to this email</strong> with the name and contact details of each person who needs to sign</li>
+      <li>I'll send each person a personalized link to review and sign</li>
+      <li>They can place signatures, text, dates, and checkboxes anywhere on the document</li>
       <li>You'll get notified when each person signs</li>
       <li>Once everyone has signed, you'll receive the completed document</li>
     </ol>
 
-    <h3 style="margin: 0 0 8px; font-size: 16px;">Suggested cover text for signees:</h3>
+    <h3 style="margin: 0 0 8px; font-size: 16px;">Suggested cover text for recipients:</h3>
     <div style="background: #f9fafb; padding: 12px 16px; margin: 0 0 20px; border-radius: 4px; border: 1px solid #e5e7eb;">
       <p style="margin: 0; font-size: 14px; color: #374151; white-space: pre-line;">${suggestedCoverText}</p>
     </div>
     <p style="margin: 0 0 20px; font-size: 13px; color: #6b7280;">
-      You can edit this text in your reply — I'll include it in the email to your signees.
+      You can edit this text in your reply — I'll include it in the message to your recipients.
     </p>
 
     <div style="background: #eff6ff; border: 1px solid #bfdbfe; padding: 16px; border-radius: 8px; margin: 0 0 20px;">
       <p style="margin: 0; font-size: 14px; font-weight: 600; color: #1e40af;">📝 How to reply:</p>
       <p style="margin: 8px 0 0; font-size: 13px; color: #374151;">
-        Simply reply to this email with:<br>
-        • The signee email addresses (one per line, or comma-separated)<br>
-        • Optionally edit the cover text above<br><br>
-        <em>Example:</em><br>
-        john@example.com<br>
-        jane@example.com<br><br>
-        Cover text: Please review and sign at your earliest convenience.
+        Reply with each recipient's <strong>name</strong> and <strong>email</strong>, <strong>phone</strong>, or <strong>WhatsApp number</strong> — one per line:<br><br>
+        <em>Examples:</em>
+      </p>
+      <div style="background: white; border: 1px solid #e5e7eb; border-radius: 6px; padding: 12px 14px; margin: 8px 0 0; font-family: monospace; font-size: 13px; color: #374151; line-height: 1.8;">
+        John Smith john@example.com<br>
+        Jane Doe +14155551234 whatsapp<br>
+        Bob Wilson +442071234567 sms
+      </div>
+      <p style="margin: 10px 0 0; font-size: 12px; color: #6b7280;">
+        Phone numbers default to WhatsApp if not specified. Include country code (e.g. +1 for US, +44 for UK).
       </p>
     </div>
 
@@ -486,18 +490,25 @@ I've received your document "${fileName}". Here's a quick summary:
 ${summary}
 
 WHAT HAPPENS NEXT:
-1. Reply to this email with the email addresses of all people who need to sign
-2. I'll send each signee a link to review and sign the document
-3. Signees can place signatures, text, dates, and checkboxes anywhere on the document
+1. Reply to this email with the name and contact details of each person who needs to sign
+2. I'll send each person a personalized link to review and sign
+3. They can place signatures, text, dates, and checkboxes anywhere on the document
 4. You'll get notified when each person signs
 
 SUGGESTED COVER TEXT:
 ${suggestedCoverText}
 
-You can edit this text in your reply — I'll include it in the email to your signees.
+You can edit this text in your reply — I'll include it in the message to your recipients.
 
 HOW TO REPLY:
-Simply reply with the signee email addresses (one per line or comma-separated), and optionally edit the cover text.
+Reply with each recipient's name and email, phone, or WhatsApp number — one per line.
+
+Example:
+John Smith john@example.com
+Jane Doe +14155551234 whatsapp
+Bob Wilson +442071234567 sms
+
+Phone numbers default to WhatsApp. Include country code (e.g. +1 for US, +44 for UK).
 
 Preview: ${previewUrl}`,
       html,
@@ -514,13 +525,14 @@ Preview: ${previewUrl}`,
     senderEmail: string,
     user: { id: string; name: string | null; email: string; credits: number },
     pendingDoc: any,
-    signees: Array<{ email: string; name: string | null }>,
+    signees: Array<{ email: string | null; phone: string | null; name: string | null; channel: 'email' | 'sms' | 'whatsapp' }>,
     body: string,
     messageId: string,
   ): Promise<void> {
     const db = getDatabase();
     const appUrl = process.env.APP_URL || 'http://localhost:3000';
-    const signeeEmails = signees.map(s => s.email);
+    const signeeEmails = signees.filter(s => s.email).map(s => s.email!);
+    const signeeCount = signees.length;
 
     // Extract custom cover text from the reply, or fall back to AI-generated cover text from step 1
     let coverText = this.extractCoverText(body, signeeEmails);
@@ -534,10 +546,10 @@ Preview: ${previewUrl}`,
       coverText = `Please review and sign the attached document "${pendingDoc.file_name}".\n\nThank you,\n${senderDisplayName}`;
     }
 
-    logger.info({ userId: user.id, credits: user.credits, required: signeeEmails.length, docId: pendingDoc.id, docStatus: pendingDoc.status, hasCoverText: !!coverText }, 'handleSigneeReply — starting credit check');
+    logger.info({ userId: user.id, credits: user.credits, required: signeeCount, docId: pendingDoc.id, docStatus: pendingDoc.status, hasCoverText: !!coverText }, 'handleSigneeReply — starting credit check');
 
     // If user appears to have insufficient credits, try recovering from Stripe first
-    if (user.credits < signeeEmails.length && process.env.STRIPE_SECRET_KEY) {
+    if (user.credits < signeeCount && process.env.STRIPE_SECRET_KEY) {
       try {
         const recovered = await this.recoverUnprocessedPayments(user.id, user.email);
         if (recovered) {
@@ -554,7 +566,7 @@ Preview: ${previewUrl}`,
     }
 
     // Check credits — mark document so we don't spam the user on every email
-    if (user.credits < signeeEmails.length) {
+    if (user.credits < signeeCount) {
       // Only send the notification once: skip if already notified
       if (pendingDoc.status !== 'insufficient_credits') {
         await db('document_requests').where({ id: pendingDoc.id }).update({
@@ -565,13 +577,13 @@ Preview: ${previewUrl}`,
         const freshUser = await this.userRepo.findById(user.id);
         await this.emailService.sendInsufficientCreditsEmail(
           senderEmail,
-          signeeEmails.length,
+          signeeCount,
           user.credits,
           purchaseUrl,
           messageId,
           freshUser?.referral_code || undefined,
         );
-        logger.info({ documentId: pendingDoc.id, required: signeeEmails.length, available: user.credits }, 'Insufficient credits — notified sender');
+        logger.info({ documentId: pendingDoc.id, required: signeeCount, available: user.credits }, 'Insufficient credits — notified sender');
       } else {
         logger.info({ documentId: pendingDoc.id }, 'Insufficient credits — already notified, skipping duplicate email');
       }
@@ -593,29 +605,35 @@ Preview: ${previewUrl}`,
     }
 
     // Deduct credits
-    await this.userRepo.deductCredits(user.id, signeeEmails.length, pendingDoc.id);
+    await this.userRepo.deductCredits(user.id, signeeCount, pendingDoc.id);
 
     // Update document status FIRST to prevent duplicate processing on restart
     await db('document_requests').where({ id: pendingDoc.id }).update({
       status: 'sent',
-      credits_required: signeeEmails.length,
+      credits_required: signeeCount,
     });
 
     // Create signers and send notifications
-    const sentEmails: string[] = [];
-    const failedEmails: string[] = [];
+    const sentContacts: string[] = [];
+    const failedContacts: string[] = [];
     const senderDisplayName = user.name || senderEmail.split('@')[0];
+
+    // Import MessagingService for SMS/WhatsApp
+    const { MessagingService } = await import('../services/MessagingService.js');
+    const messagingService = new MessagingService();
+
     for (let i = 0; i < signees.length; i++) {
-      const { email, name: signeeName } = signees[i];
+      const { email, phone, name: signeeName, channel } = signees[i];
+      const contactLabel = email || phone || 'unknown';
       const signingToken = crypto.randomBytes(32).toString('base64url');
 
       await this.documentRepo.createSigner({
         document_request_id: pendingDoc.id,
-        email,
-        phone: null,
+        email: email || null,
+        phone: phone || null,
         name: signeeName,
         status: 'pending',
-        delivery_channel: 'email',
+        delivery_channel: channel,
         signing_order: i + 1,
         signing_token: signingToken,
         custom_message: coverText || null,
@@ -624,30 +642,43 @@ Preview: ${previewUrl}`,
       const signingUrl = `${appUrl}/sign/${signingToken}`;
 
       try {
-        await this.emailService.sendSigningNotification(
-          email,
-          signeeName || undefined,
-          senderDisplayName,
-          senderEmail,
-          pendingDoc.file_name,
-          signingUrl,
-          coverText || undefined,
-        );
+        if (channel === 'email' && email) {
+          await this.emailService.sendSigningNotification(
+            email,
+            signeeName || undefined,
+            senderDisplayName,
+            senderEmail,
+            pendingDoc.file_name,
+            signingUrl,
+            coverText || undefined,
+          );
+        } else if ((channel === 'sms' || channel === 'whatsapp') && phone) {
+          await messagingService.sendSigningNotification(
+            channel,
+            phone,
+            senderDisplayName,
+            pendingDoc.file_name,
+            signingUrl,
+          );
+        }
 
         // Update signer status to notified
-        const signer = await db('signers')
-          .where({ document_request_id: pendingDoc.id, email })
-          .first();
+        const signerQuery = email
+          ? db('signers').where({ document_request_id: pendingDoc.id, email })
+          : db('signers').where({ document_request_id: pendingDoc.id, phone });
+        const signer = await signerQuery.first();
         if (signer) {
           await this.documentRepo.updateSignerStatus(signer.id, 'notified', { notified_at: new Date() } as any);
         }
 
-        logger.info({ signerEmail: email }, 'Signing notification sent');
-        sentEmails.push(email);
+        const displayLabel = signeeName ? `${signeeName} (${contactLabel})` : contactLabel;
+        logger.info({ contact: contactLabel, channel }, 'Signing notification sent');
+        sentContacts.push(displayLabel);
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err);
-        logger.error({ error: errMsg, signerEmail: email }, 'Failed to send signing notification');
-        failedEmails.push(email);
+        const displayLabel = signeeName ? `${signeeName} (${contactLabel})` : contactLabel;
+        logger.error({ error: errMsg, contact: contactLabel, channel }, 'Failed to send signing notification');
+        failedContacts.push(displayLabel);
       }
     }
 
@@ -658,30 +689,32 @@ Preview: ${previewUrl}`,
       action: 'document_sent',
       ip_address: 'email',
       user_agent: 'email-agent',
-      metadata: { signeeEmails },
+      metadata: { signees: signees.map(s => ({ contact: s.email || s.phone, channel: s.channel, name: s.name })) },
     });
 
     // Send confirmation to sender
     const statusUrl = `${appUrl}/status/${pendingDoc.id}`;
-    const allEmails = signeeEmails;
-    const sentList = allEmails.map(e => `  • ${e}${failedEmails.includes(e) ? ' (delivery failed)' : ''}`).join('\n');
-    const failedNote = failedEmails.length > 0
-      ? `\n\nNote: ${failedEmails.length} email(s) failed to deliver. The signing links have been created — you can share them manually from the status page.`
+    const sentList = sentContacts.map(c => `  • ${c}`).join('\n');
+    const failedList = failedContacts.map(c => `  • ${c} (delivery failed)`).join('\n');
+    const failedNote = failedContacts.length > 0
+      ? `\n\nNote: ${failedContacts.length} notification(s) failed to deliver. The signing links have been created — you can share them manually from the status page.`
       : '';
 
-    const emailListHtml = allEmails.map(e => {
-      const failed = failedEmails.includes(e);
-      return `<li style="margin: 4px 0;">${e}${failed ? ' <span style="color: #dc2626; font-size: 13px;">(delivery failed)</span>' : ''}</li>`;
-    }).join('');
+    const recipientListHtml = sentContacts.map(c =>
+      `<li style="margin: 4px 0;">${c}</li>`
+    ).join('');
+    const failedListHtml = failedContacts.map(c =>
+      `<li style="margin: 4px 0;">${c} <span style="color: #dc2626; font-size: 13px;">(delivery failed)</span></li>`
+    ).join('');
 
-    const failedNoteHtml = failedEmails.length > 0
-      ? `<p style="color: #dc2626; font-size: 14px; margin-top: 12px;">⚠ ${failedEmails.length} email(s) failed to deliver. The signing links have been created — you can share them manually from the status page.</p>`
+    const failedNoteHtml = failedContacts.length > 0
+      ? `<p style="color: #dc2626; font-size: 14px; margin-top: 12px;">⚠ ${failedContacts.length} notification(s) failed to deliver. The signing links have been created — you can share them manually from the status page.</p>`
       : '';
 
     await this.trySendEmail({
       to: senderEmail,
       subject: `✓ Document sent for signature: ${pendingDoc.file_name}`,
-      text: `Done! I've sent "${pendingDoc.file_name}" for signature to:\n\n${sentList}\n\nI'll notify you as each person signs.${failedNote}\n\nTrack status: ${statusUrl}`,
+      text: `Done! I've sent "${pendingDoc.file_name}" for signature to:\n\n${sentList}${failedList ? '\n' + failedList : ''}\n\nI'll notify you as each person signs.${failedNote}\n\nTrack status: ${statusUrl}`,
       html: `
 <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; color: #111827;">
   <div style="background: #16a34a; color: white; padding: 20px 24px; border-radius: 8px 8px 0 0;">
@@ -690,7 +723,7 @@ Preview: ${previewUrl}`,
   <div style="background: white; padding: 24px; border: 1px solid #e5e7eb; border-top: none; border-radius: 0 0 8px 8px;">
     <p>I've sent <strong>${pendingDoc.file_name}</strong> for signature to:</p>
     <ul style="margin: 12px 0; padding-left: 20px;">
-      ${emailListHtml}
+      ${recipientListHtml}${failedListHtml}
     </ul>
     <p>I'll notify you as each person signs.</p>
     ${failedNoteHtml}
@@ -700,7 +733,7 @@ Preview: ${previewUrl}`,
       inReplyTo: messageId,
     });
 
-    logger.info({ documentId: pendingDoc.id, sent: sentEmails.length, failed: failedEmails.length }, 'Step 2 complete: signing emails sent, sender notified');
+    logger.info({ documentId: pendingDoc.id, sent: sentContacts.length, failed: failedContacts.length }, 'Step 2 complete: signing notifications sent, sender notified');
   }
 
   // =========================================================================
@@ -765,48 +798,103 @@ Preview: ${previewUrl}`,
   }
 
   /**
-   * Extract name-email pairs from the body. Supports:
-   * - "Name <email@example.com>"
-   * - "Name email@example.com"
-   * - Just "email@example.com" (name derived from email prefix)
+   * Extract name + contact pairs from the body. Supports:
+   * - "Name <email@example.com>"         → email
+   * - "Name email@example.com"           → email
+   * - "Name +1234567890"                 → sms (default for phone)
+   * - "Name +1234567890 whatsapp"        → whatsapp
+   * - "Name +1234567890 sms"             → sms
+   * - Just "email@example.com"           → email (name derived from prefix)
    */
-  private extractSigneesWithNames(body: string, senderEmail: string): Array<{ email: string; name: string | null }> {
+  private extractSigneesWithNames(body: string, senderEmail: string): Array<{ email: string | null; phone: string | null; name: string | null; channel: 'email' | 'sms' | 'whatsapp' }> {
     const strippedBody = this.stripQuotedReply(body);
-    const emails = this.extractEmailAddresses(body, senderEmail);
-    const result: Array<{ email: string; name: string | null }> = [];
+    const lines = strippedBody.split(/\r?\n/);
+    const result: Array<{ email: string | null; phone: string | null; name: string | null; channel: 'email' | 'sms' | 'whatsapp' }> = [];
+    const seenContacts = new Set<string>();
 
-    for (const email of emails) {
-      let name: string | null = null;
+    const serviceEmail = (process.env.IMAP_USER || '').replace(/@@/g, '@').toLowerCase();
+    const fromEmail = (process.env.FROM_EMAIL || '').replace(/@@/g, '@').toLowerCase();
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.length < 3) continue;
+
+      // Try phone number pattern: "Name +1234567890 [whatsapp|sms]"
+      const phoneMatch = trimmed.match(/^(.+?)\s+(\+[\d\s()-]{7,20})\s*(whatsapp|sms)?\s*$/i);
+      if (phoneMatch) {
+        const name = phoneMatch[1].trim();
+        const phone = phoneMatch[2].replace(/[\s()-]/g, '');
+        const channel = (phoneMatch[3] || 'whatsapp').toLowerCase() as 'sms' | 'whatsapp';
+        if (phone.length >= 8 && !seenContacts.has(phone)) {
+          seenContacts.add(phone);
+          result.push({ email: null, phone, name, channel });
+        }
+        continue;
+      }
+
+      // Try standalone phone: "+1234567890 [whatsapp|sms]" (no name)
+      const phoneOnlyMatch = trimmed.match(/^(\+[\d\s()-]{7,20})\s*(whatsapp|sms)?\s*$/i);
+      if (phoneOnlyMatch) {
+        const phone = phoneOnlyMatch[1].replace(/[\s()-]/g, '');
+        const channel = (phoneOnlyMatch[2] || 'whatsapp').toLowerCase() as 'sms' | 'whatsapp';
+        if (phone.length >= 8 && !seenContacts.has(phone)) {
+          seenContacts.add(phone);
+          result.push({ email: null, phone, name: null, channel });
+        }
+        continue;
+      }
 
       // Try "Name <email>" pattern
-      const bracketPattern = new RegExp(`([\\w\\s.-]+?)\\s*<${email.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}>`, 'i');
-      const bracketMatch = strippedBody.match(bracketPattern);
-      if (bracketMatch && bracketMatch[1].trim().length > 1) {
-        name = bracketMatch[1].trim();
+      const bracketMatch = trimmed.match(/^(.+?)\s*<([\w.+-]+@[\w.-]+\.\w+)>\s*$/i);
+      if (bracketMatch) {
+        const name = bracketMatch[1].trim();
+        const email = bracketMatch[2].toLowerCase();
+        if (this.isValidSigneeEmail(email, senderEmail, serviceEmail, fromEmail) && !seenContacts.has(email)) {
+          seenContacts.add(email);
+          result.push({ email, phone: null, name: name.length > 1 ? name : null, channel: 'email' });
+        }
+        continue;
       }
 
-      // Try "Name email" on the same line (word(s) before the email)
-      if (!name) {
-        const linePattern = new RegExp(`^\\s*([A-Z][a-zA-Z]+(?:\\s+[A-Z][a-zA-Z]+)*)\\s+${email.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'mi');
-        const lineMatch = strippedBody.match(linePattern);
-        if (lineMatch && lineMatch[1].trim().length > 1) {
-          name = lineMatch[1].trim();
+      // Try "Name email" on a line
+      const nameEmailMatch = trimmed.match(/^([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+)*)\s+([\w.+-]+@[\w.-]+\.\w+)\s*$/i);
+      if (nameEmailMatch) {
+        const name = nameEmailMatch[1].trim();
+        const email = nameEmailMatch[2].toLowerCase();
+        if (this.isValidSigneeEmail(email, senderEmail, serviceEmail, fromEmail) && !seenContacts.has(email)) {
+          seenContacts.add(email);
+          result.push({ email, phone: null, name, channel: 'email' });
+        }
+        continue;
+      }
+
+      // Try standalone email
+      const emailMatch = trimmed.match(/([\w.+-]+@[\w.-]+\.\w+)/);
+      if (emailMatch) {
+        const email = emailMatch[1].toLowerCase();
+        if (this.isValidSigneeEmail(email, senderEmail, serviceEmail, fromEmail) && !seenContacts.has(email)) {
+          seenContacts.add(email);
+          // Derive name from email prefix
+          const prefix = email.split('@')[0];
+          const name = prefix.replace(/[._-]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+          result.push({ email, phone: null, name, channel: 'email' });
         }
       }
-
-      // Fall back to deriving a name from the email prefix
-      if (!name) {
-        const prefix = email.split('@')[0];
-        // Turn "john.doe" or "john_doe" into "John Doe"
-        name = prefix
-          .replace(/[._-]/g, ' ')
-          .replace(/\b\w/g, c => c.toUpperCase());
-      }
-
-      result.push({ email, name });
     }
 
     return result;
+  }
+
+  /** Check if an email is a valid signee (not the sender, service, or spam) */
+  private isValidSigneeEmail(email: string, senderEmail: string, serviceEmail: string, fromEmail: string): boolean {
+    const e = email.toLowerCase();
+    if (e === senderEmail.toLowerCase()) return false;
+    if (serviceEmail && e === serviceEmail) return false;
+    if (fromEmail && e === fromEmail) return false;
+    if (e.includes('noreply') || e.includes('no-reply') || e.includes('unsubscribe')) return false;
+    if (e.includes('resend.dev')) return false;
+    if (e.endsWith('@example.com') || e.endsWith('@example.org') || e.endsWith('@example.net')) return false;
+    return true;
   }
 
   /**
