@@ -25,7 +25,7 @@ export default function SignatureCanvas({ onSave, onCancel }: SignatureCanvasPro
     canvas.width = rect.width * 2;
     canvas.height = rect.height * 2;
     ctx.scale(2, 2);
-    ctx.strokeStyle = '#1a1a2e';
+    ctx.strokeStyle = '#2563eb';
     ctx.lineWidth = 2;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
@@ -96,7 +96,7 @@ export default function SignatureCanvas({ onSave, onCancel }: SignatureCanvasPro
       if (ctx) {
         ctx.fillStyle = 'transparent';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
-        ctx.fillStyle = '#1a1a2e';
+        ctx.fillStyle = '#2563eb';
         ctx.font = 'italic 48px "Dancing Script", cursive, serif';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
