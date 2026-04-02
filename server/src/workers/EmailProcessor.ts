@@ -269,31 +269,6 @@ export class EmailProcessor {
       }
     }
 
-    // ---------------------------------------------------------------
-    // SIGNEE REPLY: A signee replying with a signed scan/photo
-    // (they printed the PDF, signed by hand, and scanned/photographed it)
-    // ---------------------------------------------------------------
-    const hasImageOrPdfAttachment = attachments.some(a => {
-      const type = (a.contentType || '').toLowerCase();
-      const name = (a.filename || '').toLowerCase();
-      return type.includes('image') || type.includes('pdf') || name.endsWith('.pdf') ||
-             name.endsWith('.jpg') || name.endsWith('.jpeg') || name.endsWith('.png') ||
-             name.endsWith('.heic') || name.endsWith('.heif');
-    });
-
-    if (hasImageOrPdfAttachment) {
-      const signer = await db('signers')
-        .where({ email: senderLower })
-        .whereIn('status', ['pending', 'notified', 'viewed'])
-        .first();
-
-      if (signer) {
-        logger.info({ signerId: signer.id, signerEmail: senderLower, docId: signer.document_request_id }, 'Signee replied with signed scan');
-        await this.handleSignedScanReply(signer, attachments, senderLower, messageId);
-        return;
-      }
-    }
-
     // Check if this email was already processed (persisted in DB)
     if (messageId) {
       const existingDoc = await db('document_requests')
@@ -339,6 +314,33 @@ export class EmailProcessor {
         inReplyTo: messageId,
       });
       return;
+    }
+
+    // ---------------------------------------------------------------
+    // SIGNEE SCAN REPLY: Check if this is a signee replying with a
+    // printed-and-signed scan BEFORE treating as a new document.
+    // Only matches if:
+    //   - Sender has a signer record on a document in 'sent' status
+    //   - Sender is NOT a registered user (pure signee, not a sender)
+    // This prevents senders submitting new PDFs from being misidentified.
+    // ---------------------------------------------------------------
+    const existingUser = await this.userRepo.findByEmail(senderEmail);
+    if (!existingUser) {
+      // Not a registered sender — check if they're a signee
+      const signer = await db('signers')
+        .where({ email: senderLower })
+        .whereIn('status', ['pending', 'notified', 'viewed'])
+        .first();
+
+      if (signer) {
+        // Verify the document is in a state that expects signatures
+        const signerDoc = await db('document_requests').where({ id: signer.document_request_id }).first();
+        if (signerDoc && signerDoc.status === 'sent') {
+          logger.info({ signerId: signer.id, signerEmail: senderLower, docId: signer.document_request_id }, 'Signee replied with signed scan');
+          await this.handleSignedScanReply(signer, attachments, senderLower, messageId);
+          return;
+        }
+      }
     }
 
     await this.handleNewDocument(senderEmail, selectedAttachment, subject, messageId, body);
