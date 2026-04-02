@@ -283,6 +283,93 @@ export default function SigningPage() {
     setPlacedItems(prev => prev.filter(item => item.id !== itemId));
   }, []);
 
+  // Drag-to-move placed items
+  const dragRef = useRef<{
+    itemId: string;
+    startX: number;
+    startY: number;
+    origX: number;
+    origY: number;
+    containerRect: DOMRect;
+    itemWidth: number;
+    itemHeight: number;
+  } | null>(null);
+
+  const handleDragStart = useCallback((e: React.MouseEvent | React.TouchEvent, itemId: string) => {
+    // Don't drag if clicking the remove button
+    if ((e.target as HTMLElement).closest('.remove-item-btn')) return;
+
+    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+
+    // Find the overlay container (parent of the placed item)
+    const itemEl = (e.target as HTMLElement).closest('.placed-item') as HTMLElement;
+    if (!itemEl) return;
+    const container = itemEl.closest('.field-overlay-container > div') as HTMLElement;
+    if (!container) return;
+
+    const containerRect = container.getBoundingClientRect();
+    const item = placedItems.find(i => i.id === itemId);
+    if (!item) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+
+    dragRef.current = {
+      itemId,
+      startX: clientX,
+      startY: clientY,
+      origX: item.x,
+      origY: item.y,
+      containerRect,
+      itemWidth: item.width,
+      itemHeight: item.height,
+    };
+
+    // Add dragging class for visual feedback
+    itemEl.classList.add('dragging');
+  }, [placedItems]);
+
+  useEffect(() => {
+    const handleDragMove = (e: MouseEvent | TouchEvent) => {
+      if (!dragRef.current) return;
+      e.preventDefault();
+
+      const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+      const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+
+      const { itemId, startX, startY, origX, origY, containerRect, itemWidth, itemHeight } = dragRef.current;
+      const deltaX = (clientX - startX) / containerRect.width;
+      const deltaY = (clientY - startY) / containerRect.height;
+
+      const newX = Math.max(0, Math.min(1 - itemWidth, origX + deltaX));
+      const newY = Math.max(0, Math.min(1 - itemHeight, origY + deltaY));
+
+      setPlacedItems(prev =>
+        prev.map(item => item.id === itemId ? { ...item, x: newX, y: newY } : item),
+      );
+    };
+
+    const handleDragEnd = () => {
+      if (!dragRef.current) return;
+      // Remove dragging class
+      document.querySelectorAll('.placed-item.dragging').forEach(el => el.classList.remove('dragging'));
+      dragRef.current = null;
+    };
+
+    document.addEventListener('mousemove', handleDragMove);
+    document.addEventListener('mouseup', handleDragEnd);
+    document.addEventListener('touchmove', handleDragMove, { passive: false });
+    document.addEventListener('touchend', handleDragEnd);
+
+    return () => {
+      document.removeEventListener('mousemove', handleDragMove);
+      document.removeEventListener('mouseup', handleDragEnd);
+      document.removeEventListener('touchmove', handleDragMove);
+      document.removeEventListener('touchend', handleDragEnd);
+    };
+  }, []);
+
   if (loading) {
     return (
       <div className="loading">
@@ -513,13 +600,17 @@ export default function SigningPage() {
                           top: `${item.y * 100}%`,
                           width: `${item.width * 100}%`,
                           height: `${item.height * 100}%`,
+                          cursor: item.completed ? 'grab' : undefined,
                         }}
+                        onMouseDown={(e) => item.completed && handleDragStart(e, item.id)}
+                        onTouchStart={(e) => item.completed && handleDragStart(e, item.id)}
                       >
                         {item.type === 'signature' && item.value && (
                           <img
                             src={item.value}
                             alt="Signature"
-                            style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                            draggable={false}
+                            style={{ width: '100%', height: '100%', objectFit: 'contain', pointerEvents: 'none' }}
                           />
                         )}
                         {item.type === 'text' && item.value && (

@@ -675,6 +675,13 @@ body {
   z-index: 13;
 }
 
+.placed-item.dragging {
+  cursor: grabbing !important;
+  opacity: 0.85;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  z-index: 20;
+}
+
 .placed-item:hover .remove-item-btn {
   display: flex;
 }
