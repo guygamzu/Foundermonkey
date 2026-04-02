@@ -31,7 +31,7 @@ body {
 }
 
 /* ==========================================
-   LANDING PAGE — Dark, modern SaaS style
+   LANDING PAGE — Alternating dark/light sections
    ========================================== */
 
 .lp { background: #09090b; color: #fafafa; }
@@ -63,7 +63,7 @@ body {
 }
 .lp-nav-cta:hover { opacity: 0.9; }
 
-/* Hero */
+/* Hero — dark */
 .lp-hero {
   padding: 160px 24px 100px; text-align: center;
   max-width: 800px; margin: 0 auto;
@@ -96,20 +96,20 @@ body {
   transition: all 0.2s; cursor: pointer; border: none;
 }
 .lp-btn-primary {
-  background: #fff; color: #09090b;
-  box-shadow: 0 0 0 1px rgba(255,255,255,0.1), 0 4px 16px rgba(0,0,0,0.3);
+  background: #2563eb; color: #fff;
+  box-shadow: 0 4px 16px rgba(37,99,235,0.3);
 }
-.lp-btn-primary:hover { background: #e4e4e7; transform: translateY(-1px); }
+.lp-btn-primary:hover { background: #1d4ed8; transform: translateY(-1px); }
 .lp-btn-ghost {
   background: transparent; color: #a1a1aa;
   border: 1px solid rgba(255,255,255,0.12);
 }
 .lp-btn-ghost:hover { color: #fff; border-color: rgba(255,255,255,0.25); }
 .lp-btn-outline {
-  background: transparent; color: #a1a1aa;
-  border: 1px solid rgba(255,255,255,0.15);
+  background: transparent; color: #374151;
+  border: 1px solid #d1d5db;
 }
-.lp-btn-outline:hover { color: #fff; border-color: rgba(255,255,255,0.3); }
+.lp-btn-outline:hover { color: #111827; border-color: #9ca3af; }
 .lp-btn-lg { padding: 18px 44px; font-size: 1.1rem; }
 
 /* Stats */
@@ -128,10 +128,9 @@ body {
   width: 1px; height: 40px; background: rgba(255,255,255,0.08);
 }
 
-/* Sections */
+/* Sections — base */
 .lp-section { padding: 100px 24px; }
 .lp-section-inner { max-width: 1100px; margin: 0 auto; }
-.lp-section-dark { background: #0f0f13; }
 .lp-section-label {
   font-size: 0.75rem; font-weight: 600; letter-spacing: 2px;
   color: #818cf8; margin-bottom: 12px; text-align: center;
@@ -145,31 +144,42 @@ body {
   margin: 0 0 56px; max-width: 520px; margin-left: auto; margin-right: auto;
 }
 
-/* Steps */
+/* Light section overrides */
+.lp-section-light {
+  background: #ffffff; color: #111827;
+}
+.lp-section-light .lp-section-label { color: #2563eb; }
+.lp-section-light .lp-section-h2 { color: #111827; }
+.lp-section-light .lp-section-sub { color: #6b7280; }
+
+/* Dark section */
+.lp-section-dark { background: #0f0f13; }
+
+/* Steps — in light section */
 .lp-steps {
   display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
   gap: 24px;
 }
 .lp-step {
-  background: #18181b; border: 1px solid rgba(255,255,255,0.06);
+  background: #f9fafb; border: 1px solid #e5e7eb;
   border-radius: 16px; padding: 32px 28px;
-  transition: border-color 0.3s;
+  transition: border-color 0.3s, box-shadow 0.3s;
 }
-.lp-step:hover { border-color: rgba(129,140,248,0.3); }
+.lp-step:hover { border-color: #2563eb; box-shadow: 0 4px 20px rgba(37,99,235,0.08); }
 .lp-step-num {
-  font-size: 0.85rem; font-weight: 700; color: #818cf8;
+  font-size: 0.85rem; font-weight: 700; color: #2563eb;
   margin-bottom: 16px; font-family: monospace;
 }
 .lp-step h3 {
-  font-size: 1.15rem; font-weight: 700; color: #fafafa;
+  font-size: 1.15rem; font-weight: 700; color: #111827;
   margin: 0 0 10px;
 }
 .lp-step p {
-  font-size: 0.95rem; color: #a1a1aa; line-height: 1.65; margin: 0;
+  font-size: 0.95rem; color: #6b7280; line-height: 1.65; margin: 0;
 }
-.lp-step strong { color: #818cf8; }
+.lp-step strong { color: #2563eb; }
 
-/* Features */
+/* Features — in dark section */
 .lp-features {
   display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
   gap: 20px;
@@ -193,55 +203,59 @@ body {
   font-size: 0.9rem; color: #71717a; line-height: 1.6; margin: 0;
 }
 
-/* Pricing */
+/* Pricing — in light section */
 .lp-pricing {
   display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
   gap: 20px; max-width: 860px; margin: 0 auto;
 }
 .lp-price-card {
-  background: #18181b; border: 1px solid rgba(255,255,255,0.06);
+  background: #ffffff; border: 1px solid #e5e7eb;
   border-radius: 16px; padding: 36px 28px; text-align: center;
-  position: relative;
+  position: relative; box-shadow: 0 1px 3px rgba(0,0,0,0.04);
 }
 .lp-price-card h3 {
-  font-size: 0.85rem; font-weight: 600; color: #71717a;
+  font-size: 0.85rem; font-weight: 600; color: #6b7280;
   text-transform: uppercase; letter-spacing: 1.5px; margin: 0 0 12px;
 }
 .lp-price-amount {
-  font-size: 2.8rem; font-weight: 800; color: #fafafa;
+  font-size: 2.8rem; font-weight: 800; color: #111827;
   letter-spacing: -1px; margin-bottom: 4px;
 }
 .lp-price-desc {
-  color: #71717a; font-size: 0.9rem; margin: 0 0 20px;
+  color: #6b7280; font-size: 0.9rem; margin: 0 0 20px;
 }
 .lp-price-card ul {
   list-style: none; padding: 0; margin: 0 0 24px; text-align: left;
 }
 .lp-price-card ul li {
-  padding: 8px 0; font-size: 0.9rem; color: #a1a1aa;
-  border-top: 1px solid rgba(255,255,255,0.04);
+  padding: 8px 0; font-size: 0.9rem; color: #374151;
+  border-top: 1px solid #f3f4f6;
 }
 .lp-price-card ul li::before {
-  content: '\2713 '; color: #818cf8; font-weight: 700; margin-right: 8px;
+  content: '\2713 '; color: #2563eb; font-weight: 700; margin-right: 8px;
 }
 .lp-price-featured {
-  border: 1px solid rgba(129,140,248,0.4);
-  background: linear-gradient(180deg, rgba(129,140,248,0.06) 0%, #18181b 100%);
+  border: 2px solid #2563eb;
+  background: linear-gradient(180deg, rgba(37,99,235,0.03) 0%, #ffffff 100%);
+  box-shadow: 0 4px 20px rgba(37,99,235,0.1);
 }
 .lp-price-tag {
   position: absolute; top: -11px; left: 50%; transform: translateX(-50%);
-  background: linear-gradient(135deg, #818cf8, #c084fc);
+  background: linear-gradient(135deg, #2563eb, #7c3aed);
   color: #fff; font-size: 0.65rem; font-weight: 700;
   padding: 4px 14px; border-radius: 100px;
   letter-spacing: 1px; text-transform: uppercase;
 }
 .lp-price-card .lp-btn { width: 100%; text-align: center; }
-.lp-referral {
-  text-align: center; color: #52525b; font-size: 0.9rem; margin-top: 32px;
+.lp-price-card .lp-btn-primary {
+  background: #2563eb; color: #fff;
 }
-.lp-referral strong { color: #818cf8; }
+.lp-referral {
+  text-align: center; color: #6b7280; font-size: 0.9rem; margin-top: 32px;
+}
+.lp-referral strong { color: #2563eb; }
 
-/* CTA */
+/* CTA — dark */
 .lp-cta {
   padding: 100px 24px; text-align: center;
   background: linear-gradient(180deg, #09090b 0%, #18181b 50%, #09090b 100%);
@@ -256,12 +270,17 @@ body {
 .lp-cta p {
   font-size: 1.1rem; color: #71717a; margin: 0 0 36px;
 }
+.lp-cta .lp-btn-primary {
+  background: #fff; color: #09090b;
+  box-shadow: 0 0 0 1px rgba(255,255,255,0.1), 0 4px 16px rgba(0,0,0,0.3);
+}
+.lp-cta .lp-btn-primary:hover { background: #e4e4e7; }
 .lp-cta-email {
   display: block; margin-top: 16px; font-size: 0.85rem;
   color: #52525b; font-family: monospace;
 }
 
-/* Footer */
+/* Footer — dark */
 .lp-footer { background: #09090b; border-top: 1px solid rgba(255,255,255,0.04); }
 .lp-footer-inner {
   max-width: 1100px; margin: 0 auto; padding: 48px 24px 32px;
