@@ -467,58 +467,33 @@ export class EmailProcessor {
 <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; color: #111827;">
   <div style="background: #2563eb; color: white; padding: 20px 24px; border-radius: 8px 8px 0 0;">
     <h1 style="margin: 0; font-size: 20px; font-weight: 700;">Lapen</h1>
-    <p style="margin: 4px 0 0; opacity: 0.9; font-size: 14px;">E-Signature Service</p>
   </div>
 
   <div style="background: white; padding: 24px; border: 1px solid #e5e7eb; border-top: none;">
-    <p style="margin: 0 0 16px;">Hi ${user.name || senderEmail.split('@')[0]},</p>
+    <p style="margin: 0 0 12px;">Hi ${user.name || senderEmail.split('@')[0]},</p>
 
-    <p style="margin: 0 0 16px;">I've received your document <strong>${fileName}</strong>. Here's a quick summary:</p>
+    <p style="margin: 0 0 12px;">Got your document <strong>${fileName}</strong>:</p>
 
-    <div style="background: #f9fafb; border-left: 4px solid #2563eb; padding: 12px 16px; margin: 0 0 20px; border-radius: 0 4px 4px 0;">
+    <div style="background: #f9fafb; border-left: 4px solid #2563eb; padding: 12px 16px; margin: 0 0 16px; border-radius: 0 4px 4px 0;">
       <p style="margin: 0; font-size: 14px; color: #374151;">${summary}</p>
     </div>
 
-    <h3 style="margin: 0 0 8px; font-size: 16px;">What happens next?</h3>
-    <ol style="margin: 0 0 20px; padding-left: 20px; color: #374151; font-size: 14px; line-height: 1.8;">
-      <li><strong>Reply to this email</strong> with the name and contact details of each person who needs to sign</li>
-      <li>I'll send each person a personalized link to review and sign</li>
-      <li>They can place signatures, text, dates, and checkboxes anywhere on the document</li>
-      <li>You'll get notified when each person signs</li>
-      <li>Once everyone has signed, you'll receive the completed document</li>
-    </ol>
-
-    <h3 style="margin: 0 0 8px; font-size: 16px;">Suggested cover text for recipients:</h3>
-    <div style="background: #f9fafb; padding: 12px 16px; margin: 0 0 20px; border-radius: 4px; border: 1px solid #e5e7eb;">
-      <p style="margin: 0; font-size: 14px; color: #374151; white-space: pre-line;">${suggestedCoverText}</p>
-    </div>
-    <p style="margin: 0 0 20px; font-size: 13px; color: #6b7280;">
-      You can edit this text in your reply — I'll include it in the message to your recipients.
+    <p style="margin: 0 0 16px; font-size: 14px; color: #374151;">
+      <strong>Reply to this email</strong> with each signer's name and contact — one per line:
     </p>
-
-    <div style="background: #eff6ff; border: 1px solid #bfdbfe; padding: 16px; border-radius: 8px; margin: 0 0 20px;">
-      <p style="margin: 0; font-size: 14px; font-weight: 600; color: #1e40af;">📝 How to reply:</p>
-      <p style="margin: 8px 0 0; font-size: 13px; color: #374151;">
-        Reply with each recipient's <strong>name</strong> and <strong>email</strong>, <strong>phone</strong>, or <strong>WhatsApp number</strong> — one per line:<br><br>
-        <em>Examples:</em>
-      </p>
-      <div style="background: white; border: 1px solid #e5e7eb; border-radius: 6px; padding: 12px 14px; margin: 8px 0 0; font-family: monospace; font-size: 13px; color: #374151; line-height: 1.8;">
-        John Smith john@example.com<br>
-        Jane Doe +14155551234 whatsapp<br>
-        Bob Wilson +442071234567 sms
-      </div>
-      <p style="margin: 10px 0 0; font-size: 12px; color: #6b7280;">
-        Phone numbers default to WhatsApp if not specified. Include country code (e.g. +1 for US, +44 for UK).
-      </p>
+    <div style="background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 6px; padding: 10px 14px; margin: 0 0 16px; font-family: monospace; font-size: 13px; color: #374151; line-height: 1.8;">
+      John Smith john@example.com<br>
+      Jane Doe +14155551234 whatsapp<br>
+      Bob Wilson +442071234567 sms
     </div>
 
-    <p style="margin: 0; font-size: 13px; color: #6b7280;">
-      <a href="${previewUrl}" style="color: #2563eb;">Preview how signees will see this document →</a>
-    </p>
+    <div style="text-align: center; margin: 20px 0 0;">
+      <a href="${previewUrl}" style="display: inline-block; background: #2563eb; color: white; padding: 12px 28px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 14px;">Preview Document</a>
+    </div>
   </div>
 
   <div style="padding: 16px 24px; font-size: 12px; color: #9ca3af; text-align: center;">
-    Lapen E-Signature Service • Secure • Legally Binding
+    Lapen • Secure E-Signatures
   </div>
 </div>`;
 
@@ -527,30 +502,15 @@ export class EmailProcessor {
       subject: `Re: ${subject || fileName}`,
       text: `Hi ${user.name || senderEmail.split('@')[0]},
 
-I've received your document "${fileName}". Here's a quick summary:
+Got your document "${fileName}":
 
 ${summary}
 
-WHAT HAPPENS NEXT:
-1. Reply to this email with the name and contact details of each person who needs to sign
-2. I'll send each person a personalized link to review and sign
-3. They can place signatures, text, dates, and checkboxes anywhere on the document
-4. You'll get notified when each person signs
+Reply to this email with each signer's name and contact — one per line:
 
-SUGGESTED COVER TEXT:
-${suggestedCoverText}
-
-You can edit this text in your reply — I'll include it in the message to your recipients.
-
-HOW TO REPLY:
-Reply with each recipient's name and email, phone, or WhatsApp number — one per line.
-
-Example:
 John Smith john@example.com
 Jane Doe +14155551234 whatsapp
 Bob Wilson +442071234567 sms
-
-Phone numbers default to WhatsApp. Include country code (e.g. +1 for US, +44 for UK).
 
 Preview: ${previewUrl}`,
       html,
