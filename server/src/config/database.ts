@@ -23,7 +23,9 @@ export async function runMigrations(): Promise<void> {
   // Create tables directly instead of using migration files
   const hasUsersTable = await database.schema.hasTable('users');
   if (hasUsersTable) {
-    return; // Already migrated
+    // Tables exist — run incremental schema updates for new columns
+    await runIncrementalMigrations(database);
+    return;
   }
 
   await database.raw('CREATE EXTENSION IF NOT EXISTS "uuid-ossp"');
@@ -138,4 +140,88 @@ export async function runMigrations(): Promise<void> {
     table.timestamp('created_at').notNullable().defaultTo(database.fn.now());
     table.index(['user_id', 'resolved']);
   });
+
+  // Run incremental migrations for new features
+  await runIncrementalMigrations(database);
+}
+
+/**
+ * Add columns/tables that were introduced after the initial schema.
+ * Each migration checks if the column/table already exists before adding.
+ */
+async function runIncrementalMigrations(database: Knex): Promise<void> {
+  // --- Referrals (20260401000001) ---
+  const hasReferralCode = await database.raw(`
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'users' AND column_name = 'referral_code'
+  `);
+  if (hasReferralCode.rows.length === 0) {
+    await database.schema.alterTable('users', (table) => {
+      table.string('referral_code').unique();
+    });
+  }
+
+  const hasReferralsTable = await database.schema.hasTable('referrals');
+  if (!hasReferralsTable) {
+    await database.schema.createTable('referrals', (table) => {
+      table.uuid('id').primary().defaultTo(database.raw('uuid_generate_v4()'));
+      table.uuid('referrer_id').notNullable().references('id').inTable('users').onDelete('CASCADE');
+      table.uuid('referred_id').notNullable().references('id').inTable('users').onDelete('CASCADE');
+      table.integer('credits_awarded').notNullable().defaultTo(5);
+      table.timestamp('created_at').notNullable().defaultTo(database.fn.now());
+      table.unique(['referrer_id', 'referred_id'] as any);
+    });
+  }
+
+  // --- AI summary & cover text on documents (20260402000001) ---
+  const hasAiSummary = await database.raw(`
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'document_requests' AND column_name = 'ai_summary'
+  `);
+  if (hasAiSummary.rows.length === 0) {
+    await database.schema.alterTable('document_requests', (table) => {
+      table.text('ai_summary');
+      table.text('suggested_cover_text');
+    });
+  }
+
+  // --- Unique indexes on signers (20260402000002) ---
+  const hasSignerEmailIdx = await database.raw(`
+    SELECT 1 FROM pg_indexes WHERE indexname = 'signers_doc_email_unique'
+  `);
+  if (hasSignerEmailIdx.rows.length === 0) {
+    // Clean up duplicates first
+    await database.raw(`
+      DELETE FROM signers
+      WHERE id NOT IN (
+        SELECT MIN(id) FROM signers GROUP BY document_request_id, COALESCE(email, phone, id::text)
+      )
+    `);
+    await database.raw(`
+      CREATE UNIQUE INDEX signers_doc_email_unique
+      ON signers (document_request_id, email)
+      WHERE email IS NOT NULL
+    `);
+  }
+
+  const hasSignerPhoneIdx = await database.raw(`
+    SELECT 1 FROM pg_indexes WHERE indexname = 'signers_doc_phone_unique'
+  `);
+  if (hasSignerPhoneIdx.rows.length === 0) {
+    await database.raw(`
+      CREATE UNIQUE INDEX signers_doc_phone_unique
+      ON signers (document_request_id, phone)
+      WHERE phone IS NOT NULL
+    `);
+  }
+
+  // Fix documents stuck in pending_confirmation that already have notified signers
+  await database.raw(`
+    UPDATE document_requests
+    SET status = 'sent'
+    WHERE status = 'pending_confirmation'
+      AND id IN (
+        SELECT DISTINCT document_request_id FROM signers WHERE status = 'notified'
+      )
+  `);
 }
