@@ -160,6 +160,7 @@ export class EmailService {
     signingUrl: string,
     customMessage?: string,
     channel: 'email' | 'sms' | 'whatsapp' = 'email',
+    pdfAttachment?: { content: Buffer; filename: string },
   ): Promise<string> {
     const greeting = signerName ? `Hi ${signerName},` : 'Hi there,';
 
@@ -178,13 +179,13 @@ export class EmailService {
 
           <p style="margin: 0 0 20px; font-size: 15px; line-height: 1.5;">
             <strong>${senderName}</strong> (<a href="mailto:${senderEmail}" style="color: #2563eb;">${senderEmail}</a>)
-            has requested your electronic signature on the following document:
+            has requested your signature on the following document:
           </p>
 
           <!-- Document card -->
           <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 16px 20px; margin: 0 0 20px;">
             <p style="margin: 0 0 4px; font-size: 15px; font-weight: 700; color: #1e293b;">${fileName}</p>
-            <p style="margin: 0; font-size: 13px; color: #64748b;">Requires your electronic signature</p>
+            <p style="margin: 0; font-size: 13px; color: #64748b;">Attached to this email &middot; Requires your signature</p>
           </div>
 
           <!-- Cover text / message from sender -->
@@ -197,21 +198,41 @@ export class EmailService {
           </div>
           ` : ''}
 
-          <!-- CTA -->
-          <div style="text-align: center; margin: 24px 0 16px;">
-            <a href="${signingUrl}" style="display: inline-block; background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%); color: white; padding: 14px 40px; border-radius: 10px; text-decoration: none; font-weight: 700; font-size: 16px; box-shadow: 0 4px 14px rgba(37,99,235,0.35);">
-              Review & Sign Document
-            </a>
+          <!-- Two signing options -->
+          <p style="margin: 0 0 12px; font-size: 14px; font-weight: 600; color: #374151;">You have two ways to sign:</p>
+
+          <!-- Option 1: Digital -->
+          <div style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 10px; padding: 16px 20px; margin: 0 0 12px;">
+            <p style="margin: 0 0 8px; font-size: 14px; font-weight: 700; color: #1e40af;">Option 1: Sign digitally (recommended)</p>
+            <p style="margin: 0 0 12px; font-size: 13px; color: #374151; line-height: 1.5;">
+              Click the button below to review and sign the document online. You can place your signature, add text, dates, and checkboxes anywhere on the document.
+            </p>
+            <div style="text-align: center;">
+              <a href="${signingUrl}" style="display: inline-block; background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%); color: white; padding: 12px 32px; border-radius: 10px; text-decoration: none; font-weight: 700; font-size: 15px; box-shadow: 0 4px 14px rgba(37,99,235,0.35);">
+                Review & Sign Online
+              </a>
+            </div>
+          </div>
+
+          <!-- Option 2: Print & Sign -->
+          <div style="background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 10px; padding: 16px 20px; margin: 0 0 20px;">
+            <p style="margin: 0 0 8px; font-size: 14px; font-weight: 700; color: #374151;">Option 2: Print, sign & scan</p>
+            <ol style="margin: 0; padding-left: 20px; font-size: 13px; color: #6b7280; line-height: 1.8;">
+              <li>Open the attached PDF and print it</li>
+              <li>Sign the document by hand</li>
+              <li>Scan or photograph the signed pages</li>
+              <li><strong>Reply to this email</strong> with the signed document attached</li>
+            </ol>
           </div>
 
           <p style="text-align: center; color: #9ca3af; font-size: 12px; margin: 0 0 16px;">
-            Or copy this link: <a href="${signingUrl}" style="color: #2563eb; word-break: break-all;">${signingUrl}</a>
+            Direct link: <a href="${signingUrl}" style="color: #2563eb; word-break: break-all;">${signingUrl}</a>
           </p>
 
           <!-- Trust signals -->
           <div style="border-top: 1px solid #e5e7eb; padding-top: 16px; margin-top: 8px;">
             <p style="margin: 0; font-size: 12px; color: #9ca3af; text-align: center; line-height: 1.6;">
-              This is a legitimate e-signature request sent by <strong>${senderName}</strong> (${senderEmail})
+              This is a legitimate signature request sent by <strong>${senderName}</strong> (${senderEmail})
               via Lapen. Electronic signatures are legally binding under the ESIGN Act and eIDAS regulation.
               If you weren't expecting this, you can safely ignore this email.
             </p>
@@ -227,11 +248,18 @@ export class EmailService {
       </div>
     `;
 
+    const attachments = pdfAttachment ? [{
+      filename: pdfAttachment.filename,
+      content: pdfAttachment.content,
+      contentType: 'application/pdf',
+    }] : undefined;
+
     return this.sendEmail({
       to,
       subject: `${senderName} (${senderEmail}) requested your signature: ${fileName}`,
-      text: `${greeting}\n\n${senderName} (${senderEmail}) has sent you a document to sign.\n\nDocument: ${fileName}\n${coverPlain}\nReview & Sign: ${signingUrl}\n\nThis is a legitimate e-signature request. Electronic signatures are legally binding under the ESIGN Act and eIDAS regulation. If you weren't expecting this, you can safely ignore this email.\n\nPowered by Lapen - AI-powered e-signatures`,
+      text: `${greeting}\n\n${senderName} (${senderEmail}) has sent you a document to sign.\n\nDocument: ${fileName} (attached)\n${coverPlain ? `\nMessage: ${coverPlain}\n` : ''}\nYou have two ways to sign:\n\n1. SIGN DIGITALLY (recommended): ${signingUrl}\n   Click the link to review and sign online.\n\n2. PRINT, SIGN & SCAN:\n   - Open the attached PDF and print it\n   - Sign by hand\n   - Scan or photograph the signed pages\n   - Reply to this email with the signed document attached\n\nThis is a legitimate signature request. Electronic signatures are legally binding under the ESIGN Act and eIDAS regulation. If you weren't expecting this, you can safely ignore this email.\n\nPowered by Lapen - AI-powered e-signatures`,
       html,
+      attachments,
     });
   }
 

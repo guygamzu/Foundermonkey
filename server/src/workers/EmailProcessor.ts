@@ -269,6 +269,31 @@ export class EmailProcessor {
       }
     }
 
+    // ---------------------------------------------------------------
+    // SIGNEE REPLY: A signee replying with a signed scan/photo
+    // (they printed the PDF, signed by hand, and scanned/photographed it)
+    // ---------------------------------------------------------------
+    const hasImageOrPdfAttachment = attachments.some(a => {
+      const type = (a.contentType || '').toLowerCase();
+      const name = (a.filename || '').toLowerCase();
+      return type.includes('image') || type.includes('pdf') || name.endsWith('.pdf') ||
+             name.endsWith('.jpg') || name.endsWith('.jpeg') || name.endsWith('.png') ||
+             name.endsWith('.heic') || name.endsWith('.heif');
+    });
+
+    if (hasImageOrPdfAttachment) {
+      const signer = await db('signers')
+        .where({ email: senderLower })
+        .whereIn('status', ['pending', 'notified', 'viewed'])
+        .first();
+
+      if (signer) {
+        logger.info({ signerId: signer.id, signerEmail: senderLower, docId: signer.document_request_id }, 'Signee replied with signed scan');
+        await this.handleSignedScanReply(signer, attachments, senderLower, messageId);
+        return;
+      }
+    }
+
     // Check if this email was already processed (persisted in DB)
     if (messageId) {
       const existingDoc = await db('document_requests')
@@ -618,6 +643,19 @@ Preview: ${previewUrl}`,
     const failedContacts: string[] = [];
     const senderDisplayName = user.name || senderEmail.split('@')[0];
 
+    // Fetch the PDF from S3 to attach to email notifications
+    let pdfBuffer: Buffer | null = null;
+    if (pendingDoc.s3_key && process.env.AWS_ACCESS_KEY_ID) {
+      try {
+        const { StorageService } = await import('../services/StorageService.js');
+        const storageService = new StorageService();
+        pdfBuffer = await storageService.getDocument(pendingDoc.s3_key);
+        logger.info({ docId: pendingDoc.id, size: pdfBuffer.length }, 'Fetched PDF from S3 for attachment');
+      } catch (err) {
+        logger.warn({ err: err instanceof Error ? err.message : String(err) }, 'Failed to fetch PDF from S3 — sending without attachment');
+      }
+    }
+
     // Import MessagingService for SMS/WhatsApp
     const { MessagingService } = await import('../services/MessagingService.js');
     const messagingService = new MessagingService();
@@ -651,6 +689,8 @@ Preview: ${previewUrl}`,
             pendingDoc.file_name,
             signingUrl,
             coverText || undefined,
+            'email',
+            pdfBuffer ? { content: pdfBuffer, filename: pendingDoc.file_name } : undefined,
           );
         } else if ((channel === 'sms' || channel === 'whatsapp') && phone) {
           await messagingService.sendSigningNotification(
@@ -734,6 +774,149 @@ Preview: ${previewUrl}`,
     });
 
     logger.info({ documentId: pendingDoc.id, sent: sentContacts.length, failed: failedContacts.length }, 'Step 2 complete: signing notifications sent, sender notified');
+  }
+
+  // =========================================================================
+  // SIGNEE SCAN: Handle a signee replying with a printed & signed document
+  // =========================================================================
+  private async handleSignedScanReply(
+    signer: any,
+    attachments: any[],
+    signerEmail: string,
+    messageId: string,
+  ): Promise<void> {
+    const db = getDatabase();
+
+    // Find the relevant attachment (prefer PDF, then images)
+    const signedAttachment = attachments.find(a => {
+      const type = (a.contentType || '').toLowerCase();
+      const name = (a.filename || '').toLowerCase();
+      return type.includes('pdf') || name.endsWith('.pdf');
+    }) || attachments.find(a => {
+      const type = (a.contentType || '').toLowerCase();
+      return type.includes('image');
+    });
+
+    if (!signedAttachment) return;
+
+    // Upload the signed scan to S3
+    let signedScanKey: string | null = null;
+    if (process.env.AWS_ACCESS_KEY_ID) {
+      try {
+        const { StorageService } = await import('../services/StorageService.js');
+        const storageService = new StorageService();
+        const ext = (signedAttachment.filename || 'scan.pdf').split('.').pop() || 'pdf';
+        signedScanKey = `signed-scans/${signer.document_request_id}/${signer.id}/signed-scan.${ext}`;
+        await storageService.uploadDocument(signedScanKey, signedAttachment.content, signedAttachment.contentType || 'application/pdf');
+        logger.info({ signerId: signer.id, key: signedScanKey }, 'Uploaded signed scan to S3');
+      } catch (err) {
+        logger.error({ err: err instanceof Error ? err.message : String(err) }, 'Failed to upload signed scan to S3');
+      }
+    }
+
+    // Mark signer as signed
+    await this.documentRepo.updateSignerStatus(signer.id, 'signed', {
+      signed_at: new Date(),
+    } as any);
+
+    // Store the scan reference in metadata
+    if (signedScanKey) {
+      await db('signers').where({ id: signer.id }).update({
+        custom_message: `Signed via print-and-scan. Scan stored at: ${signedScanKey}`,
+      });
+    }
+
+    // Audit log
+    await this.auditRepo.log({
+      document_request_id: signer.document_request_id,
+      signer_id: signer.id,
+      action: 'document_signed',
+      ip_address: 'email',
+      user_agent: 'email-scan-reply',
+      metadata: { method: 'print-and-scan', scanKey: signedScanKey, originalFilename: signedAttachment.filename },
+    });
+
+    // Send confirmation to the signee
+    await this.trySendEmail({
+      to: signerEmail,
+      subject: 'Your signed document has been received',
+      text: `Thank you! We've received your signed document. The sender will be notified.\n\nPowered by Lapen - AI-powered e-signatures`,
+      html: `
+<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; color: #111827;">
+  <div style="background: #16a34a; color: white; padding: 20px 24px; border-radius: 8px 8px 0 0;">
+    <h1 style="margin: 0; font-size: 20px;">Signed Document Received</h1>
+  </div>
+  <div style="background: white; padding: 24px; border: 1px solid #e5e7eb; border-top: none; border-radius: 0 0 8px 8px;">
+    <p>Thank you! We've received your signed document and the sender has been notified.</p>
+    <p style="color: #6b7280; font-size: 13px;">Powered by Lapen - AI-powered e-signatures</p>
+  </div>
+</div>`,
+      inReplyTo: messageId,
+    });
+
+    // Check if all signers have now signed — if so, trigger completion
+    const doc = await db('document_requests').where({ id: signer.document_request_id }).first();
+    if (doc) {
+      const allSigners = await db('signers').where({ document_request_id: doc.id });
+      const allSigned = allSigners.every(s => s.status === 'signed');
+
+      if (allSigned) {
+        logger.info({ docId: doc.id }, 'All signers have signed (including scan) — marking as completed');
+        await db('document_requests').where({ id: doc.id }).update({
+          status: 'completed',
+          completed_at: new Date(),
+        });
+
+        // Notify the sender
+        const sender = await db('users').where({ id: doc.sender_id }).first();
+        if (sender) {
+          // For scan-based signing, attach the scans to completion email
+          const scanAttachments: Array<{ filename: string; content: Buffer; contentType: string }> = [];
+          for (const s of allSigners) {
+            if (s.custom_message?.includes('signed-scans/')) {
+              const scanKeyMatch = s.custom_message.match(/Scan stored at: (.+)/);
+              if (scanKeyMatch && process.env.AWS_ACCESS_KEY_ID) {
+                try {
+                  const { StorageService } = await import('../services/StorageService.js');
+                  const storageService = new StorageService();
+                  const scanBuffer = await storageService.getDocument(scanKeyMatch[1]);
+                  const ext = scanKeyMatch[1].split('.').pop() || 'pdf';
+                  scanAttachments.push({
+                    filename: `signed-by-${s.name || s.email || 'signer'}.${ext}`,
+                    content: scanBuffer,
+                    contentType: ext === 'pdf' ? 'application/pdf' : `image/${ext}`,
+                  });
+                } catch (err) {
+                  logger.warn({ err }, 'Failed to fetch signed scan for completion email');
+                }
+              }
+            }
+          }
+
+          if (scanAttachments.length > 0) {
+            await this.emailService.sendCompletionNotification(
+              sender.email,
+              doc.file_name,
+              '',
+              scanAttachments,
+            );
+          }
+        }
+      } else {
+        // Notify sender that this signer has completed
+        const sender = await db('users').where({ id: doc.sender_id }).first();
+        if (sender) {
+          const signedCount = allSigners.filter(s => s.status === 'signed').length;
+          await this.trySendEmail({
+            to: sender.email,
+            subject: `${signer.name || signerEmail} signed ${doc.file_name}`,
+            text: `${signer.name || signerEmail} has signed "${doc.file_name}" (via print & scan).\n\n${signedCount}/${allSigners.length} signatures complete.`,
+          });
+        }
+      }
+    }
+
+    logger.info({ signerId: signer.id, signerEmail }, 'Signed scan processed successfully');
   }
 
   // =========================================================================

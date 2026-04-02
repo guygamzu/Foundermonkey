@@ -30,6 +30,22 @@ export function startNotificationWorker(): void {
       }
     }
 
+    // Fetch PDF from S3 to attach to email
+    let pdfAttachment: { content: Buffer; filename: string } | undefined;
+    if (process.env.AWS_ACCESS_KEY_ID) {
+      try {
+        const doc = await db('document_requests').where({ id: documentRequestId }).first();
+        if (doc?.s3_key) {
+          const { StorageService } = await import('../services/StorageService.js');
+          const storageService = new StorageService();
+          const pdfBuffer = await storageService.getDocument(doc.s3_key);
+          pdfAttachment = { content: pdfBuffer, filename: doc.file_name };
+        }
+      } catch (err) {
+        logger.warn({ err: err instanceof Error ? err.message : String(err) }, 'Failed to fetch PDF for attachment — sending without');
+      }
+    }
+
     const signingUrl = `${process.env.APP_URL}/sign/${signer.signing_token}`;
 
     if (signer.delivery_channel === 'email' && signer.email) {
@@ -41,6 +57,8 @@ export function startNotificationWorker(): void {
         fileName,
         signingUrl,
         signer.custom_message,
+        'email',
+        pdfAttachment,
       );
     } else if ((signer.delivery_channel === 'sms' || signer.delivery_channel === 'whatsapp') && signer.phone) {
       await messagingService.sendSigningNotification(
