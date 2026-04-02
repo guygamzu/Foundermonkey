@@ -247,24 +247,30 @@ export class EmailService {
     attachments: Array<{ filename: string; content: Buffer; contentType: string }>,
   ): Promise<string> {
     const html = `
-      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto;">
-        <p>Hi,</p>
-        <p>The document <strong>${fileName}</strong> has been successfully signed by all parties.</p>
-        <p>Attached you will find:</p>
-        <ol>
-          <li>The fully executed document.</li>
-          <li>The Certificate of Completion with the full audit trail.</li>
-        </ol>
-        <p>You can also access these files permanently at the following secure link:</p>
-        <p><a href="${archiveUrl}" style="color: #2563eb;">${archiveUrl}</a></p>
-        <p>Best,<br/>Lapen</p>
+      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; color: #111827;">
+        <div style="background: linear-gradient(135deg, #16a34a 0%, #15803d 100%); padding: 24px; border-radius: 12px 12px 0 0; text-align: center;">
+          <h1 style="margin: 0; color: white; font-size: 20px; font-weight: 700;">Document Signed Successfully</h1>
+        </div>
+        <div style="background: white; padding: 24px; border: 1px solid #e5e7eb; border-top: none;">
+          <p style="margin: 0 0 16px;">Hi,</p>
+          <p style="margin: 0 0 16px;">The document <strong>${fileName}</strong> has been successfully signed by all parties.</p>
+          <p style="margin: 0 0 8px;">Attached you will find:</p>
+          <ol style="margin: 0 0 16px; padding-left: 20px; line-height: 1.8; color: #374151;">
+            <li>The fully executed document</li>
+            <li>The Certificate of Completion with the full audit trail</li>
+          </ol>
+          <p style="margin: 0; font-size: 13px; color: #6b7280;">Please save the attached files for your records.</p>
+        </div>
+        <div style="background: #f9fafb; padding: 12px 24px; border: 1px solid #e5e7eb; border-top: none; border-radius: 0 0 12px 12px; text-align: center;">
+          <p style="margin: 0; color: #9ca3af; font-size: 11px;">Powered by Lapen &mdash; AI-powered e-signatures</p>
+        </div>
       </div>
     `;
 
     return this.sendEmail({
       to,
       subject: `Completed: ${fileName}`,
-      text: `The document ${fileName} has been successfully signed by all parties.\n\nAccess permanently: ${archiveUrl}`,
+      text: `Hi,\n\nThe document ${fileName} has been successfully signed by all parties.\n\nPlease find the fully executed document and Certificate of Completion attached.\n\nPowered by Lapen`,
       html,
       attachments,
     });
