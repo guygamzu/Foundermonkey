@@ -155,35 +155,87 @@ export class EmailService {
     to: string,
     signerName: string | undefined,
     senderName: string,
+    senderEmail: string,
     fileName: string,
     signingUrl: string,
     customMessage?: string,
     channel: 'email' | 'sms' | 'whatsapp' = 'email',
   ): Promise<string> {
-    const greeting = signerName ? `Hi ${signerName}` : 'Hi';
-    const messageBody = customMessage || `${senderName} has requested your signature on the document ${fileName}. You can review and sign here.`;
+    const greeting = signerName ? `Hi ${signerName},` : 'Hi,';
+
+    const coverHtml = customMessage
+      ? `<div style="background: #f9fafb; border-left: 4px solid #2563eb; padding: 12px 16px; margin: 0 0 20px; border-radius: 0 4px 4px 0;">
+          <p style="margin: 0; font-size: 14px; color: #374151; white-space: pre-line;">${customMessage}</p>
+        </div>`
+      : '';
+
+    const coverPlain = customMessage ? `\n${customMessage}\n` : '';
 
     const html = `
-      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto;">
-        <p>${greeting},</p>
-        <p>${messageBody}</p>
-        <p>
-          <a href="${signingUrl}" style="display: inline-block; background: #2563eb; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: 600;">
-            Review & Sign Document
-          </a>
-        </p>
-        <p style="color: #6b7280; font-size: 13px;">
-          Or copy this link: <a href="${signingUrl}">${signingUrl}</a>
-        </p>
-        <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 24px 0;" />
-        <p style="color: #6b7280; font-size: 12px;">Powered by Lapen - AI-powered e-signatures</p>
+      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; color: #111827;">
+        <!-- Header -->
+        <div style="background: linear-gradient(135deg, #2563eb 0%, #1e40af 100%); padding: 24px; border-radius: 12px 12px 0 0; text-align: center;">
+          <h1 style="margin: 0; color: white; font-size: 18px; font-weight: 700;">You have a document to sign</h1>
+        </div>
+
+        <!-- Body -->
+        <div style="background: white; padding: 24px; border: 1px solid #e5e7eb; border-top: none;">
+          <p style="margin: 0 0 16px; font-size: 15px;">${greeting}</p>
+
+          <!-- Sender identity -->
+          <div style="background: #f0f7ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 16px; margin: 0 0 20px;">
+            <p style="margin: 0 0 4px; font-size: 14px; color: #6b7280;">Sent by:</p>
+            <p style="margin: 0; font-size: 16px; font-weight: 700; color: #1e40af;">${senderName}</p>
+            <p style="margin: 2px 0 0; font-size: 13px; color: #6b7280;">${senderEmail}</p>
+          </div>
+
+          <!-- Document info -->
+          <div style="display: flex; align-items: center; gap: 12px; margin: 0 0 16px;">
+            <div style="width: 40px; height: 40px; background: #fee2e2; border-radius: 8px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+              <span style="font-size: 20px;">📄</span>
+            </div>
+            <div>
+              <p style="margin: 0; font-size: 14px; font-weight: 600; color: #374151;">${fileName}</p>
+              <p style="margin: 2px 0 0; font-size: 12px; color: #9ca3af;">Requires your electronic signature</p>
+            </div>
+          </div>
+
+          ${coverHtml}
+
+          <!-- CTA -->
+          <div style="text-align: center; margin: 24px 0 16px;">
+            <a href="${signingUrl}" style="display: inline-block; background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%); color: white; padding: 14px 40px; border-radius: 10px; text-decoration: none; font-weight: 700; font-size: 16px; box-shadow: 0 4px 14px rgba(37,99,235,0.35);">
+              Review & Sign Document
+            </a>
+          </div>
+
+          <p style="text-align: center; color: #9ca3af; font-size: 12px; margin: 0 0 16px;">
+            Or copy this link: <a href="${signingUrl}" style="color: #2563eb; word-break: break-all;">${signingUrl}</a>
+          </p>
+
+          <!-- Trust signals -->
+          <div style="border-top: 1px solid #e5e7eb; padding-top: 16px; margin-top: 8px;">
+            <p style="margin: 0; font-size: 12px; color: #9ca3af; text-align: center; line-height: 1.6;">
+              This is a legitimate e-signature request sent by <strong>${senderName}</strong> (${senderEmail})
+              via Lapen. Electronic signatures are legally binding under the ESIGN Act and eIDAS regulation.
+              If you weren't expecting this, you can safely ignore this email.
+            </p>
+          </div>
+        </div>
+
+        <!-- Footer -->
+        <div style="background: #f9fafb; padding: 12px 24px; border: 1px solid #e5e7eb; border-top: none; border-radius: 0 0 12px 12px; text-align: center;">
+          <p style="margin: 0; color: #9ca3af; font-size: 11px;">
+            Powered by Lapen &mdash; AI-powered e-signatures &middot; Secure &middot; Legally Binding
+          </p>
+        </div>
       </div>
     `;
 
     return this.sendEmail({
       to,
-      subject: `Signature requested: ${fileName}`,
-      text: `${greeting},\n\n${messageBody}\n\nReview & Sign: ${signingUrl}\n\nPowered by Lapen`,
+      subject: `${senderName} (${senderEmail}) requested your signature: ${fileName}`,
+      text: `${greeting}\n\n${senderName} (${senderEmail}) has sent you a document to sign.\n\nDocument: ${fileName}\n${coverPlain}\nReview & Sign: ${signingUrl}\n\nThis is a legitimate e-signature request. Electronic signatures are legally binding under the ESIGN Act and eIDAS regulation. If you weren't expecting this, you can safely ignore this email.\n\nPowered by Lapen - AI-powered e-signatures`,
       html,
     });
   }

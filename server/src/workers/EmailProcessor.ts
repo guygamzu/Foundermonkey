@@ -383,6 +383,12 @@ export class EmailProcessor {
       suggestedCoverText = `Hi,\n\nPlease review and sign the attached document "${fileName}".\n\nThank you`;
     }
 
+    // Store AI summary and suggested cover text on the document for use in step 2
+    await getDatabase()('document_requests').where({ id: documentId }).update({
+      ai_summary: summary,
+      suggested_cover_text: suggestedCoverText,
+    });
+
     // Preview URL for the sender to see what signees will see
     const appUrl = process.env.APP_URL || 'http://localhost:3000';
     const previewUrl = `${appUrl}/preview/${documentId}`;
@@ -489,10 +495,14 @@ Preview: ${previewUrl}`,
     const db = getDatabase();
     const appUrl = process.env.APP_URL || 'http://localhost:3000';
 
-    // Extract custom cover text from the reply (look for text after "cover text:" or just use the body minus email addresses)
-    const coverText = this.extractCoverText(body, signeeEmails);
+    // Extract custom cover text from the reply, or fall back to AI-generated cover text from step 1
+    let coverText = this.extractCoverText(body, signeeEmails);
+    if (!coverText && pendingDoc.suggested_cover_text) {
+      coverText = pendingDoc.suggested_cover_text;
+      logger.info({ docId: pendingDoc.id }, 'Using stored AI-generated cover text (user did not provide custom text)');
+    }
 
-    logger.info({ userId: user.id, credits: user.credits, required: signeeEmails.length, docId: pendingDoc.id, docStatus: pendingDoc.status }, 'handleSigneeReply — starting credit check');
+    logger.info({ userId: user.id, credits: user.credits, required: signeeEmails.length, docId: pendingDoc.id, docStatus: pendingDoc.status, hasCoverText: !!coverText }, 'handleSigneeReply — starting credit check');
 
     // If user appears to have insufficient credits, try recovering from Stripe first
     if (user.credits < signeeEmails.length && process.env.STRIPE_SECRET_KEY) {
@@ -578,6 +588,7 @@ Preview: ${previewUrl}`,
           email,
           undefined,
           user.name || senderEmail.split('@')[0],
+          senderEmail,
           pendingDoc.file_name,
           signingUrl,
           coverText || undefined,

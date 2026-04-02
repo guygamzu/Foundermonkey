@@ -15,10 +15,20 @@ export function startNotificationWorker(): void {
   const messagingService = new MessagingService();
 
   queue.process('send-signing-notification', async (job) => {
-    const { signerId, documentRequestId, senderName, fileName } = job.data;
+    const { signerId, documentRequestId, senderName, senderEmail, fileName } = job.data;
 
     const signer = await db('signers').where({ id: signerId }).first();
     if (!signer) throw new Error(`Signer ${signerId} not found`);
+
+    // If senderEmail not in job data, look it up from the document
+    let resolvedSenderEmail = senderEmail || '';
+    if (!resolvedSenderEmail) {
+      const doc = await db('document_requests').where({ id: documentRequestId }).first();
+      if (doc) {
+        const sender = await db('users').where({ id: doc.sender_id }).first();
+        resolvedSenderEmail = sender?.email || '';
+      }
+    }
 
     const signingUrl = `${process.env.APP_URL}/sign/${signer.signing_token}`;
 
@@ -27,6 +37,7 @@ export function startNotificationWorker(): void {
         signer.email,
         signer.name,
         senderName,
+        resolvedSenderEmail,
         fileName,
         signingUrl,
         signer.custom_message,
