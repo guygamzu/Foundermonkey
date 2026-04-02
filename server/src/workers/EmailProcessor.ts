@@ -108,10 +108,17 @@ export class EmailProcessor {
         logger.error({ error: err.message }, 'IMAP search error');
         return;
       }
-      if (!results?.length) return;
+      if (!results?.length) {
+        logger.info('IMAP search returned no unseen messages');
+        return;
+      }
 
+      logger.info(`IMAP search found ${results.length} unseen message(s): ${results.join(', ')}`);
       const newResults = results.filter(seq => !this.processedUids.has(seq));
-      if (!newResults.length) return;
+      if (!newResults.length) {
+        logger.info('All unseen messages already processed (in processedUids set)');
+        return;
+      }
 
       for (const seq of newResults) {
         this.processedUids.add(seq);
