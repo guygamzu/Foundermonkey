@@ -3,8 +3,8 @@ import '@/styles/globals.css';
 
 export const metadata: Metadata = {
   title: {
-    default: 'ləˈpɛn - AI-Powered E-Signatures',
-    template: '%s | ləˈpɛn',
+    default: 'Lapen - AI-Powered E-Signatures',
+    template: '%s | Lapen',
   },
   description: 'Sign documents effortlessly with AI-powered electronic signatures',
 };
