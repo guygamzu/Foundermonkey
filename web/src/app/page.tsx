@@ -22,7 +22,7 @@ export default function Home() {
       </nav>
 
       {/* Hero */}
-      <section className="lp-hero lp-panel" style={{ zIndex: 1 }}>
+      <section className="lp-hero lp-panel" style={{ zIndex: 0 }}>
         <div className="lp-hero-badge">AI-POWERED E-SIGNATURES</div>
         <h1 className="lp-hero-h1">
           Get documents signed<br />
