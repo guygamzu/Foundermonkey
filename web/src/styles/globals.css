@@ -68,13 +68,18 @@ body {
   position: sticky;
   top: 0;
   min-height: 100vh;
+  margin-bottom: 15vh;
   box-shadow: 0 -4px 40px rgba(0, 0, 0, 0.12);
   border-radius: 20px 20px 0 0;
 }
 .lp-panel:first-of-type {
   position: relative;
+  margin-bottom: 20vh;
   box-shadow: none;
   border-radius: 0;
+}
+.lp-panel:last-of-type {
+  margin-bottom: 0;
 }
 
 /* Hero */
