@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
-  title: 'ləˈpɛn - E-Signatures as Easy as Sending an Email',
+  title: 'Lapen',
   description: 'No signup. No app. Just email your PDF and Lapen handles the rest. AI-powered e-signatures with free-form signing tools.',
 };
 
