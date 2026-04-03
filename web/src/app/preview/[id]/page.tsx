@@ -235,34 +235,37 @@ export default function PreviewPage() {
         </div>
       )}
 
-      {/* Toolbar — same layout as signing page but all dimmed/disabled */}
-      <div className="signing-toolbar" style={{ opacity: 0.4, pointerEvents: 'none' }}>
-        <span style={{ fontSize: '0.75rem', color: 'var(--gray-500)', marginRight: 8 }}>Place on document:</span>
-        {(['signature', 'text', 'date', 'checkbox'] as const).map(tool => (
-          <button
-            key={tool}
-            className="toolbar-btn"
-            disabled
-          >
-            <span className="toolbar-icon">
-              {tool === 'signature' && '✍'}
-              {tool === 'text' && 'T'}
-              {tool === 'date' && '📅'}
-              {tool === 'checkbox' && '☑'}
-            </span>
-            <span className="toolbar-label">
-              {tool === 'signature' && 'Signature'}
-              {tool === 'text' && 'Text'}
-              {tool === 'date' && 'Date'}
-              {tool === 'checkbox' && 'Checkbox'}
-            </span>
-          </button>
-        ))}
-      </div>
-
       {/* Document Viewer */}
       <div className="document-viewer">
         <div className="document-container">
+          {/* Toolbar — same layout as signing page but all dimmed/disabled */}
+          <div style={{
+            opacity: 0.4, pointerEvents: 'none',
+            background: 'white', borderBottom: '1px solid var(--gray-200)',
+            padding: '8px 16px', display: 'flex', alignItems: 'center', gap: 6,
+          }}>
+            <span style={{ fontSize: '0.75rem', color: 'var(--gray-500)', marginRight: 8 }}>Place on document:</span>
+            {(['signature', 'text', 'date', 'checkbox'] as const).map(tool => (
+              <button
+                key={tool}
+                className="toolbar-btn"
+                disabled
+              >
+                <span className="toolbar-icon">
+                  {tool === 'signature' && '✍'}
+                  {tool === 'text' && 'T'}
+                  {tool === 'date' && '📅'}
+                  {tool === 'checkbox' && '☑'}
+                </span>
+                <span className="toolbar-label">
+                  {tool === 'signature' && 'Signature'}
+                  {tool === 'text' && 'Text'}
+                  {tool === 'date' && 'Date'}
+                  {tool === 'checkbox' && 'Checkbox'}
+                </span>
+              </button>
+            ))}
+          </div>
           {showPdf ? (
             <Suspense
               fallback={
