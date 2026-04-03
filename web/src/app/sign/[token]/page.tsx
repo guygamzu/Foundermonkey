@@ -469,6 +469,7 @@ export default function SigningPage() {
         <div style={{
           background: '#eff6ff', borderBottom: '1px solid #bfdbfe', padding: '16px',
           fontSize: '0.875rem', position: 'relative', maxHeight: '50vh', display: 'flex', flexDirection: 'column',
+          maxWidth: 832, margin: '0 auto', width: '100%',
         }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
             <strong style={{ color: '#1e40af' }}>AI Document Assistant</strong>
@@ -539,42 +540,44 @@ export default function SigningPage() {
         </div>
       )}
 
+      {/* Toolbar */}
+      <div className="signing-toolbar">
+        <span style={{ fontSize: '0.75rem', color: 'var(--gray-500)', marginRight: 8 }}>Place on document:</span>
+        {(['signature', 'text', 'date', 'checkbox'] as ToolType[]).map(tool => (
+          <button
+            key={tool!}
+            className={`toolbar-btn ${activeTool === tool ? 'active' : ''}`}
+            onClick={() => setActiveTool(activeTool === tool ? null : tool)}
+          >
+            <span className="toolbar-icon">
+              {tool === 'signature' && '✍'}
+              {tool === 'text' && 'T'}
+              {tool === 'date' && '📅'}
+              {tool === 'checkbox' && '☑'}
+            </span>
+            <span className="toolbar-label">
+              {tool === 'signature' && 'Signature'}
+              {tool === 'text' && 'Text'}
+              {tool === 'date' && 'Date'}
+              {tool === 'checkbox' && 'Checkbox'}
+            </span>
+          </button>
+        ))}
+      </div>
+
+      {activeTool && (
+        <div style={{
+          background: '#fef3c7', borderBottom: '1px solid #fbbf24', padding: '8px 16px',
+          fontSize: '0.8125rem', color: '#92400e', textAlign: 'center',
+          maxWidth: 832, margin: '0 auto', width: '100%',
+        }}>
+          Click anywhere on the document to place {activeTool === 'signature' ? 'your signature' : `a ${activeTool} field`}
+        </div>
+      )}
+
       {/* Document Viewer */}
       <div className="document-viewer">
         <div className="document-container">
-          {/* Toolbar */}
-          <div className="signing-toolbar" style={{ position: 'relative', top: 0 }}>
-            <span style={{ fontSize: '0.75rem', color: 'var(--gray-500)', marginRight: 8 }}>Place on document:</span>
-            {(['signature', 'text', 'date', 'checkbox'] as ToolType[]).map(tool => (
-              <button
-                key={tool!}
-                className={`toolbar-btn ${activeTool === tool ? 'active' : ''}`}
-                onClick={() => setActiveTool(activeTool === tool ? null : tool)}
-              >
-                <span className="toolbar-icon">
-                  {tool === 'signature' && '✍'}
-                  {tool === 'text' && 'T'}
-                  {tool === 'date' && '📅'}
-                  {tool === 'checkbox' && '☑'}
-                </span>
-                <span className="toolbar-label">
-                  {tool === 'signature' && 'Signature'}
-                  {tool === 'text' && 'Text'}
-                  {tool === 'date' && 'Date'}
-                  {tool === 'checkbox' && 'Checkbox'}
-                </span>
-              </button>
-            ))}
-          </div>
-
-          {activeTool && (
-            <div style={{
-              background: '#fef3c7', borderBottom: '1px solid #fbbf24', padding: '8px 16px',
-              fontSize: '0.8125rem', color: '#92400e', textAlign: 'center',
-            }}>
-              Click anywhere on the document to place {activeTool === 'signature' ? 'your signature' : `a ${activeTool} field`}
-            </div>
-          )}
           <Suspense
             fallback={
               <div style={{ padding: 40, textAlign: 'center', color: 'var(--gray-400)' }}>

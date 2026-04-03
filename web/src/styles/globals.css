@@ -343,6 +343,9 @@ body {
   position: sticky;
   top: 0;
   z-index: 100;
+  max-width: 832px;
+  margin: 0 auto;
+  width: 100%;
 }
 
 .signing-header h1 {
@@ -809,6 +812,9 @@ body {
   position: sticky;
   top: 49px;
   z-index: 99;
+  max-width: 832px;
+  margin: 0 auto;
+  width: 100%;
 }
 
 .toolbar-btn {
