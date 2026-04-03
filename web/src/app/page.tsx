@@ -206,7 +206,7 @@ export default function Home() {
       </section>
 
       {/* Final CTA */}
-      <section className="lp-cta lp-panel" style={{ zIndex: 5 }}>
+      <section className="lp-cta" style={{ zIndex: 5 }}>
         <div className="lp-cta-inner">
           <h2>Ready to get documents signed?</h2>
           <p>No signup. No download. Just send an email.</p>
@@ -218,7 +218,7 @@ export default function Home() {
       </section>
 
       {/* Footer */}
-      <footer className="lp-footer lp-panel" style={{ zIndex: 6 }}>
+      <footer className="lp-footer" style={{ zIndex: 6 }}>
         <div className="lp-footer-inner">
           <div className="lp-footer-brand">
             <span className="lp-logo">Lapen</span>
