@@ -689,6 +689,9 @@ body {
   position: sticky;
   bottom: 0;
   z-index: 50;
+  max-width: 832px;
+  margin: 0 auto;
+  width: 100%;
 }
 
 .consent-checkbox {
