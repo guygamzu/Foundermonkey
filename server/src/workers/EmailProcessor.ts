@@ -215,7 +215,7 @@ export class EmailProcessor {
       const isServiceReply = bodyText.includes('Welcome to Lapen!') ||
         bodyText.includes("I've analyzed your document") ||
         bodyText.includes("I've sent") ||
-        bodyText.includes('Track signing status') ||
+        bodyText.includes('Track Signing Status') ||
         bodyText.includes('Lapen E-Signature Service') ||
         subjectText.includes('Document sent for signature');
       if (isServiceReply) {
@@ -751,7 +751,9 @@ Preview: ${previewUrl}`,
     </ul>
     <p>I'll notify you as each person signs.</p>
     ${failedNoteHtml}
-    <p><a href="${statusUrl}" style="color: #2563eb;">Track signing status →</a></p>
+    <div style="text-align: center; margin: 20px 0 0;">
+      <a href="${statusUrl}" style="display: inline-block; background: #2563eb; color: white; padding: 12px 28px; border-radius: 8px; text-decoration: none; font-weight: 600;">Track Signing Status</a>
+    </div>
   </div>
 </div>`,
       inReplyTo: messageId,
