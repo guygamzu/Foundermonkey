@@ -57,7 +57,7 @@ export class EmailService {
       const replyTo = (process.env.IMAP_USER || '').replace(/@@/g, '@');
 
       const payload: any = {
-        from: `Lapen <${this.fromEmail}>`,
+        from: `ləˈpɛn <${this.fromEmail}>`,
         reply_to: replyTo || undefined,
         to: [options.to],
         subject: options.subject,

@@ -17,7 +17,7 @@ export default function Home() {
             <a href="#features">Features</a>
             <a href="#pricing">Pricing</a>
           </div>
-          <a href="mailto:guygamzu@lapen.ai" className="lp-nav-cta">Get Started</a>
+          <a href="mailto:sign@lapen.ai" className="lp-nav-cta">Get Started</a>
         </div>
       </nav>
 
@@ -33,7 +33,7 @@ export default function Home() {
           AI-powered analysis, free-form signing tools, and legally binding signatures.
         </p>
         <div className="lp-hero-actions">
-          <a href="mailto:guygamzu@lapen.ai" className="lp-btn lp-btn-primary">
+          <a href="mailto:sign@lapen.ai" className="lp-btn lp-btn-primary">
             Send your first document
           </a>
           <a href="#how" className="lp-btn lp-btn-ghost">
@@ -69,7 +69,7 @@ export default function Home() {
               <div className="lp-step-num">01</div>
               <h3>Email your document</h3>
               <p>
-                Send any PDF to <strong>guygamzu@lapen.ai</strong>. Our AI instantly
+                Send any PDF to <strong>sign@lapen.ai</strong>. Our AI instantly
                 analyzes it and replies with a smart summary.
               </p>
             </div>
@@ -151,7 +151,7 @@ export default function Home() {
                 <li>AI document analysis</li>
                 <li>No expiration</li>
               </ul>
-              <a href="mailto:guygamzu@lapen.ai" className="lp-btn lp-btn-outline">Get started free</a>
+              <a href="mailto:sign@lapen.ai" className="lp-btn lp-btn-outline">Get started free</a>
             </div>
             <div className="lp-price-card">
               <h3>Starter</h3>
@@ -162,7 +162,7 @@ export default function Home() {
                 <li>$0.50 per credit</li>
                 <li>No expiration</li>
               </ul>
-              <a href="mailto:guygamzu@lapen.ai" className="lp-btn lp-btn-outline">Buy credits</a>
+              <a href="mailto:sign@lapen.ai" className="lp-btn lp-btn-outline">Buy credits</a>
             </div>
             <div className="lp-price-card lp-price-featured">
               <div className="lp-price-tag">MOST POPULAR</div>
@@ -174,7 +174,7 @@ export default function Home() {
                 <li>$0.40 per credit</li>
                 <li>No expiration</li>
               </ul>
-              <a href="mailto:guygamzu@lapen.ai" className="lp-btn lp-btn-primary">Buy credits</a>
+              <a href="mailto:sign@lapen.ai" className="lp-btn lp-btn-primary">Buy credits</a>
             </div>
             <div className="lp-price-card">
               <h3>Business</h3>
@@ -185,7 +185,7 @@ export default function Home() {
                 <li>$0.32 per credit</li>
                 <li>No expiration</li>
               </ul>
-              <a href="mailto:guygamzu@lapen.ai" className="lp-btn lp-btn-outline">Buy credits</a>
+              <a href="mailto:sign@lapen.ai" className="lp-btn lp-btn-outline">Buy credits</a>
             </div>
             <div className="lp-price-card">
               <h3>Enterprise</h3>
@@ -196,7 +196,7 @@ export default function Home() {
                 <li>$0.25 per credit</li>
                 <li>No expiration</li>
               </ul>
-              <a href="mailto:guygamzu@lapen.ai" className="lp-btn lp-btn-outline">Buy credits</a>
+              <a href="mailto:sign@lapen.ai" className="lp-btn lp-btn-outline">Buy credits</a>
             </div>
           </div>
           <p className="lp-referral">
@@ -210,10 +210,10 @@ export default function Home() {
         <div className="lp-cta-inner">
           <h2>Ready to get documents signed?</h2>
           <p>No signup. No download. Just send an email.</p>
-          <a href="mailto:guygamzu@lapen.ai" className="lp-btn lp-btn-primary lp-btn-lg">
+          <a href="mailto:sign@lapen.ai" className="lp-btn lp-btn-primary lp-btn-lg">
             Send your first document
           </a>
-          <span className="lp-cta-email">guygamzu@lapen.ai</span>
+          <span className="lp-cta-email">sign@lapen.ai</span>
         </div>
       </section>
 
@@ -228,7 +228,7 @@ export default function Home() {
             <a href="#how">How it works</a>
             <a href="#features">Features</a>
             <a href="#pricing">Pricing</a>
-            <a href="mailto:guygamzu@lapen.ai">Contact</a>
+            <a href="mailto:sign@lapen.ai">Contact</a>
           </div>
         </div>
         <div className="lp-footer-bottom">
