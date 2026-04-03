@@ -341,23 +341,37 @@ export class EmailProcessor {
     // Only matches if:
     //   - Sender has a signer record on a document in 'sent' status
     //   - Sender is NOT a registered user (pure signee, not a sender)
+    //   - Email contains a substantial PDF or image attachment (>10KB)
+    //     to avoid false positives from email signatures/inline images
     // This prevents senders submitting new PDFs from being misidentified.
     // ---------------------------------------------------------------
     const existingUser = await this.userRepo.findByEmail(senderEmail);
     if (!existingUser) {
-      // Not a registered sender — check if they're a signee
-      const signer = await db('signers')
-        .where({ email: senderLower })
-        .whereIn('status', ['pending', 'notified', 'viewed'])
-        .first();
+      // Check if email has a real attachment (PDF or image > 10KB, not inline)
+      const hasRealAttachment = attachments.some(a => {
+        const type = (a.contentType || '').toLowerCase();
+        const name = (a.filename || '').toLowerCase();
+        const size = a.size || (a.content ? a.content.length : 0);
+        const isPdf = type.includes('pdf') || name.endsWith('.pdf');
+        const isImage = type.includes('image') && size > 10240; // >10KB to skip email signature images
+        return isPdf || isImage;
+      });
 
-      if (signer) {
-        // Verify the document is in a state that expects signatures
-        const signerDoc = await db('document_requests').where({ id: signer.document_request_id }).first();
-        if (signerDoc && signerDoc.status === 'sent') {
-          logger.info({ signerId: signer.id, signerEmail: senderLower, docId: signer.document_request_id }, 'Signee replied with signed scan');
-          await this.handleSignedScanReply(signer, attachments, senderLower, messageId);
-          return;
+      if (hasRealAttachment) {
+        // Not a registered sender — check if they're a signee
+        const signer = await db('signers')
+          .where({ email: senderLower })
+          .whereIn('status', ['pending', 'notified', 'viewed'])
+          .first();
+
+        if (signer) {
+          // Verify the document is in a state that expects signatures
+          const signerDoc = await db('document_requests').where({ id: signer.document_request_id }).first();
+          if (signerDoc && signerDoc.status === 'sent') {
+            logger.info({ signerId: signer.id, signerEmail: senderLower, docId: signer.document_request_id }, 'Signee replied with signed scan');
+            await this.handleSignedScanReply(signer, attachments, senderLower, messageId);
+            return;
+          }
         }
       }
     }
