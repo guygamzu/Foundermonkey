@@ -11,7 +11,7 @@ export default function Home() {
       {/* Nav */}
       <nav className="lp-nav">
         <div className="lp-nav-inner">
-          <span className="lp-logo">Lapen</span>
+          <span className="lp-logo">ləˈpɛn</span>
           <div className="lp-nav-links">
             <a href="#how">How it works</a>
             <a href="#features">Features</a>
@@ -221,7 +221,7 @@ export default function Home() {
       <footer className="lp-footer" style={{ zIndex: 6 }}>
         <div className="lp-footer-inner">
           <div className="lp-footer-brand">
-            <span className="lp-logo">Lapen</span>
+            <span className="lp-logo">ləˈpɛn</span>
             <p>AI-powered e-signatures.<br />Simple, fast, and secure.</p>
           </div>
           <div className="lp-footer-links">

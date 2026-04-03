@@ -440,7 +440,7 @@ export default function SigningPage() {
     <div className="signing-page">
       {/* Header */}
       <div className="signing-header">
-        <span className="logo">Lapen</span>
+        <span className="logo">ləˈpɛn</span>
         <h1>{session.document.fileName}</h1>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <button

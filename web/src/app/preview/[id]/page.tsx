@@ -162,7 +162,7 @@ export default function PreviewPage() {
   return (
     <div className="status-page">
       <div style={{ marginBottom: 24 }}>
-        <div style={{ fontSize: '1.125rem', fontWeight: 800, color: 'var(--primary)' }}>Lapen</div>
+        <div style={{ fontSize: '1.125rem', fontWeight: 800, color: 'var(--primary)' }}>ləˈpɛn</div>
       </div>
 
       {/* AI Summary & Chat Panel — always visible */}
