@@ -2,7 +2,10 @@ import type { Metadata, Viewport } from 'next';
 import '@/styles/globals.css';
 
 export const metadata: Metadata = {
-  title: 'Lapen - AI-Powered E-Signatures',
+  title: {
+    default: 'ləˈpɛn - AI-Powered E-Signatures',
+    template: '%s | ləˈpɛn',
+  },
   description: 'Sign documents effortlessly with AI-powered electronic signatures',
 };
 
