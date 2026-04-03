@@ -6,9 +6,10 @@ import { useSearchParams } from 'next/navigation';
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
 const PACKAGES = [
-  { index: 0, credits: 10, price: '$15', label: '10 Credits' },
-  { index: 1, credits: 25, price: '$25', label: '25 Credits', popular: true },
-  { index: 2, credits: 100, price: '$75', label: '100 Credits' },
+  { index: 0, credits: 10, price: '$4.99', label: '10 Credits' },
+  { index: 1, credits: 25, price: '$9.99', label: '25 Credits', popular: true },
+  { index: 2, credits: 50, price: '$15.99', label: '50 Credits' },
+  { index: 3, credits: 100, price: '$24.99', label: '100 Credits' },
 ];
 
 export default function CreditsContent() {

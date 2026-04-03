@@ -143,9 +143,9 @@ export default function Home() {
           </p>
           <div className="lp-pricing">
             <div className="lp-price-card">
-              <h3>Starter</h3>
-              <div className="lp-price-amount">Free</div>
-              <p className="lp-price-desc">5 signature credits</p>
+              <h3>Free</h3>
+              <div className="lp-price-amount">$0</div>
+              <p className="lp-price-desc">5 credits to start</p>
               <ul>
                 <li>All features included</li>
                 <li>AI document analysis</li>
@@ -153,28 +153,50 @@ export default function Home() {
               </ul>
               <a href="mailto:guygamzu@lapen.ai" className="lp-btn lp-btn-outline">Get started free</a>
             </div>
-            <div className="lp-price-card lp-price-featured">
-              <div className="lp-price-tag">BEST VALUE</div>
-              <h3>Pro</h3>
-              <div className="lp-price-amount">$25</div>
-              <p className="lp-price-desc">25 signature credits</p>
+            <div className="lp-price-card">
+              <h3>Starter</h3>
+              <div className="lp-price-amount">$4.99</div>
+              <p className="lp-price-desc">10 credits</p>
               <ul>
-                <li>Everything in Starter</li>
-                <li>$1 per credit</li>
-                <li>Priority delivery</li>
+                <li>All features included</li>
+                <li>$0.50 per credit</li>
+                <li>No expiration</li>
               </ul>
-              <a href="mailto:guygamzu@lapen.ai" className="lp-btn lp-btn-primary">Get started</a>
+              <a href="mailto:guygamzu@lapen.ai" className="lp-btn lp-btn-outline">Buy credits</a>
+            </div>
+            <div className="lp-price-card lp-price-featured">
+              <div className="lp-price-tag">MOST POPULAR</div>
+              <h3>Pro</h3>
+              <div className="lp-price-amount">$9.99</div>
+              <p className="lp-price-desc">25 credits</p>
+              <ul>
+                <li>All features included</li>
+                <li>$0.40 per credit</li>
+                <li>No expiration</li>
+              </ul>
+              <a href="mailto:guygamzu@lapen.ai" className="lp-btn lp-btn-primary">Buy credits</a>
             </div>
             <div className="lp-price-card">
               <h3>Business</h3>
-              <div className="lp-price-amount">$75</div>
-              <p className="lp-price-desc">100 signature credits</p>
+              <div className="lp-price-amount">$15.99</div>
+              <p className="lp-price-desc">50 credits</p>
               <ul>
-                <li>Everything in Pro</li>
-                <li>$0.75 per credit</li>
-                <li>Bulk sending</li>
+                <li>All features included</li>
+                <li>$0.32 per credit</li>
+                <li>No expiration</li>
               </ul>
-              <a href="mailto:guygamzu@lapen.ai" className="lp-btn lp-btn-outline">Get started</a>
+              <a href="mailto:guygamzu@lapen.ai" className="lp-btn lp-btn-outline">Buy credits</a>
+            </div>
+            <div className="lp-price-card">
+              <h3>Enterprise</h3>
+              <div className="lp-price-amount">$24.99</div>
+              <p className="lp-price-desc">100 credits</p>
+              <ul>
+                <li>All features included</li>
+                <li>$0.25 per credit</li>
+                <li>No expiration</li>
+              </ul>
+              <a href="mailto:guygamzu@lapen.ai" className="lp-btn lp-btn-outline">Buy credits</a>
             </div>
           </div>
           <p className="lp-referral">

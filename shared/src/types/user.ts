@@ -20,9 +20,10 @@ export interface CreditTransaction {
 }
 
 export const CREDIT_PACKAGES = [
-  { credits: 10, priceUsd: 1500, label: '10 Credits - $15' },
-  { credits: 25, priceUsd: 2500, label: '25 Credits - $25 (Most Popular)', popular: true },
-  { credits: 100, priceUsd: 7500, label: '100 Credits - $75' },
+  { credits: 10, priceUsd: 499, label: '10 Credits - $4.99' },
+  { credits: 25, priceUsd: 999, label: '25 Credits - $9.99 (Most Popular)', popular: true },
+  { credits: 50, priceUsd: 1599, label: '50 Credits - $15.99' },
+  { credits: 100, priceUsd: 2499, label: '100 Credits - $24.99' },
 ] as const;
 
 export const FREE_CREDITS = 5;
