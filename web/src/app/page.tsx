@@ -22,7 +22,7 @@ export default function Home() {
       </nav>
 
       {/* Hero */}
-      <section className="lp-hero">
+      <section className="lp-hero lp-panel" style={{ zIndex: 1 }}>
         <div className="lp-hero-badge">AI-POWERED E-SIGNATURES</div>
         <h1 className="lp-hero-h1">
           Get documents signed<br />
@@ -59,7 +59,7 @@ export default function Home() {
       </section>
 
       {/* How it works */}
-      <section className="lp-section" id="how">
+      <section className="lp-section lp-panel" id="how" style={{ zIndex: 2 }}>
         <div className="lp-section-inner">
           <div className="lp-section-label">HOW IT WORKS</div>
           <h2 className="lp-section-h2">Three steps. No account needed.</h2>
@@ -94,7 +94,7 @@ export default function Home() {
       </section>
 
       {/* Features */}
-      <section className="lp-section lp-section-alt" id="features">
+      <section className="lp-section lp-section-alt lp-panel" id="features" style={{ zIndex: 3 }}>
         <div className="lp-section-inner">
           <div className="lp-section-label">CAPABILITIES</div>
           <h2 className="lp-section-h2">Everything you need, nothing you don&apos;t</h2>
@@ -134,7 +134,7 @@ export default function Home() {
       </section>
 
       {/* Pricing */}
-      <section className="lp-section" id="pricing">
+      <section className="lp-section lp-panel" id="pricing" style={{ zIndex: 4 }}>
         <div className="lp-section-inner">
           <div className="lp-section-label">PRICING</div>
           <h2 className="lp-section-h2">Simple, transparent pricing</h2>
@@ -184,7 +184,7 @@ export default function Home() {
       </section>
 
       {/* Final CTA */}
-      <section className="lp-cta">
+      <section className="lp-cta lp-panel" style={{ zIndex: 5 }}>
         <div className="lp-cta-inner">
           <h2>Ready to get documents signed?</h2>
           <p>No signup. No download. Just send an email.</p>
@@ -196,7 +196,7 @@ export default function Home() {
       </section>
 
       {/* Footer */}
-      <footer className="lp-footer">
+      <footer className="lp-footer lp-panel" style={{ zIndex: 6 }}>
         <div className="lp-footer-inner">
           <div className="lp-footer-brand">
             <span className="lp-logo">Lapen</span>
