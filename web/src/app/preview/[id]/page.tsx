@@ -44,10 +44,9 @@ export default function PreviewPage() {
   const [loading, setLoading] = useState(true);
   const [pdfFailed, setPdfFailed] = useState(false);
 
-  // AI Summary & Chat
-  const [showAISummary, setShowAISummary] = useState(false);
+  // AI Summary & Chat — always visible on preview
   const [aiSummary, setAiSummary] = useState<string | null>(null);
-  const [aiLoading, setAiLoading] = useState(false);
+  const [aiLoading, setAiLoading] = useState(true);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
@@ -62,34 +61,30 @@ export default function PreviewPage() {
           throw new Error(body.error || `HTTP ${res.status}`);
         }
         setPreview(await res.json());
+
+        // Auto-fetch AI summary
+        try {
+          const result = await askPreviewQuestion(
+            documentId,
+            'Summarize this document in 1-2 sentences. State what it is, its purpose, and the key parties.',
+            [],
+          );
+          setAiSummary(result.answer);
+          setChatMessages([{ role: 'assistant', content: result.answer }]);
+        } catch {
+          setAiSummary('Unable to generate summary at this time.');
+        } finally {
+          setAiLoading(false);
+        }
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load preview');
+        setAiLoading(false);
       } finally {
         setLoading(false);
       }
     }
     load();
   }, [documentId]);
-
-  const handleAISummary = async () => {
-    setShowAISummary(prev => !prev);
-    if (aiSummary) return;
-    setShowAISummary(true);
-    setAiLoading(true);
-    try {
-      const result = await askPreviewQuestion(
-        documentId,
-        'Summarize this document in 1-2 sentences. State what it is, its purpose, and the key parties.',
-        [],
-      );
-      setAiSummary(result.answer);
-      setChatMessages([{ role: 'assistant', content: result.answer }]);
-    } catch {
-      setAiSummary('Unable to generate summary at this time.');
-    } finally {
-      setAiLoading(false);
-    }
-  };
 
   const handleChatSubmit = async (e?: React.FormEvent) => {
     e?.preventDefault();
@@ -140,17 +135,6 @@ export default function PreviewPage() {
         <h1>{preview.fileName}</h1>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <button
-            className="btn"
-            style={{
-              padding: '6px 12px', fontSize: '0.75rem', minHeight: 'auto',
-              background: '#f0f7ff', color: 'var(--primary)', border: '1px solid var(--primary)',
-            }}
-            onClick={handleAISummary}
-            title="AI Document Summary"
-          >
-            <span style={{ marginRight: 4 }}>&#x2728;</span> AI Summary
-          </button>
-          <button
             className="btn btn-danger"
             style={{ padding: '6px 12px', fontSize: '0.75rem', minHeight: 'auto', opacity: 0.4, pointerEvents: 'none' }}
             disabled
@@ -160,81 +144,75 @@ export default function PreviewPage() {
         </div>
       </div>
 
-      {/* AI Summary + Chat Panel — same as signing page */}
-      {showAISummary && (
-        <div style={{
-          background: '#eff6ff', borderBottom: '1px solid #bfdbfe', padding: '16px',
-          fontSize: '0.875rem', position: 'relative', maxHeight: '50vh', display: 'flex', flexDirection: 'column',
-          maxWidth: 832, margin: '0 auto', width: '100%',
-        }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-            <strong style={{ color: '#1e40af' }}>AI Document Assistant</strong>
-            <button
-              onClick={() => setShowAISummary(false)}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.25rem', color: '#6b7280', lineHeight: 1 }}
-            >&times;</button>
+      {/* AI Summary + Chat Panel — always visible on preview */}
+      <div style={{
+        background: '#eff6ff', borderBottom: '1px solid #bfdbfe', padding: '16px',
+        fontSize: '0.875rem', position: 'relative', maxHeight: '50vh', display: 'flex', flexDirection: 'column',
+        maxWidth: 832, margin: '0 auto', width: '100%',
+      }}>
+        <div style={{ marginBottom: 12 }}>
+          <strong style={{ color: '#1e40af' }}>AI Document Assistant</strong>
+        </div>
+
+        {aiLoading ? (
+          <div style={{ padding: 16, textAlign: 'center', color: '#6b7280' }}>
+            <div className="spinner" style={{ width: 20, height: 20, margin: '0 auto 8px' }} />
+            Analyzing document...
           </div>
-
-          {aiLoading ? (
-            <div style={{ padding: 16, textAlign: 'center', color: '#6b7280' }}>
-              <div className="spinner" style={{ width: 20, height: 20, margin: '0 auto 8px' }} />
-              Analyzing document...
-            </div>
-          ) : (
-            <>
-              <div style={{ flex: 1, overflowY: 'auto', marginBottom: 12, maxHeight: '35vh' }}>
-                {chatMessages.map((msg, i) => (
-                  <div
-                    key={i}
-                    style={{
-                      padding: '8px 12px',
-                      margin: '4px 0',
-                      borderRadius: 8,
-                      background: msg.role === 'user' ? '#dbeafe' : 'white',
-                      borderLeft: msg.role === 'assistant' ? '3px solid #2563eb' : 'none',
-                      fontSize: '0.8125rem',
-                      lineHeight: 1.5,
-                      color: '#374151',
-                      whiteSpace: 'pre-wrap',
-                    }}
-                  >
-                    {msg.role === 'user' && <strong style={{ color: '#2563eb' }}>You: </strong>}
-                    {msg.content}
-                  </div>
-                ))}
-                {chatLoading && (
-                  <div style={{ padding: '8px 12px', color: '#6b7280', fontSize: '0.8125rem' }}>Thinking...</div>
-                )}
-                <div ref={chatEndRef} />
-              </div>
-
-              <form onSubmit={handleChatSubmit} style={{ display: 'flex', gap: 8 }}>
-                <input
-                  type="text"
-                  value={chatInput}
-                  onChange={(e) => setChatInput(e.target.value)}
-                  placeholder="Ask a question about this document..."
+        ) : (
+          <>
+            <div style={{ flex: 1, overflowY: 'auto', marginBottom: 12, maxHeight: '35vh' }}>
+              {chatMessages.map((msg, i) => (
+                <div
+                  key={i}
                   style={{
-                    flex: 1, padding: '8px 12px', border: '1px solid #bfdbfe', borderRadius: 8,
-                    fontSize: '0.8125rem', outline: 'none', background: 'white',
-                  }}
-                />
-                <button
-                  type="submit"
-                  disabled={!chatInput.trim() || chatLoading}
-                  style={{
-                    padding: '8px 14px', background: '#2563eb', color: 'white', border: 'none',
-                    borderRadius: 8, cursor: chatInput.trim() && !chatLoading ? 'pointer' : 'not-allowed',
-                    opacity: chatInput.trim() && !chatLoading ? 1 : 0.5, fontSize: '0.8125rem', fontWeight: 600,
+                    padding: '8px 12px',
+                    margin: '4px 0',
+                    borderRadius: 8,
+                    background: msg.role === 'user' ? '#dbeafe' : 'white',
+                    borderLeft: msg.role === 'assistant' ? '3px solid #2563eb' : 'none',
+                    fontSize: '0.8125rem',
+                    lineHeight: 1.5,
+                    color: '#374151',
+                    whiteSpace: 'pre-wrap',
                   }}
                 >
-                  Ask
-                </button>
-              </form>
-            </>
-          )}
-        </div>
-      )}
+                  {msg.role === 'user' && <strong style={{ color: '#2563eb' }}>You: </strong>}
+                  {msg.content}
+                </div>
+              ))}
+              {chatLoading && (
+                <div style={{ padding: '8px 12px', color: '#6b7280', fontSize: '0.8125rem' }}>Thinking...</div>
+              )}
+              <div ref={chatEndRef} />
+            </div>
+
+            <form onSubmit={handleChatSubmit} style={{ display: 'flex', gap: 8 }}>
+              <input
+                type="text"
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)}
+                placeholder="Ask a question about this document..."
+                style={{
+                  flex: 1, padding: '8px 12px', border: '1px solid #bfdbfe', borderRadius: 8,
+                  fontSize: '0.8125rem', outline: 'none', background: 'white',
+                }}
+              />
+              <button
+                type="submit"
+                disabled={!chatInput.trim() || chatLoading}
+                style={{
+                  padding: '8px 14px', background: '#2563eb', color: 'white', border: 'none',
+                  borderRadius: 8, cursor: chatInput.trim() && !chatLoading ? 'pointer' : 'not-allowed',
+                  opacity: chatInput.trim() && !chatLoading ? 1 : 0.5, fontSize: '0.8125rem', fontWeight: 600,
+                }}
+              >
+                Ask
+              </button>
+            </form>
+          </>
+        )}
+      </div>
 
       {/* Toolbar — same layout as signing page but all dimmed/disabled */}
       <div className="signing-toolbar" style={{ opacity: 0.4, pointerEvents: 'none' }}>
