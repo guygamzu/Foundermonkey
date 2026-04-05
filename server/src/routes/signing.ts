@@ -55,6 +55,30 @@ export function createSigningRouter(): Router {
       // Get fields for this signer
       const fields = await documentRepo.findFieldsBySignerId(signer.id);
 
+      // In shared mode, also get completed fields from other signers (so they can see previous signatures)
+      let otherCompletedFields: Array<{
+        id: string; type: string; page: number; x: number; y: number;
+        width: number; height: number; value: string | null; signerName: string | null;
+      }> = [];
+      if (doc.signing_mode === 'shared') {
+        const allFields = await documentRepo.findFieldsByDocumentId(doc.id);
+        const allSigners = await documentRepo.findSignersByDocumentId(doc.id);
+        const signerMap = new Map(allSigners.map(s => [s.id, s]));
+        otherCompletedFields = allFields
+          .filter(f => f.signer_id !== signer.id && f.completed_at)
+          .map(f => ({
+            id: f.id,
+            type: f.type,
+            page: f.page,
+            x: f.x,
+            y: f.y,
+            width: f.width,
+            height: f.height,
+            value: f.value,
+            signerName: signerMap.get(f.signer_id)?.name || null,
+          }));
+      }
+
       // Generate signed URL if S3 is configured and document has been uploaded
       let documentUrl: string | null = null;
       logger.info(`Signing session: s3_key=${doc.s3_key}, AWS_KEY=${!!process.env.AWS_ACCESS_KEY_ID}`);
@@ -78,6 +102,7 @@ export function createSigningRouter(): Router {
           fileName: doc.file_name,
           pageCount: doc.page_count,
           documentUrl,
+          signingMode: doc.signing_mode,
         },
         signer: {
           id: signer.id,
@@ -96,6 +121,7 @@ export function createSigningRouter(): Router {
           value: f.value,
           completed: !!f.completed_at,
         })),
+        otherFields: otherCompletedFields,
       });
     } catch (err) {
       logger.error({ err, token: req.params.token }, 'Error fetching signing session');
@@ -282,10 +308,90 @@ export function createSigningRouter(): Router {
       });
 
       // Check if all signers have signed
+      const doc = await documentRepo.findById(signer.document_request_id);
       const allSigners = await documentRepo.findSignersByDocumentId(signer.document_request_id);
       const allSigned = allSigners.every((s) => s.status === 'signed');
 
-      if (allSigned) {
+      // Individual mode: generate per-signer PDF immediately
+      if (doc?.signing_mode === 'individual') {
+        try {
+          const { StorageService } = await import('../services/StorageService.js');
+          const { AIService } = await import('../services/AIService.js');
+          const { DocumentService } = await import('../services/DocumentService.js');
+          const { EmailService } = await import('../services/EmailService.js');
+          const storageService = new StorageService();
+          const aiService = new AIService();
+          const documentService = new DocumentService(documentRepo, auditRepo, storageService, aiService);
+          const emailService = new EmailService();
+
+          // Generate PDF with only this signer's fields
+          const signerPdf = await documentService.applySignaturesToDocument(signer.document_request_id, signer.id);
+          const signerName = signer.name || signer.email?.split('@')[0] || 'signer';
+          const signedKey = `signed/${signer.document_request_id}/${signer.id}/${doc.file_name.replace('.pdf', '')}-signed-${signerName}.pdf`;
+          await storageService.uploadDocument(signedKey, signerPdf, 'application/pdf');
+
+          // Store per-signer signed key
+          await db('signers').where({ id: signer.id }).update({ signed_s3_key: signedKey });
+
+          // Send to this signer + sender
+          const sender = await db('users').where({ id: doc.sender_id }).first();
+          const appUrl = process.env.APP_URL || 'https://app.lapen.ai';
+          const attachment = { filename: `${doc.file_name.replace('.pdf', '')}-signed-${signerName}.pdf`, content: signerPdf, contentType: 'application/pdf' };
+
+          const recipientEmails = new Set<string>();
+          if (signer.email) recipientEmails.add(signer.email);
+          if (sender?.email) recipientEmails.add(sender.email);
+
+          for (const email of recipientEmails) {
+            await emailService.sendCompletionNotification(email, doc.file_name, `${appUrl}/status/${doc.id}`, [attachment]);
+          }
+
+          logger.info({ documentId: doc.id, signerId: signer.id }, 'Individual signer completion processed');
+        } catch (completionErr) {
+          logger.error({ err: completionErr }, 'Individual signer completion failed');
+        }
+
+        if (allSigned) {
+          // All done — also generate combined PDF
+          await documentRepo.updateStatus(signer.document_request_id, 'completed');
+          try {
+            const { StorageService } = await import('../services/StorageService.js');
+            const { AIService } = await import('../services/AIService.js');
+            const { DocumentService } = await import('../services/DocumentService.js');
+            const { EmailService } = await import('../services/EmailService.js');
+            const storageService = new StorageService();
+            const aiService = new AIService();
+            const documentService = new DocumentService(documentRepo, auditRepo, storageService, aiService);
+            const emailService = new EmailService();
+
+            const combinedPdf = await documentService.applySignaturesToDocument(signer.document_request_id);
+            const certificate = await documentService.generateCertificateOfCompletion(signer.document_request_id);
+
+            const signedKey = storageService.generateSignedKey(signer.document_request_id, `${doc!.file_name.replace('.pdf', '')}-signed-all.pdf`);
+            const certKey = storageService.generateCertificateKey(signer.document_request_id);
+            await storageService.uploadDocument(signedKey, combinedPdf, 'application/pdf');
+            await storageService.uploadDocument(certKey, certificate, 'application/pdf');
+            await documentRepo.markCompleted(signer.document_request_id, signedKey, certKey);
+
+            // Send combined PDF to sender
+            const sender = await db('users').where({ id: doc!.sender_id }).first();
+            if (sender?.email) {
+              const appUrl = process.env.APP_URL || 'https://app.lapen.ai';
+              const attachments = [
+                { filename: `${doc!.file_name.replace('.pdf', '')}-signed-all.pdf`, content: combinedPdf, contentType: 'application/pdf' },
+                { filename: `Certificate-of-Completion.pdf`, content: certificate, contentType: 'application/pdf' },
+              ];
+              await emailService.sendCompletionNotification(sender.email, doc!.file_name, `${appUrl}/archive/${signer.document_request_id}`, attachments);
+            }
+            logger.info({ documentId: doc!.id }, 'All individual signers complete — combined PDF sent');
+          } catch (err) {
+            logger.error({ err }, 'Combined PDF generation failed');
+          }
+        } else {
+          await documentRepo.updateStatus(signer.document_request_id, 'partially_signed');
+        }
+      } else if (allSigned) {
+        // Shared mode: existing logic — wait for all, then merge
         await documentRepo.updateStatus(signer.document_request_id, 'completed');
 
         // Generate signed PDF and send completion emails

@@ -11,6 +11,7 @@ import {
   addSetupSigner,
   removeSetupSigner,
   sendForSigning,
+  updateSetupSigningMode,
   type SetupDocument,
   type SetupField,
   type SetupSigner,
@@ -233,6 +234,18 @@ export default function SetupPage() {
     }
   }, [id, selectedSignerIdx]);
 
+  // Toggle signing mode
+  const handleToggleMode = useCallback(async () => {
+    if (!doc) return;
+    const newMode = doc.signingMode === 'shared' ? 'individual' : 'shared';
+    try {
+      await updateSetupSigningMode(id, newMode);
+      setDoc(prev => prev ? { ...prev, signingMode: newMode } : prev);
+    } catch (err: any) {
+      setError(err.message);
+    }
+  }, [doc, id]);
+
   // Send for signing
   const handleSend = useCallback(async () => {
     if (sending) return;
@@ -306,6 +319,27 @@ export default function SetupPage() {
           }}>&times;</button>
         </div>
       )}
+
+      {/* Signing Mode Toggle */}
+      <div className="mode-toggle-bar">
+        <button
+          className={`mode-btn ${doc.signingMode === 'shared' ? 'active' : ''}`}
+          onClick={() => doc.signingMode !== 'shared' && handleToggleMode()}
+        >
+          Shared document
+        </button>
+        <button
+          className={`mode-btn ${doc.signingMode === 'individual' ? 'active' : ''}`}
+          onClick={() => doc.signingMode !== 'individual' && handleToggleMode()}
+        >
+          Individual copies
+        </button>
+        <span className="mode-hint">
+          {doc.signingMode === 'shared'
+            ? 'All signers sign the same document'
+            : 'Each signer gets their own copy to sign'}
+        </span>
+      </div>
 
       {/* Signer Tabs */}
       <div className="signer-tabs">

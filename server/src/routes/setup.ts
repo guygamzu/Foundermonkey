@@ -35,6 +35,7 @@ export function createSetupRouter(): Router {
         fileName: doc.file_name,
         pageCount: doc.page_count,
         isSequential: doc.is_sequential,
+        signingMode: doc.signing_mode || 'shared',
         creditsRequired: doc.credits_required,
         signers: signers.map((s) => ({
           id: s.id,
@@ -262,6 +263,29 @@ export function createSetupRouter(): Router {
       res.json({ success: true });
     } catch (err) {
       logger.error({ err }, 'Error removing signer');
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  // Update document settings (signing mode)
+  router.patch('/:id', async (req: Request<{ id: string }>, res: Response) => {
+    try {
+      const doc = await documentRepo.findById(req.params.id);
+      if (!doc || doc.status !== 'pending_setup') {
+        res.status(400).json({ error: 'Document not in setup state' });
+        return;
+      }
+
+      const { signingMode } = req.body;
+      if (signingMode && ['shared', 'individual'].includes(signingMode)) {
+        await db('document_requests')
+          .where({ id: doc.id })
+          .update({ signing_mode: signingMode, updated_at: new Date() });
+      }
+
+      res.json({ success: true, signingMode });
+    } catch (err) {
+      logger.error({ err }, 'Error updating setup settings');
       res.status(500).json({ error: 'Internal server error' });
     }
   });

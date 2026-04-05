@@ -117,6 +117,7 @@ export class DocumentService {
 
   async applySignaturesToDocument(
     documentId: string,
+    signerId?: string,
   ): Promise<Buffer> {
     const doc = await this.documentRepo.findById(documentId);
     if (!doc) throw new Error('Document not found');
@@ -126,7 +127,9 @@ export class DocumentService {
     const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
     const italicFont = await pdfDoc.embedFont(StandardFonts.HelveticaOblique);
 
-    const fields = await this.documentRepo.findFieldsByDocumentId(documentId);
+    const allFields = await this.documentRepo.findFieldsByDocumentId(documentId);
+    // If signerId is provided (individual mode), only apply that signer's fields
+    const fields = signerId ? allFields.filter(f => f.signer_id === signerId) : allFields;
     const signers = await this.documentRepo.findSignersByDocumentId(documentId);
     const signerMap = new Map(signers.map(s => [s.id, s]));
 
