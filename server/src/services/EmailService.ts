@@ -199,11 +199,10 @@ export class EmailService {
           ` : ''}
 
           <!-- Two signing options -->
-          <p style="margin: 0 0 12px; font-size: 14px; font-weight: 600; color: #374151;">You have two ways to sign:</p>
+          <p style="margin: 0 0 12px; font-size: 14px; font-weight: 600; color: #374151;">Review and sign digitally:</p>
 
-          <!-- Option 1: Digital -->
-          <div style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 10px; padding: 16px 20px; margin: 0 0 12px;">
-            <p style="margin: 0 0 8px; font-size: 14px; font-weight: 700; color: #1e40af;">Option 1: Sign digitally (recommended)</p>
+          <!-- Digital signing -->
+          <div style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 10px; padding: 16px 20px; margin: 0 0 20px;">
             <p style="margin: 0 0 12px; font-size: 13px; color: #374151; line-height: 1.5;">
               Click the button below to review and sign the document online. You can place your signature, add text, dates, and checkboxes anywhere on the document.
             </p>
@@ -212,17 +211,6 @@ export class EmailService {
                 Review & Sign Online
               </a>
             </div>
-          </div>
-
-          <!-- Option 2: Print & Sign -->
-          <div style="background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 10px; padding: 16px 20px; margin: 0 0 20px;">
-            <p style="margin: 0 0 8px; font-size: 14px; font-weight: 700; color: #374151;">Option 2: Print, sign & scan</p>
-            <ol style="margin: 0; padding-left: 20px; font-size: 13px; color: #6b7280; line-height: 1.8;">
-              <li>Open the attached PDF and print it</li>
-              <li>Sign the document by hand</li>
-              <li>Scan or photograph the signed pages</li>
-              <li><strong>Reply to this email</strong> with the signed document attached</li>
-            </ol>
           </div>
 
           <p style="text-align: center; color: #9ca3af; font-size: 12px; margin: 0 0 16px;">
@@ -257,7 +245,7 @@ export class EmailService {
     return this.sendEmail({
       to,
       subject: `${senderName} (${senderEmail}) requested your signature: ${fileName}`,
-      text: `${greeting}\n\n${senderName} (${senderEmail}) has sent you a document to sign.\n\nDocument: ${fileName} (attached)\n${coverPlain ? `\nMessage: ${coverPlain}\n` : ''}\nYou have two ways to sign:\n\n1. SIGN DIGITALLY (recommended): ${signingUrl}\n   Click the link to review and sign online.\n\n2. PRINT, SIGN & SCAN:\n   - Open the attached PDF and print it\n   - Sign by hand\n   - Scan or photograph the signed pages\n   - Reply to this email with the signed document attached\n\nThis is a legitimate signature request. Electronic signatures are legally binding under the ESIGN Act and eIDAS regulation. If you weren't expecting this, you can safely ignore this email.\n\nPowered by Lapen - AI-powered e-signatures`,
+      text: `${greeting}\n\n${senderName} (${senderEmail}) has sent you a document to sign.\n\nDocument: ${fileName} (attached)\n${coverPlain ? `\nMessage: ${coverPlain}\n` : ''}\nReview and sign online: ${signingUrl}\n\nClick the link to review and sign the document digitally. You can place your signature, add text, dates, and checkboxes anywhere on the document.\n\nThis is a legitimate signature request. Electronic signatures are legally binding under the ESIGN Act and eIDAS regulation. If you weren't expecting this, you can safely ignore this email.\n\nPowered by Lapen - AI-powered e-signatures`,
       html,
       attachments,
     });
