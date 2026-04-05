@@ -25,7 +25,14 @@ export class UserRepository {
 
   async findOrCreateByEmail(email: string, name?: string): Promise<UserRow> {
     const existing = await this.findByEmail(email);
-    if (existing) return existing;
+    if (existing) {
+      // Update name if a real display name is provided and current name is just the email prefix
+      if (name && (!existing.name || existing.name === email.split('@')[0])) {
+        await this.db('users').where({ id: existing.id }).update({ name, updated_at: new Date() });
+        existing.name = name;
+      }
+      return existing;
+    }
 
     const referralCode = this.generateReferralCode();
     const [user] = await this.db('users')

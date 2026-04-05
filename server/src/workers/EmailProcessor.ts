@@ -186,6 +186,7 @@ export class EmailProcessor {
       logger.warn('Could not extract sender email');
       return;
     }
+    const senderName = parsed.from?.value?.[0]?.name || null;
 
     const imapUser = (process.env.IMAP_USER || '').replace(/@@/g, '@').toLowerCase();
     const setEmail = (process.env.SET_EMAIL || 'guygamzu@lapen.ai').replace(/@@/g, '@').toLowerCase();
@@ -319,9 +320,9 @@ export class EmailProcessor {
       logger.info({ signerCount: recipientSigners.length, signers: recipientSigners.map(s => s.email), flow: isSetFlow ? 'set' : 'sign' }, 'Direct flow: signers detected in TO/CC');
 
       if (isSetFlow) {
-        await this.handleSetFlow(senderEmail, pdfAttachment, recipientSigners, subject, messageId, body);
+        await this.handleSetFlow(senderEmail, pdfAttachment, recipientSigners, subject, messageId, body, senderName);
       } else {
-        await this.handleDirectSign(senderEmail, pdfAttachment, recipientSigners, subject, messageId, body);
+        await this.handleDirectSign(senderEmail, pdfAttachment, recipientSigners, subject, messageId, body, senderName);
       }
       return;
     }
@@ -401,7 +402,7 @@ export class EmailProcessor {
     }
 
     // PDF attached but no signers — ask for signers (legacy Step 1)
-    await this.handleNewDocument(senderEmail, pdfAttachment, subject, messageId, body);
+    await this.handleNewDocument(senderEmail, pdfAttachment, subject, messageId, body, senderName);
   }
 
   // =========================================================================
@@ -413,6 +414,7 @@ export class EmailProcessor {
     subject: string,
     messageId: string,
     body: string,
+    senderName?: string | null,
   ): Promise<void> {
     const fileName = attachment.filename || 'document.pdf';
     const content = attachment.content;
@@ -421,7 +423,7 @@ export class EmailProcessor {
     logger.info(`Step 1: New document from ${senderEmail}: ${fileName} (${size}b)`);
 
     // Create user
-    const user = await this.userRepo.findOrCreateByEmail(senderEmail);
+    const user = await this.userRepo.findOrCreateByEmail(senderEmail, senderName || undefined);
 
     // Extract text from PDF (independent of S3)
     let documentText = '';
@@ -811,13 +813,14 @@ Preview: ${previewUrl}`,
     subject: string,
     messageId: string,
     body: string,
+    senderName?: string | null,
   ): Promise<void> {
     const fileName = attachment.filename || 'document.pdf';
     const content = attachment.content;
     logger.info(`Direct sign flow: ${senderEmail} → ${signers.length} signers, file=${fileName}`);
 
     // Create user
-    const user = await this.userRepo.findOrCreateByEmail(senderEmail);
+    const user = await this.userRepo.findOrCreateByEmail(senderEmail, senderName || undefined);
 
     // Extract text and page count
     let pageCount = 1;
@@ -891,13 +894,14 @@ Preview: ${previewUrl}`,
     subject: string,
     messageId: string,
     body: string,
+    senderName?: string | null,
   ): Promise<void> {
     const fileName = attachment.filename || 'document.pdf';
     const content = attachment.content;
     logger.info(`Set flow: ${senderEmail} → ${signers.length} signers, file=${fileName}`);
 
     // Create user
-    const user = await this.userRepo.findOrCreateByEmail(senderEmail);
+    const user = await this.userRepo.findOrCreateByEmail(senderEmail, senderName || undefined);
 
     // Extract text and page count
     let documentText = '';
