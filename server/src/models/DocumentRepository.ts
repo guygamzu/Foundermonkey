@@ -13,6 +13,7 @@ export interface DocumentRequestRow {
   signed_s3_key: string | null;
   certificate_s3_key: string | null;
   is_sequential: boolean;
+  signing_mode: 'shared' | 'individual';
   credits_required: number;
   original_email_message_id: string | null;
   subject: string | null;
@@ -33,6 +34,8 @@ export interface SignerRow {
   signing_order: number;
   signing_token: string;
   custom_message: string | null;
+  signed_s3_key: string | null;
+  certificate_s3_key: string | null;
   notified_at: Date | null;
   viewed_at: Date | null;
   signed_at: Date | null;

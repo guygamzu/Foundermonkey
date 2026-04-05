@@ -13,6 +13,7 @@ import {
   askDocumentQuestion,
   type SigningSession,
   type PlacedField,
+  type OtherField,
 } from '@/lib/api';
 
 const PDFViewer = lazy(() => import('@/components/PDFViewer'));
@@ -56,6 +57,7 @@ export default function SigningPage() {
   const [chatMessages, setChatMessages] = useState<Array<{ role: 'user' | 'assistant'; content: string }>>([]);
   const [chatInput, setChatInput] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
+  const [otherFields, setOtherFields] = useState<OtherField[]>([]);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -69,6 +71,10 @@ export default function SigningPage() {
             ...f,
             completed: !!f.completed,
           })));
+        }
+        // Load other signers' completed fields (shared mode)
+        if (data.otherFields && data.otherFields.length > 0) {
+          setOtherFields(data.otherFields);
         }
 
         // Auto-fetch AI summary
@@ -567,6 +573,43 @@ export default function SigningPage() {
               onPageClick={activeTool ? handlePdfClick : undefined}
               renderOverlay={(pageIndex) => (
                 <>
+                  {/* Other signers' completed fields (read-only, dimmed) */}
+                  {otherFields
+                    .filter((f) => f.page === pageIndex + 1)
+                    .map((f) => (
+                      <div
+                        key={`other-${f.id}`}
+                        className="placed-item completed"
+                        style={{
+                          left: `${f.x * 100}%`,
+                          top: `${f.y * 100}%`,
+                          width: `${f.width * 100}%`,
+                          height: `${f.height * 100}%`,
+                          opacity: 0.5,
+                          pointerEvents: 'none',
+                          borderColor: '#9ca3af',
+                        }}
+                      >
+                        {f.type === 'signature' && f.value && (
+                          <img
+                            src={f.value}
+                            alt={`${f.signerName || 'Other'}'s signature`}
+                            draggable={false}
+                            style={{ width: '100%', height: '100%', objectFit: 'contain', pointerEvents: 'none' }}
+                          />
+                        )}
+                        {f.type === 'text' && f.value && (
+                          <span style={{ fontSize: '10px', color: '#666' }}>{f.value}</span>
+                        )}
+                        {f.type === 'date' && f.value && (
+                          <span style={{ fontSize: '10px', color: '#666' }}>{f.value}</span>
+                        )}
+                        {f.type === 'checkbox' && f.value && (
+                          <span style={{ fontSize: '14px', color: '#666', fontWeight: 'bold' }}>✓</span>
+                        )}
+                      </div>
+                    ))}
+                  {/* This signer's fields (interactive) */}
                   {placedItems
                     .filter((item) => item.page === pageIndex + 1)
                     .map((item) => (

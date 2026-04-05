@@ -986,6 +986,42 @@ body {
   color: var(--danger);
 }
 
+/* Mode Toggle (Setup page) */
+.mode-toggle-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 16px;
+  background: var(--gray-50);
+  border-bottom: 1px solid var(--gray-200);
+  max-width: 832px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.mode-btn {
+  padding: 5px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--gray-200);
+  background: white;
+  cursor: pointer;
+  font-size: 0.75rem;
+  color: var(--gray-500);
+  transition: all 0.15s;
+}
+
+.mode-btn.active {
+  background: var(--primary);
+  color: white;
+  border-color: var(--primary);
+}
+
+.mode-hint {
+  font-size: 0.7rem;
+  color: var(--gray-400);
+  margin-left: 8px;
+}
+
 .add-signer-btn {
   display: flex;
   align-items: center;

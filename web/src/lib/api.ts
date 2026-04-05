@@ -1,17 +1,31 @@
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
+export interface OtherField {
+  id: string;
+  type: string;
+  page: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  value: string | null;
+  signerName: string | null;
+}
+
 export interface SigningSession {
   document: {
     id: string;
     fileName: string;
     pageCount: number;
     documentUrl: string | null;
+    signingMode?: 'shared' | 'individual';
   };
   signer: {
     id: string;
     name: string | null;
     email: string | null;
   };
+  otherFields?: OtherField[];
   fields: Array<{
     id: string;
     type: string;
@@ -169,6 +183,7 @@ export interface SetupDocument {
   fileName: string;
   pageCount: number;
   isSequential: boolean;
+  signingMode: 'shared' | 'individual';
   creditsRequired: number;
   signers: SetupSigner[];
   fields: SetupField[];
@@ -216,6 +231,15 @@ export async function addSetupSigner(
 
 export async function removeSetupSigner(id: string, signerId: string): Promise<void> {
   await apiFetch(`/api/setup/${id}/signers/${signerId}`, { method: 'DELETE' });
+}
+
+export async function updateSetupSigningMode(
+  id: string, signingMode: 'shared' | 'individual',
+): Promise<void> {
+  await apiFetch(`/api/setup/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ signingMode }),
+  });
 }
 
 export async function sendForSigning(id: string): Promise<{ success: boolean; statusUrl: string }> {
