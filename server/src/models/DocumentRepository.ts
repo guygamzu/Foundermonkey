@@ -146,6 +146,22 @@ export class DocumentRepository {
     return field;
   }
 
+  async deleteField(fieldId: string): Promise<void> {
+    await this.db('document_fields').where({ id: fieldId }).del();
+  }
+
+  async deleteSigner(signerId: string): Promise<void> {
+    await this.db('signers').where({ id: signerId }).del();
+  }
+
+  async updateFieldPosition(fieldId: string, x: number, y: number): Promise<DocumentFieldRow> {
+    const [field] = await this.db('document_fields')
+      .where({ id: fieldId })
+      .update({ x, y })
+      .returning('*');
+    return field;
+  }
+
   async areAllFieldsCompleted(documentRequestId: string, signerId: string): Promise<boolean> {
     const incomplete = await this.db('document_fields')
       .where({ document_request_id: documentRequestId, signer_id: signerId, required: true })

@@ -142,3 +142,82 @@ export async function askPreviewQuestion(
     body: JSON.stringify({ question, history }),
   });
 }
+
+// Setup page types and functions
+
+export interface SetupSigner {
+  id: string;
+  name: string | null;
+  email: string | null;
+  signingOrder: number;
+}
+
+export interface SetupField {
+  id: string;
+  signerId: string;
+  type: string;
+  page: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  required: boolean;
+}
+
+export interface SetupDocument {
+  id: string;
+  fileName: string;
+  pageCount: number;
+  isSequential: boolean;
+  creditsRequired: number;
+  signers: SetupSigner[];
+  fields: SetupField[];
+}
+
+export async function getSetupDocument(id: string): Promise<SetupDocument> {
+  return apiFetch(`/api/setup/${id}`);
+}
+
+export function getSetupDocumentProxyUrl(id: string): string {
+  return `${API_URL}/api/setup/${id}/document`;
+}
+
+export async function createSetupField(
+  id: string,
+  field: { signerId: string; type: string; page: number; x: number; y: number; width?: number; height?: number },
+): Promise<SetupField> {
+  return apiFetch(`/api/setup/${id}/fields`, {
+    method: 'POST',
+    body: JSON.stringify(field),
+  });
+}
+
+export async function deleteSetupField(id: string, fieldId: string): Promise<void> {
+  await apiFetch(`/api/setup/${id}/fields/${fieldId}`, { method: 'DELETE' });
+}
+
+export async function updateSetupFieldPosition(
+  id: string, fieldId: string, x: number, y: number,
+): Promise<{ id: string; x: number; y: number }> {
+  return apiFetch(`/api/setup/${id}/fields/${fieldId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ x, y }),
+  });
+}
+
+export async function addSetupSigner(
+  id: string, data: { name?: string; email: string },
+): Promise<SetupSigner> {
+  return apiFetch(`/api/setup/${id}/signers`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function removeSetupSigner(id: string, signerId: string): Promise<void> {
+  await apiFetch(`/api/setup/${id}/signers/${signerId}`, { method: 'DELETE' });
+}
+
+export async function sendForSigning(id: string): Promise<{ success: boolean; statusUrl: string }> {
+  return apiFetch(`/api/setup/${id}/send`, { method: 'POST' });
+}

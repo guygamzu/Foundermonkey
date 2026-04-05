@@ -82,6 +82,14 @@ async function main() {
     }
 
     try {
+      const { createSetupRouter } = await import('./routes/setup.js');
+      app.use('/api/setup', createSetupRouter());
+      logger.info('Setup routes registered');
+    } catch (err) {
+      logger.error({ err }, 'Failed to register setup routes');
+    }
+
+    try {
       const { createPaymentsRouter } = await import('./routes/payments.js');
       app.use('/api/payments', createPaymentsRouter());
       logger.info('Payments routes registered');
