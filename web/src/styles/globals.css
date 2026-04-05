@@ -920,6 +920,14 @@ body {
   max-width: 832px;
   margin: 0 auto;
   width: 100%;
+  position: sticky;
+  top: 49px;
+  z-index: 99;
+}
+
+/* On setup page, toolbar sits below signer tabs */
+.signer-tabs + .signing-toolbar {
+  top: 97px;
 }
 
 .signer-tab {
