@@ -29,8 +29,8 @@ export default function Home() {
           <span className="lp-gradient-text">as easy as sending an email</span>
         </h1>
         <p className="lp-hero-p">
-          No signup. No app. Email your PDF to Lapen and we handle the rest &mdash;
-          AI-powered analysis, free-form signing tools, and legally binding signatures.
+          No signup. No app. Just email your PDF with the signers &mdash;
+          Lapen sends them signing links instantly. AI-powered, legally binding.
         </p>
         <div className="lp-hero-actions">
           <a href="mailto:sign@lapen.ai" className="lp-btn lp-btn-primary">
@@ -62,33 +62,43 @@ export default function Home() {
       <section className="lp-section lp-panel" id="how" style={{ zIndex: 2 }}>
         <div className="lp-section-inner">
           <div className="lp-section-label">HOW IT WORKS</div>
-          <h2 className="lp-section-h2">Three steps. No account needed.</h2>
+          <h2 className="lp-section-h2">One email. That&apos;s it.</h2>
           <p className="lp-section-sub">Get your first document signed in under a minute.</p>
           <div className="lp-steps">
             <div className="lp-step">
               <div className="lp-step-num">01</div>
-              <h3>Email your document</h3>
+              <h3>Email your PDF + signers</h3>
               <p>
-                Send any PDF to <strong>sign@lapen.ai</strong>. Our AI instantly
-                analyzes it and replies with a smart summary.
+                Put <strong>sign@lapen.ai</strong> and your signers all in the TO field.
+                Attach the PDF. Hit send.
               </p>
             </div>
             <div className="lp-step">
               <div className="lp-step-num">02</div>
-              <h3>Reply with signees</h3>
+              <h3>Signers get instant links</h3>
               <p>
-                Reply with the email addresses of people who need to sign.
-                Lapen sends each one a personalized, branded signing link.
+                Lapen sends each signer a personalized signing link with an AI summary
+                and an assistant to answer questions about the document.
               </p>
             </div>
             <div className="lp-step">
               <div className="lp-step-num">03</div>
               <h3>Done. Everyone signs.</h3>
               <p>
-                Signees place signatures, text, dates, and checkboxes anywhere
+                Signers place signatures, text, dates, and checkboxes anywhere
                 on the document. You get notified when it&apos;s complete.
               </p>
             </div>
+          </div>
+
+          <div style={{ textAlign: 'center', marginTop: 40, padding: '24px', background: 'var(--gray-50)', borderRadius: 12, border: '1px solid var(--gray-200)' }}>
+            <p style={{ fontSize: '0.95rem', color: 'var(--gray-700)', margin: '0 0 4px', fontWeight: 600 }}>
+              Need to place fields before sending?
+            </p>
+            <p style={{ fontSize: '0.875rem', color: 'var(--gray-500)', margin: 0 }}>
+              Email <strong style={{ color: 'var(--primary)' }}>set@lapen.ai</strong> instead &mdash;
+              you&apos;ll get a link to visually place signature fields per signer on the PDF before sending.
+            </p>
           </div>
         </div>
       </section>
@@ -107,12 +117,12 @@ export default function Home() {
             <div className="lp-feature">
               <div className="lp-feature-icon">&#x2709;&#xFE0F;</div>
               <h3>Email-first workflow</h3>
-              <p>No app to download, no account to create. The entire flow works through email &mdash; the tool everyone already uses.</p>
+              <p>No app to download, no account to create. One email to <strong>sign@lapen.ai</strong> with your signers &mdash; that&apos;s the entire flow.</p>
             </div>
             <div className="lp-feature">
               <div className="lp-feature-icon">&#x270D;&#xFE0F;</div>
-              <h3>Free-form signing</h3>
-              <p>Signees drag and place signatures, text, dates, and checkboxes anywhere. No rigid templates or pre-set fields.</p>
+              <h3>Free-form or placed fields</h3>
+              <p>Let signers place fields freely, or use <strong>set@lapen.ai</strong> to visually assign signature, text, and date fields per signer before sending.</p>
             </div>
             <div className="lp-feature">
               <div className="lp-feature-icon">&#x1F512;</div>
