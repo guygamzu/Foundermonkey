@@ -260,6 +260,9 @@ export class EmailProcessor {
     const recipientSigners: Array<{ email: string; phone: null; name: string | null; channel: 'email' }> = [];
     const seenEmails = new Set<string>();
 
+    // Log raw TO/CC entries for debugging name extraction
+    logger.info({ toEntries: toEntries.map(e => ({ name: e.name, address: e.address })), ccEntries: ccEntries.map(e => ({ name: e.name, address: e.address })) }, 'Raw TO/CC entries from email parser');
+
     for (const entry of [...toEntries, ...ccEntries]) {
       const addr = (entry.address || '').toLowerCase();
       if (!addr) continue;
