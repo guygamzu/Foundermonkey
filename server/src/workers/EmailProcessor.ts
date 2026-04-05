@@ -188,7 +188,7 @@ export class EmailProcessor {
     }
 
     const imapUser = (process.env.IMAP_USER || '').replace(/@@/g, '@').toLowerCase();
-    const setEmail = (process.env.SET_EMAIL || 'set@lapen.ai').replace(/@@/g, '@').toLowerCase();
+    const setEmail = (process.env.SET_EMAIL || 'guygamzu@lapen.ai').replace(/@@/g, '@').toLowerCase();
     // Lapen addresses we accept emails for
     const lapenAddresses = new Set([imapUser, setEmail].filter(Boolean));
 
