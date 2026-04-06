@@ -264,12 +264,12 @@ export class EmailProcessor {
     // Log raw TO/CC entries for debugging name extraction
     logger.info({ toEntries: toEntries.map(e => ({ name: e.name, address: e.address })), ccEntries: ccEntries.map(e => ({ name: e.name, address: e.address })) }, 'Raw TO/CC entries from email parser');
 
-    for (const entry of [...toEntries, ...ccEntries]) {
+    for (const entry of toEntries) {
       const addr = (entry.address || '').toLowerCase();
       if (!addr) continue;
       if (lapenAddresses.has(addr)) continue;
       if (addr === senderLower) continue;
-      if (!this.isValidSigneeEmail(addr, senderEmail, imapUser, serviceEmail)) continue;
+      if (!this.isValidSigneeEmail(addr, senderEmail, serviceEmail, imapUser)) continue;
       if (seenEmails.has(addr)) continue;
       seenEmails.add(addr);
       // Derive name from email header or email prefix
@@ -851,6 +851,7 @@ Preview: ${previewUrl}`,
           document_hash: crypto.createHash('sha256').update(content).digest('hex'),
           s3_key: s3Key,
           is_sequential: false,
+          signing_mode: 'shared',
           credits_required: signers.length,
           original_email_message_id: messageId,
           subject,

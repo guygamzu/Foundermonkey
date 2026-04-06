@@ -384,8 +384,24 @@ export default function SigningPage() {
     return (
       <div className="message-page">
         <div className="message-card">
-          <h2>Already Signed</h2>
+          <h2 style={{ color: 'var(--success)' }}>Already Signed</h2>
           <p>You&apos;ve already signed this document. A copy has been sent to your email.</p>
+          <hr style={{ border: 'none', borderTop: '1px solid var(--gray-200)', margin: '20px 0' }} />
+          <h3 style={{ fontSize: '1rem', marginBottom: 8 }}>Need documents signed?</h3>
+          <p style={{ fontSize: '0.875rem', color: 'var(--gray-500)', marginBottom: 16 }}>
+            Send documents for e-signature in seconds — just email your PDF to{' '}
+            <strong>sign@lapen.ai</strong> along with your recipients.
+          </p>
+          <a
+            href="/"
+            style={{
+              display: 'inline-block', padding: '10px 24px', background: 'var(--primary)',
+              color: 'white', borderRadius: 8, textDecoration: 'none', fontWeight: 600,
+              fontSize: '0.875rem',
+            }}
+          >
+            Start Your Free Document
+          </a>
         </div>
       </div>
     );
@@ -452,76 +468,6 @@ export default function SigningPage() {
         </button>
       </div>
 
-      {/* AI Summary + Chat Panel — always visible */}
-      <div style={{
-        background: '#eff6ff', borderBottom: '1px solid #bfdbfe', padding: '16px',
-        fontSize: '0.875rem', position: 'relative', maxHeight: '50vh', display: 'flex', flexDirection: 'column',
-        maxWidth: 832, margin: '0 auto', width: '100%',
-      }}>
-        <div style={{ marginBottom: 12 }}>
-          <strong style={{ color: '#1e40af' }}>AI Document Assistant</strong>
-        </div>
-
-        {aiSummaryLoading ? (
-          <div style={{ padding: 16, textAlign: 'center', color: '#6b7280' }}>
-            <div className="spinner" style={{ width: 20, height: 20, margin: '0 auto 8px' }} />
-            Analyzing document...
-          </div>
-        ) : (
-          <>
-            <div style={{ flex: 1, overflowY: 'auto', marginBottom: 12, maxHeight: '35vh' }}>
-              {chatMessages.map((msg, i) => (
-                <div
-                  key={i}
-                  style={{
-                    padding: '8px 12px',
-                    margin: '4px 0',
-                    borderRadius: 8,
-                    background: msg.role === 'user' ? '#dbeafe' : 'white',
-                    borderLeft: msg.role === 'assistant' ? '3px solid #2563eb' : 'none',
-                    fontSize: '0.8125rem',
-                    lineHeight: 1.5,
-                    color: '#374151',
-                    whiteSpace: 'pre-wrap',
-                  }}
-                >
-                  {msg.role === 'user' && <strong style={{ color: '#2563eb' }}>You: </strong>}
-                  {msg.content}
-                </div>
-              ))}
-              {chatLoading && (
-                <div style={{ padding: '8px 12px', color: '#6b7280', fontSize: '0.8125rem' }}>Thinking...</div>
-              )}
-              <div ref={chatEndRef} />
-            </div>
-
-            <form onSubmit={handleChatSubmit} style={{ display: 'flex', gap: 8 }}>
-              <input
-                type="text"
-                value={chatInput}
-                onChange={(e) => setChatInput(e.target.value)}
-                placeholder="Ask a question about this document..."
-                style={{
-                  flex: 1, padding: '8px 12px', border: '1px solid #bfdbfe', borderRadius: 8,
-                  fontSize: '0.8125rem', outline: 'none', background: 'white',
-                }}
-              />
-              <button
-                type="submit"
-                disabled={!chatInput.trim() || chatLoading}
-                style={{
-                  padding: '8px 14px', background: '#2563eb', color: 'white', border: 'none',
-                  borderRadius: 8, cursor: chatInput.trim() && !chatLoading ? 'pointer' : 'not-allowed',
-                  opacity: chatInput.trim() && !chatLoading ? 1 : 0.5, fontSize: '0.8125rem', fontWeight: 600,
-                }}
-              >
-                Ask
-              </button>
-            </form>
-          </>
-        )}
-      </div>
-
       {/* Toolbar */}
       <div className="signing-toolbar">
         <span style={{ fontSize: '0.75rem', color: 'var(--gray-500)', marginRight: 8 }}>Place on document:</span>
@@ -559,6 +505,76 @@ export default function SigningPage() {
 
       {/* Document Viewer */}
       <div className="document-viewer">
+        {/* AI Summary + Chat Panel */}
+        <div style={{
+          background: '#eff6ff', border: '1px solid #bfdbfe', padding: '16px', borderRadius: 8,
+          fontSize: '0.875rem', position: 'relative', maxHeight: '50vh', display: 'flex', flexDirection: 'column',
+          maxWidth: 800, margin: '0 auto 16px', width: '100%',
+        }}>
+          <div style={{ marginBottom: 12 }}>
+            <strong style={{ color: '#1e40af' }}>AI Document Assistant</strong>
+          </div>
+
+          {aiSummaryLoading ? (
+            <div style={{ padding: 16, textAlign: 'center', color: '#6b7280' }}>
+              <div className="spinner" style={{ width: 20, height: 20, margin: '0 auto 8px' }} />
+              Analyzing document...
+            </div>
+          ) : (
+            <>
+              <div style={{ flex: 1, overflowY: 'auto', marginBottom: 12, maxHeight: '35vh' }}>
+                {chatMessages.map((msg, i) => (
+                  <div
+                    key={i}
+                    style={{
+                      padding: '8px 12px',
+                      margin: '4px 0',
+                      borderRadius: 8,
+                      background: msg.role === 'user' ? '#dbeafe' : 'white',
+                      borderLeft: msg.role === 'assistant' ? '3px solid #2563eb' : 'none',
+                      fontSize: '0.8125rem',
+                      lineHeight: 1.5,
+                      color: '#374151',
+                      whiteSpace: 'pre-wrap',
+                    }}
+                  >
+                    {msg.role === 'user' && <strong style={{ color: '#2563eb' }}>You: </strong>}
+                    {msg.content}
+                  </div>
+                ))}
+                {chatLoading && (
+                  <div style={{ padding: '8px 12px', color: '#6b7280', fontSize: '0.8125rem' }}>Thinking...</div>
+                )}
+                <div ref={chatEndRef} />
+              </div>
+
+              <form onSubmit={handleChatSubmit} style={{ display: 'flex', gap: 8 }}>
+                <input
+                  type="text"
+                  value={chatInput}
+                  onChange={(e) => setChatInput(e.target.value)}
+                  placeholder="Ask a question about this document..."
+                  style={{
+                    flex: 1, padding: '8px 12px', border: '1px solid #bfdbfe', borderRadius: 8,
+                    fontSize: '0.8125rem', outline: 'none', background: 'white',
+                  }}
+                />
+                <button
+                  type="submit"
+                  disabled={!chatInput.trim() || chatLoading}
+                  style={{
+                    padding: '8px 14px', background: '#2563eb', color: 'white', border: 'none',
+                    borderRadius: 8, cursor: chatInput.trim() && !chatLoading ? 'pointer' : 'not-allowed',
+                    opacity: chatInput.trim() && !chatLoading ? 1 : 0.5, fontSize: '0.8125rem', fontWeight: 600,
+                  }}
+                >
+                  Ask
+                </button>
+              </form>
+            </>
+          )}
+        </div>
+
         <div className="document-container">
           <Suspense
             fallback={
@@ -585,7 +601,7 @@ export default function SigningPage() {
                           top: `${f.y * 100}%`,
                           width: `${f.width * 100}%`,
                           height: `${f.height * 100}%`,
-                          opacity: 0.5,
+                          opacity: 0.7,
                           pointerEvents: 'none',
                           borderColor: '#9ca3af',
                         }}
@@ -606,6 +622,14 @@ export default function SigningPage() {
                         )}
                         {f.type === 'checkbox' && f.value && (
                           <span style={{ fontSize: '14px', color: '#666', fontWeight: 'bold' }}>✓</span>
+                        )}
+                        {f.signerName && (
+                          <span style={{
+                            position: 'absolute', bottom: -14, left: 0, fontSize: '8px',
+                            color: '#6b7280', whiteSpace: 'nowrap',
+                          }}>
+                            {f.signerName}
+                          </span>
                         )}
                       </div>
                     ))}
