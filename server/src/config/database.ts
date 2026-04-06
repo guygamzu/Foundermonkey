@@ -300,4 +300,51 @@ async function runIncrementalMigrations(database: Knex): Promise<void> {
   } catch (err) {
     // Non-critical
   }
+
+  // --- Risk Monitor tables (20260406000002) ---
+  try {
+    const hasRiskEventsTable = await database.schema.hasTable('risk_events');
+    if (!hasRiskEventsTable) {
+      await database.schema.createTable('risk_events', (table) => {
+        table.uuid('id').primary().defaultTo(database.raw('uuid_generate_v4()'));
+        table.string('source').notNullable();
+        table.string('source_event_id').notNullable();
+        table.string('event_type').notNullable();
+        table.string('title');
+        table.text('description');
+        table.string('location');
+        table.float('latitude');
+        table.float('longitude');
+        table.timestamp('event_time');
+        table.jsonb('raw_data').notNullable();
+        table.timestamp('fetched_at').notNullable().defaultTo(database.fn.now());
+        table.unique(['source', 'source_event_id']);
+        table.index('event_time');
+        table.index('fetched_at');
+      });
+    }
+  } catch (err) {
+    // Table may already exist
+  }
+
+  try {
+    const hasRiskAlertsTable = await database.schema.hasTable('risk_alerts');
+    if (!hasRiskAlertsTable) {
+      await database.schema.createTable('risk_alerts', (table) => {
+        table.uuid('id').primary().defaultTo(database.raw('uuid_generate_v4()'));
+        table.uuid('risk_event_id').references('id').inTable('risk_events').onDelete('CASCADE');
+        table.string('severity').notNullable();
+        table.string('title').notNullable();
+        table.text('summary').notNullable();
+        table.jsonb('raw_analysis');
+        table.jsonb('recipients').notNullable();
+        table.timestamp('sent_at');
+        table.timestamp('created_at').notNullable().defaultTo(database.fn.now());
+        table.index('severity');
+        table.index('created_at');
+      });
+    }
+  } catch (err) {
+    // Table may already exist
+  }
 }
