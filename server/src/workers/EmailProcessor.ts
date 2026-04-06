@@ -190,8 +190,9 @@ export class EmailProcessor {
 
     const imapUser = (process.env.IMAP_USER || '').replace(/@@/g, '@').toLowerCase();
     const setEmail = (process.env.SET_EMAIL || 'guygamzu@lapen.ai').replace(/@@/g, '@').toLowerCase();
-    // Lapen addresses we accept emails for
-    const lapenAddresses = new Set([imapUser, setEmail].filter(Boolean));
+    // Lapen addresses we accept emails for (also include FROM_EMAIL to prevent it from becoming a signer)
+    const fromEmailAddr = (process.env.FROM_EMAIL || '').replace(/@@/g, '@').toLowerCase();
+    const lapenAddresses = new Set([imapUser, setEmail, fromEmailAddr].filter(Boolean));
 
     // Extract TO and CC with full name+address info
     const toEntries = (parsed.to ? (Array.isArray(parsed.to) ? parsed.to : [parsed.to]) : [])
@@ -293,7 +294,7 @@ export class EmailProcessor {
     });
 
     // ---------------------------------------------------------------
-    // DIRECT FLOW: Signers found in TO/CC + PDF attached
+    // DIRECT FLOW: Signers found in TO + PDF attached
     // sign@: create doc → send signing links immediately
     // set@: create doc → reply with field placement link
     // ---------------------------------------------------------------
@@ -317,7 +318,7 @@ export class EmailProcessor {
         }
       }
 
-      logger.info({ signerCount: recipientSigners.length, signers: recipientSigners.map(s => s.email), flow: isSetFlow ? 'set' : 'sign' }, 'Direct flow: signers detected in TO/CC');
+      logger.info({ signerCount: recipientSigners.length, signers: recipientSigners.map(s => s.email), flow: isSetFlow ? 'set' : 'sign' }, 'Direct flow: signers detected in TO');
 
       if (isSetFlow) {
         await this.handleSetFlow(senderEmail, pdfAttachment, recipientSigners, subject, messageId, body, senderName);
@@ -1046,6 +1047,7 @@ Preview: ${previewUrl}`,
       document_hash: crypto.createHash('sha256').update(attachment.content).digest('hex'),
       s3_key: `pending/${crypto.randomUUID()}.pdf`,
       is_sequential: false,
+      signing_mode: 'shared',
       credits_required: 1,
       original_email_message_id: messageId,
       subject,
