@@ -60,14 +60,15 @@ export function startCompletionWorker(): void {
       if (signer.email) allEmails.add(signer.email);
     }
 
-    const attachments = [
-      { filename: `${doc.file_name.replace('.pdf', '')}-signed.pdf`, content: signedPdf, contentType: 'application/pdf' },
-      { filename: `Certificate-of-Completion-${doc.file_name}`, content: certificate, contentType: 'application/pdf' },
-    ];
+    const signedPdfAttachment = { filename: `${doc.file_name.replace('.pdf', '')}-signed.pdf`, content: signedPdf, contentType: 'application/pdf' };
+    const certificateAttachment = { filename: `Certificate-of-Completion-${doc.file_name}`, content: certificate, contentType: 'application/pdf' };
 
     for (const email of allEmails) {
       const isSender = sender?.email && email === sender.email;
       const senderCredits = isSender ? { credits: sender.credits, purchaseUrl: `${process.env.APP_URL}/credits?user=${sender.id}` } : undefined;
+      const attachments = isSender
+        ? [signedPdfAttachment, certificateAttachment]
+        : [signedPdfAttachment];
       await emailService.sendCompletionNotification(email, doc.file_name, archiveUrl, attachments, senderCredits);
     }
 

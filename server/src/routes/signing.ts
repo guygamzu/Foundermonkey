@@ -445,15 +445,17 @@ export function createSigningRouter(): Router {
               if (sender?.email) allEmails.add(sender.email);
               for (const s of allSigners) { if (s.email) allEmails.add(s.email); }
 
-              const attachments = [
-                { filename: `${completedDoc.file_name.replace('.pdf', '')}-signed.pdf`, content: signedPdf, contentType: 'application/pdf' },
-                { filename: `Certificate-of-Completion.pdf`, content: certificate, contentType: 'application/pdf' },
-              ];
+              const signedPdfAttachment = { filename: `${completedDoc.file_name.replace('.pdf', '')}-signed.pdf`, content: signedPdf, contentType: 'application/pdf' };
+              const certificateAttachment = { filename: `Certificate-of-Completion.pdf`, content: certificate, contentType: 'application/pdf' };
+              const archiveUrl = `${process.env.APP_URL}/archive/${signer.document_request_id}`;
 
               for (const email of allEmails) {
                 const isSender = sender?.email && email === sender.email;
                 const senderCredits = isSender ? { credits: sender.credits, purchaseUrl: `${process.env.APP_URL}/credits?user=${sender.id}` } : undefined;
-                await emailService.sendCompletionNotification(email, completedDoc.file_name, `${process.env.APP_URL}/archive/${signer.document_request_id}`, attachments, senderCredits);
+                const attachments = isSender
+                  ? [signedPdfAttachment, certificateAttachment]
+                  : [signedPdfAttachment];
+                await emailService.sendCompletionNotification(email, completedDoc.file_name, archiveUrl, attachments, senderCredits);
               }
 
               logger.info({ documentId: signer.document_request_id }, 'Document completion processed inline');

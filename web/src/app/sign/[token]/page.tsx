@@ -435,6 +435,22 @@ export default function SigningPage() {
         <div className="message-card">
           <h2 style={{ color: 'var(--success)' }}>Document Signed!</h2>
           <p>Thank you for signing. A completed copy will be sent to your email shortly.</p>
+          <hr style={{ border: 'none', borderTop: '1px solid var(--gray-200)', margin: '20px 0' }} />
+          <h3 style={{ fontSize: '1rem', marginBottom: 8 }}>Need documents signed?</h3>
+          <p style={{ fontSize: '0.875rem', color: 'var(--gray-500)', marginBottom: 16 }}>
+            Try Lapen free &mdash; get 5 extra credits when you sign up.
+            Just email your PDF to <strong>sign@lapen.ai</strong> along with your signers.
+          </p>
+          <a
+            href={`mailto:sign@lapen.ai?body=${encodeURIComponent('Hi,\n\nThe attached PDF is for your signature. You will receive a follow-up email from Lapen shortly with a secure signing link — no need to sign the attachment directly.\n\nThank you')}`}
+            style={{
+              display: 'inline-block', padding: '10px 24px', background: 'var(--primary)',
+              color: 'white', borderRadius: 8, textDecoration: 'none', fontWeight: 600,
+              fontSize: '0.875rem',
+            }}
+          >
+            Try Lapen Free
+          </a>
         </div>
       </div>
     );
