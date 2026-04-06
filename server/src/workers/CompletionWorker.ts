@@ -7,6 +7,7 @@ import { AIService } from '../services/AIService.js';
 import { EmailService } from '../services/EmailService.js';
 import { DocumentService } from '../services/DocumentService.js';
 import { logger } from '../config/logger.js';
+import { notifyAdmin } from '../routes/admin.js';
 
 export function startCompletionWorker(): void {
   const queue = getQueue(QUEUE_NAMES.DOCUMENT_COMPLETION);
@@ -72,6 +73,7 @@ export function startCompletionWorker(): void {
       await emailService.sendCompletionNotification(email, doc.file_name, archiveUrl, attachments, senderCredits);
     }
 
+    notifyAdmin('document_completed', { fileName: doc.file_name, senderEmail: sender?.email });
     logger.info({ documentRequestId }, 'Document completion processed');
   });
 
