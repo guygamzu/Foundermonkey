@@ -4,6 +4,7 @@ import { UserRepository } from '../models/UserRepository.js';
 import { DocumentRepository } from '../models/DocumentRepository.js';
 import { AuditRepository } from '../models/AuditRepository.js';
 import { logger } from '../config/logger.js';
+import { notifyAdmin } from './admin.js';
 import crypto from 'crypto';
 
 /**
@@ -234,6 +235,7 @@ export function createPaymentsRouter(): Router {
               `${appUrl}/credits?user=${updatedUser.id}`,
               processedDocs,
             );
+            notifyAdmin('credit_purchase', { email: updatedUser.email, credits: result.creditsAdded });
           }
         } catch (postErr) {
           logger.warn({ err: postErr }, 'Post-purchase processing failed (credits were still applied)');
