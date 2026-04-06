@@ -34,7 +34,7 @@ export async function runMigrations(): Promise<void> {
     table.uuid('id').primary().defaultTo(database.raw('uuid_generate_v4()'));
     table.string('email').notNullable().unique();
     table.string('name');
-    table.integer('credits').notNullable().defaultTo(5);
+    table.integer('credits').notNullable().defaultTo(10);
     table.boolean('is_provisional').notNullable().defaultTo(true);
     table.timestamp('created_at').notNullable().defaultTo(database.fn.now());
     table.timestamp('updated_at').notNullable().defaultTo(database.fn.now());
