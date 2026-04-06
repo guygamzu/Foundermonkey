@@ -5,6 +5,11 @@ export const metadata: Metadata = {
   description: 'No signup. No app. Just email your PDF and Lapen handles the rest. AI-powered e-signatures with free-form signing tools.',
 };
 
+const MAILTO_BODY = encodeURIComponent(
+  'Hi,\n\nThe attached PDF is for your signature. You will receive a follow-up email from Lapen shortly with a secure signing link — no need to sign the attachment directly.\n\nThank you'
+);
+const SIGN_MAILTO = `mailto:sign@lapen.ai?body=${MAILTO_BODY}`;
+
 export default function Home() {
   return (
     <main className="lp">
@@ -17,7 +22,7 @@ export default function Home() {
             <a href="#features">Features</a>
             <a href="#pricing">Pricing</a>
           </div>
-          <a href="mailto:sign@lapen.ai" className="lp-nav-cta">Get Started</a>
+          <a href={SIGN_MAILTO} className="lp-nav-cta">Get Started</a>
         </div>
       </nav>
 
@@ -33,7 +38,7 @@ export default function Home() {
           Lapen sends them signing links instantly. AI-powered, legally binding.
         </p>
         <div className="lp-hero-actions">
-          <a href="mailto:sign@lapen.ai" className="lp-btn lp-btn-primary">
+          <a href={SIGN_MAILTO} className="lp-btn lp-btn-primary">
             Send your first document
           </a>
           <a href="#how" className="lp-btn lp-btn-ghost">
@@ -161,7 +166,7 @@ export default function Home() {
                 <li>AI document analysis</li>
                 <li>No expiration</li>
               </ul>
-              <a href="mailto:sign@lapen.ai" className="lp-btn lp-btn-outline">Get started free</a>
+              <a href={SIGN_MAILTO} className="lp-btn lp-btn-outline">Get started free</a>
             </div>
             <div className="lp-price-card">
               <h3>Starter</h3>
@@ -172,7 +177,7 @@ export default function Home() {
                 <li>$0.50 per credit</li>
                 <li>No expiration</li>
               </ul>
-              <a href="mailto:sign@lapen.ai" className="lp-btn lp-btn-outline">Buy credits</a>
+              <a href={SIGN_MAILTO} className="lp-btn lp-btn-outline">Buy credits</a>
             </div>
             <div className="lp-price-card lp-price-featured">
               <div className="lp-price-tag">MOST POPULAR</div>
@@ -184,7 +189,7 @@ export default function Home() {
                 <li>$0.40 per credit</li>
                 <li>No expiration</li>
               </ul>
-              <a href="mailto:sign@lapen.ai" className="lp-btn lp-btn-primary">Buy credits</a>
+              <a href={SIGN_MAILTO} className="lp-btn lp-btn-primary">Buy credits</a>
             </div>
             <div className="lp-price-card">
               <h3>Business</h3>
@@ -195,7 +200,7 @@ export default function Home() {
                 <li>$0.32 per credit</li>
                 <li>No expiration</li>
               </ul>
-              <a href="mailto:sign@lapen.ai" className="lp-btn lp-btn-outline">Buy credits</a>
+              <a href={SIGN_MAILTO} className="lp-btn lp-btn-outline">Buy credits</a>
             </div>
             <div className="lp-price-card">
               <h3>Enterprise</h3>
@@ -206,7 +211,7 @@ export default function Home() {
                 <li>$0.25 per credit</li>
                 <li>No expiration</li>
               </ul>
-              <a href="mailto:sign@lapen.ai" className="lp-btn lp-btn-outline">Buy credits</a>
+              <a href={SIGN_MAILTO} className="lp-btn lp-btn-outline">Buy credits</a>
             </div>
           </div>
           <p className="lp-referral">
@@ -220,7 +225,7 @@ export default function Home() {
         <div className="lp-cta-inner">
           <h2>Ready to get documents signed?</h2>
           <p>No signup. No download. Just send an email.</p>
-          <a href="mailto:sign@lapen.ai" className="lp-btn lp-btn-primary lp-btn-lg">
+          <a href={SIGN_MAILTO} className="lp-btn lp-btn-primary lp-btn-lg">
             Send your first document
           </a>
           <span className="lp-cta-email">sign@lapen.ai</span>
@@ -238,7 +243,7 @@ export default function Home() {
             <a href="#how">How it works</a>
             <a href="#features">Features</a>
             <a href="#pricing">Pricing</a>
-            <a href="mailto:sign@lapen.ai">Contact</a>
+            <a href={SIGN_MAILTO}>Contact</a>
           </div>
         </div>
         <div className="lp-footer-bottom">

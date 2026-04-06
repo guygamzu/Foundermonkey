@@ -17,6 +17,7 @@ export interface DocumentRequestRow {
   credits_required: number;
   original_email_message_id: string | null;
   subject: string | null;
+  pending_signers_json: string | null;
   expires_at: Date;
   completed_at: Date | null;
   created_at: Date;
