@@ -5,8 +5,8 @@ import { Document, Page, pdfjs } from 'react-pdf';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
 
-// Configure PDF.js worker
-pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
+// Configure PDF.js worker (self-hosted for faster loading)
+pdfjs.GlobalWorkerOptions.workerSrc = `/pdf.worker.min.mjs`;
 
 interface PDFViewerProps {
   url: string;
@@ -54,8 +54,14 @@ export default function PDFViewer({ url, pageCount, renderOverlay, onPageClick, 
           onLoadSuccess={onDocumentLoadSuccess}
           onLoadError={() => { setLoadError(true); onError?.(); }}
           loading={
-            <div style={{ padding: 40, textAlign: 'center', color: 'var(--gray-400)' }}>
-              Loading PDF...
+            <div style={{ width: '100%', maxWidth: 800, margin: '0 auto' }}>
+              {Array.from({ length: Math.min(pageCount, 2) }, (_, i) => (
+                <div key={i} style={{
+                  width: '100%', aspectRatio: '8.5/11', background: '#f3f4f6',
+                  borderRadius: 4, marginBottom: 8,
+                  animation: 'pulse 1.5s ease-in-out infinite',
+                }} />
+              ))}
             </div>
           }
         >
