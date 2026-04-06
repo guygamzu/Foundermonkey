@@ -60,7 +60,7 @@ export function createSigningRouter(): Router {
         id: string; type: string; page: number; x: number; y: number;
         width: number; height: number; value: string | null; signerName: string | null;
       }> = [];
-      if (doc.signing_mode === 'shared') {
+      if (doc.signing_mode !== 'individual') {
         const allFields = await documentRepo.findFieldsByDocumentId(doc.id);
         const allSigners = await documentRepo.findSignersByDocumentId(doc.id);
         const signerMap = new Map(allSigners.map(s => [s.id, s]));
@@ -78,6 +78,8 @@ export function createSigningRouter(): Router {
             signerName: signerMap.get(f.signer_id)?.name || null,
           }));
       }
+
+      logger.info({ signingMode: doc.signing_mode, otherFieldsCount: otherCompletedFields.length, signerId: signer.id }, 'Signing session: otherFields loaded');
 
       // Generate signed URL if S3 is configured and document has been uploaded
       let documentUrl: string | null = null;
