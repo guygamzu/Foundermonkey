@@ -96,6 +96,14 @@ async function main() {
     } catch (err) {
       logger.error({ err }, 'Failed to register payments routes');
     }
+
+    try {
+      const { createAdminRouter } = await import('./routes/admin.js');
+      app.use('/api/admin', createAdminRouter());
+      logger.info('Admin routes registered');
+    } catch (err) {
+      logger.error({ err }, 'Failed to register admin routes');
+    }
   }
 
   // Error handling

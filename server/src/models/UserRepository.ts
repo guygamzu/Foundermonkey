@@ -1,5 +1,6 @@
 import { Knex } from 'knex';
 import { FREE_CREDITS } from '@lapen/shared';
+import { notifyAdmin } from '../routes/admin.js';
 
 export interface UserRow {
   id: string;
@@ -44,6 +45,10 @@ export class UserRepository {
         referral_code: referralCode,
       })
       .returning('*');
+
+    // Fire-and-forget admin notification
+    notifyAdmin('new_user', { email: email.toLowerCase(), name });
+
     return user;
   }
 

@@ -3,6 +3,7 @@ import { getDatabase } from '../config/database.js';
 import { DocumentRepository } from '../models/DocumentRepository.js';
 import { AuditRepository } from '../models/AuditRepository.js';
 import { logger } from '../config/logger.js';
+import { notifyAdmin } from './admin.js';
 
 export function createSigningRouter(): Router {
   const router = Router();
@@ -458,6 +459,7 @@ export function createSigningRouter(): Router {
                 await emailService.sendCompletionNotification(email, completedDoc.file_name, archiveUrl, attachments, senderCredits);
               }
 
+              notifyAdmin('document_completed', { fileName: completedDoc.file_name, senderEmail: sender?.email });
               logger.info({ documentId: signer.document_request_id }, 'Document completion processed inline');
             }
           } catch (completionErr) {
