@@ -1,7 +1,156 @@
 import { Router, Request, Response } from 'express';
 import { getDatabase } from '../config/database.js';
 import { UserRepository } from '../models/UserRepository.js';
+import { DocumentRepository } from '../models/DocumentRepository.js';
+import { AuditRepository } from '../models/AuditRepository.js';
 import { logger } from '../config/logger.js';
+import crypto from 'crypto';
+
+/**
+ * After credits are added, auto-process any documents stuck in 'insufficient_credits' status.
+ * Returns info about processed documents for the confirmation email.
+ */
+async function processPendingDocumentsAfterPurchase(
+  userId: string,
+  userRepo: UserRepository,
+): Promise<Array<{ fileName: string; signerCount: number }>> {
+  const db = getDatabase();
+  const documentRepo = new DocumentRepository(db);
+  const auditRepo = new AuditRepository(db);
+  const appUrl = process.env.APP_URL || 'https://app.lapen.ai';
+  const processedDocs: Array<{ fileName: string; signerCount: number }> = [];
+
+  // Find documents stuck on insufficient_credits for this user
+  const pendingDocs = await db('document_requests')
+    .where({ sender_id: userId, status: 'insufficient_credits' })
+    .whereNotNull('pending_signers_json')
+    .orderBy('created_at', 'asc');
+
+  if (pendingDocs.length === 0) return processedDocs;
+
+  const user = await userRepo.findById(userId);
+  if (!user) return processedDocs;
+
+  for (const doc of pendingDocs) {
+    let signees: Array<{ email: string | null; phone: string | null; name: string | null; channel: 'email' | 'sms' | 'whatsapp' }>;
+    try {
+      signees = JSON.parse(doc.pending_signers_json);
+    } catch {
+      logger.warn({ docId: doc.id }, 'Invalid pending_signers_json — skipping');
+      continue;
+    }
+
+    const signeeCount = signees.length;
+
+    // Re-check credits
+    const freshUser = await userRepo.findById(userId);
+    if (!freshUser || freshUser.credits < signeeCount) {
+      logger.info({ docId: doc.id, required: signeeCount, available: freshUser?.credits }, 'Still insufficient credits for pending doc — skipping');
+      break; // Stop processing further docs
+    }
+
+    // Guard: check if signers already exist (prevents duplicate sends)
+    const existingSigners = await db('signers').where({ document_request_id: doc.id }).select('email');
+    if (existingSigners.length > 0) {
+      logger.info({ docId: doc.id }, 'Signers already exist — clearing pending status');
+      await db('document_requests').where({ id: doc.id }).update({ status: 'sent', pending_signers_json: null });
+      continue;
+    }
+
+    // Deduct credits
+    await userRepo.deductCredits(userId, signeeCount, doc.id);
+
+    // Update status
+    await db('document_requests').where({ id: doc.id }).update({
+      status: 'sent',
+      credits_required: signeeCount,
+      pending_signers_json: null,
+    });
+
+    // Create signers and send notifications
+    const { EmailService } = await import('../services/EmailService.js');
+    const emailService = new EmailService();
+    const { MessagingService } = await import('../services/MessagingService.js');
+    const messagingService = new MessagingService();
+
+    const senderDisplayName = user.name || user.email.split('@')[0];
+    const sentContacts: string[] = [];
+
+    // Fetch PDF for attachment
+    let pdfBuffer: Buffer | null = null;
+    if (doc.s3_key && process.env.AWS_ACCESS_KEY_ID) {
+      try {
+        const { StorageService } = await import('../services/StorageService.js');
+        const storageService = new StorageService();
+        pdfBuffer = await storageService.getDocument(doc.s3_key);
+      } catch (err) {
+        logger.warn({ err: err instanceof Error ? err.message : String(err) }, 'Failed to fetch PDF for attachment');
+      }
+    }
+
+    for (let i = 0; i < signees.length; i++) {
+      const { email, phone, name: signeeName, channel } = signees[i];
+      const contactLabel = email || phone || 'unknown';
+      const signingToken = crypto.randomBytes(32).toString('base64url');
+
+      await documentRepo.createSigner({
+        document_request_id: doc.id,
+        email,
+        phone,
+        name: signeeName,
+        status: 'notified',
+        delivery_channel: channel,
+        signing_order: i + 1,
+        signing_token: signingToken,
+        custom_message: null,
+      });
+
+      const signingUrl = `${appUrl}/sign/${signingToken}`;
+
+      try {
+        if (channel === 'email' && email) {
+          const coverText = doc.suggested_cover_text || `Please review and sign the attached document "${doc.file_name}".`;
+          await emailService.sendSigningNotification(
+            email,
+            signeeName || undefined,
+            senderDisplayName,
+            user.email,
+            doc.file_name,
+            signingUrl,
+            coverText,
+            'email',
+            pdfBuffer ? { content: pdfBuffer, filename: doc.file_name } : undefined,
+          );
+          sentContacts.push(`${signeeName || email} (${email})`);
+        } else if ((channel === 'sms' || channel === 'whatsapp') && phone) {
+          const message = `${senderDisplayName} sent you a document to sign: "${doc.file_name}". Review and sign here: ${signingUrl}`;
+          if (channel === 'whatsapp') {
+            await messagingService.sendWhatsApp(phone, message);
+          } else {
+            await messagingService.sendSMS(phone, message);
+          }
+          sentContacts.push(`${signeeName || phone} (${channel})`);
+        }
+      } catch (sendErr) {
+        logger.warn({ err: sendErr, contact: contactLabel }, 'Failed to send signing notification (auto-processed)');
+      }
+    }
+
+    await auditRepo.log({
+      document_request_id: doc.id,
+      signer_id: null,
+      action: 'document_sent',
+      ip_address: 'payment',
+      user_agent: 'auto-process-after-credit-purchase',
+      metadata: { signees: signees.map(s => ({ contact: s.email || s.phone, channel: s.channel, name: s.name })) },
+    });
+
+    processedDocs.push({ fileName: doc.file_name, signerCount: signeeCount });
+    logger.info({ docId: doc.id, signerCount: signeeCount }, 'Auto-processed pending document after credit purchase');
+  }
+
+  return processedDocs;
+}
 
 export function createPaymentsRouter(): Router {
   const router = Router();
@@ -66,8 +215,31 @@ export function createPaymentsRouter(): Router {
 
       const { PaymentService } = await import('../services/PaymentService.js');
       const paymentService = new PaymentService(userRepo);
-      await paymentService.handleWebhook(req.body, signature);
+      const result = await paymentService.handleWebhook(req.body, signature);
       logger.info('Stripe webhook processed successfully');
+
+      // Auto-process pending documents and send confirmation email
+      if (result?.userId && result?.creditsAdded) {
+        try {
+          const processedDocs = await processPendingDocumentsAfterPurchase(result.userId, userRepo);
+          const updatedUser = await userRepo.findById(result.userId);
+          if (updatedUser) {
+            const { EmailService } = await import('../services/EmailService.js');
+            const emailService = new EmailService();
+            const appUrl = process.env.APP_URL || 'https://app.lapen.ai';
+            await emailService.sendCreditsAppliedEmail(
+              updatedUser.email,
+              result.creditsAdded,
+              updatedUser.credits,
+              `${appUrl}/credits?user=${updatedUser.id}`,
+              processedDocs,
+            );
+          }
+        } catch (postErr) {
+          logger.warn({ err: postErr }, 'Post-purchase processing failed (credits were still applied)');
+        }
+      }
+
       res.json({ received: true });
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
@@ -120,9 +292,30 @@ export function createPaymentsRouter(): Router {
 
       // Apply credits now (webhook was delayed or failed)
       await userRepo.addCredits(userId, credits, paymentIntentId);
-      const user = await userRepo.findById(userId);
       logger.info({ userId, credits, paymentIntentId }, 'Credits applied via session verification (webhook fallback)');
-      res.json({ message: `${credits} credits added`, credits: user?.credits });
+
+      // Auto-process pending documents and send confirmation email
+      try {
+        const processedDocs = await processPendingDocumentsAfterPurchase(userId, userRepo);
+        const updatedUser = await userRepo.findById(userId);
+        if (updatedUser) {
+          const { EmailService } = await import('../services/EmailService.js');
+          const emailService = new EmailService();
+          const appUrl = process.env.APP_URL || 'https://app.lapen.ai';
+          await emailService.sendCreditsAppliedEmail(
+            updatedUser.email,
+            credits,
+            updatedUser.credits,
+            `${appUrl}/credits?user=${updatedUser.id}`,
+            processedDocs,
+          );
+        }
+        res.json({ message: `${credits} credits added`, credits: updatedUser?.credits, processedDocuments: processedDocs.length });
+      } catch (postErr) {
+        logger.warn({ err: postErr }, 'Post-purchase processing failed (credits were still applied)');
+        const user = await userRepo.findById(userId);
+        res.json({ message: `${credits} credits added`, credits: user?.credits });
+      }
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
       logger.error({ error: errMsg }, 'Error verifying checkout session');

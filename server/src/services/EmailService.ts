@@ -108,6 +108,88 @@ export class EmailService {
     }
   }
 
+  /**
+   * Renders a credit balance footer for sender emails.
+   * When balance < 5, shows in red with a top-up suggestion.
+   */
+  renderCreditBalanceHtml(credits: number, purchaseUrl: string): string {
+    const isLow = credits < 5;
+    const color = isLow ? '#dc2626' : '#6b7280';
+    const balanceLabel = `${credits} credit${credits !== 1 ? 's' : ''} remaining`;
+    const topUpLink = isLow
+      ? ` &mdash; <a href="${purchaseUrl}" style="color: #2563eb; text-decoration: underline; font-weight: 600;">top up now</a>`
+      : '';
+    return `
+      <div style="background: ${isLow ? '#fef2f2' : '#f9fafb'}; padding: 12px 24px; border: 1px solid ${isLow ? '#fecaca' : '#e5e7eb'}; border-top: none; border-radius: 0 0 12px 12px; text-align: center;">
+        <p style="margin: 0 0 4px; color: ${color}; font-size: 13px; font-weight: ${isLow ? '700' : '400'};">
+          ${balanceLabel}${topUpLink}
+        </p>
+        <p style="margin: 0; color: #9ca3af; font-size: 11px;">Powered by Lapen &mdash; AI-powered e-signatures</p>
+      </div>
+    `;
+  }
+
+  renderCreditBalanceText(credits: number): string {
+    const isLow = credits < 5;
+    const line = `Credits remaining: ${credits}`;
+    return isLow ? `${line} (running low — top up at your dashboard)` : line;
+  }
+
+  async sendCreditsAppliedEmail(
+    to: string,
+    creditsAdded: number,
+    newBalance: number,
+    purchaseUrl: string,
+    processedDocuments: Array<{ fileName: string; signerCount: number }>,
+  ): Promise<string> {
+    const processedSection = processedDocuments.length > 0
+      ? `
+        <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 16px; margin: 16px 0;">
+          <p style="margin: 0 0 8px; font-weight: 700; color: #166534;">Pending documents now processing:</p>
+          <ul style="margin: 0; padding-left: 20px; color: #15803d;">
+            ${processedDocuments.map(d => `<li>${d.fileName} (${d.signerCount} signer${d.signerCount !== 1 ? 's' : ''})</li>`).join('')}
+          </ul>
+          <p style="margin: 8px 0 0; font-size: 13px; color: #166534;">Signing links have been sent to all recipients.</p>
+        </div>`
+      : '';
+
+    const isLow = newBalance < 5;
+    const balanceColor = isLow ? '#dc2626' : '#16a34a';
+    const lowWarning = isLow
+      ? `<p style="margin: 12px 0 0; color: #dc2626; font-size: 13px;">Your balance is getting low. <a href="${purchaseUrl}" style="color: #2563eb; text-decoration: underline;">Top up</a> to keep sending without interruption.</p>`
+      : '';
+
+    const html = `
+      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; color: #111827;">
+        <div style="background: linear-gradient(135deg, #16a34a 0%, #15803d 100%); padding: 24px; border-radius: 12px 12px 0 0; text-align: center;">
+          <h1 style="margin: 0; color: white; font-size: 20px; font-weight: 700;">Credits Added!</h1>
+        </div>
+        <div style="background: white; padding: 24px; border: 1px solid #e5e7eb; border-top: none;">
+          <p style="margin: 0 0 12px;">
+            <strong>${creditsAdded} credit${creditsAdded !== 1 ? 's' : ''}</strong> have been added to your account.
+          </p>
+          <p style="margin: 0 0 4px; font-size: 15px;">
+            New balance: <strong style="color: ${balanceColor}; font-size: 18px;">${newBalance}</strong> credits
+          </p>
+          ${processedSection}
+          ${lowWarning}
+        </div>
+        ${this.renderCreditBalanceHtml(newBalance, purchaseUrl)}
+      </div>
+    `;
+
+    const processedText = processedDocuments.length > 0
+      ? `\n\nPending documents now processing:\n${processedDocuments.map(d => `  - ${d.fileName} (${d.signerCount} signers)`).join('\n')}\n\nSigning links have been sent to all recipients.`
+      : '';
+
+    return this.sendEmail({
+      to,
+      subject: `Credits added — ${newBalance} credits remaining`,
+      text: `${creditsAdded} credits have been added to your account.\n\nNew balance: ${newBalance} credits${processedText}\n\n${this.renderCreditBalanceText(newBalance)}`,
+      html,
+    });
+  }
+
   async sendConfirmationEmail(
     to: string,
     senderName: string,
@@ -256,7 +338,15 @@ export class EmailService {
     fileName: string,
     archiveUrl: string,
     attachments: Array<{ filename: string; content: Buffer; contentType: string }>,
+    senderCredits?: { credits: number; purchaseUrl: string },
   ): Promise<string> {
+    const creditFooter = senderCredits
+      ? this.renderCreditBalanceHtml(senderCredits.credits, senderCredits.purchaseUrl)
+      : `<div style="background: #f9fafb; padding: 12px 24px; border: 1px solid #e5e7eb; border-top: none; border-radius: 0 0 12px 12px; text-align: center;">
+          <p style="margin: 0; color: #9ca3af; font-size: 11px;">Powered by Lapen &mdash; AI-powered e-signatures</p>
+        </div>`;
+    const creditText = senderCredits ? `\n\n${this.renderCreditBalanceText(senderCredits.credits)}` : '';
+
     const html = `
       <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; color: #111827;">
         <div style="background: linear-gradient(135deg, #16a34a 0%, #15803d 100%); padding: 24px; border-radius: 12px 12px 0 0; text-align: center;">
@@ -272,16 +362,14 @@ export class EmailService {
           </ol>
           <p style="margin: 0; font-size: 13px; color: #6b7280;">Please save the attached files for your records.</p>
         </div>
-        <div style="background: #f9fafb; padding: 12px 24px; border: 1px solid #e5e7eb; border-top: none; border-radius: 0 0 12px 12px; text-align: center;">
-          <p style="margin: 0; color: #9ca3af; font-size: 11px;">Powered by Lapen &mdash; AI-powered e-signatures</p>
-        </div>
+        ${creditFooter}
       </div>
     `;
 
     return this.sendEmail({
       to,
       subject: `Completed: ${fileName}`,
-      text: `Hi,\n\nThe document ${fileName} has been successfully signed by all parties.\n\nPlease find the fully executed document and Certificate of Completion attached.\n\nPowered by Lapen`,
+      text: `Hi,\n\nThe document ${fileName} has been successfully signed by all parties.\n\nPlease find the fully executed document and Certificate of Completion attached.${creditText}\n\nPowered by Lapen`,
       html,
       attachments,
     });

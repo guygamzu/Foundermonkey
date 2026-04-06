@@ -44,7 +44,7 @@ export class PaymentService {
     return session.url!;
   }
 
-  async handleWebhook(payload: Buffer, signature: string): Promise<void> {
+  async handleWebhook(payload: Buffer, signature: string): Promise<{ userId: string; creditsAdded: number } | null> {
     const event = this.stripe.webhooks.constructEvent(
       payload,
       signature,
@@ -58,12 +58,15 @@ export class PaymentService {
 
       if (!userId || !credits) {
         logger.error({ session: session.id }, 'Missing metadata in checkout session');
-        return;
+        return null;
       }
 
       await this.userRepo.addCredits(userId, credits, session.payment_intent as string);
       logger.info({ userId, credits }, 'Credits added after payment');
+      return { userId, creditsAdded: credits };
     }
+
+    return null;
   }
 
   getCreditPurchaseUrl(userId: string): string {

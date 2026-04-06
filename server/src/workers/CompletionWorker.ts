@@ -66,7 +66,9 @@ export function startCompletionWorker(): void {
     ];
 
     for (const email of allEmails) {
-      await emailService.sendCompletionNotification(email, doc.file_name, archiveUrl, attachments);
+      const isSender = sender?.email && email === sender.email;
+      const senderCredits = isSender ? { credits: sender.credits, purchaseUrl: `${process.env.APP_URL}/credits?user=${sender.id}` } : undefined;
+      await emailService.sendCompletionNotification(email, doc.file_name, archiveUrl, attachments, senderCredits);
     }
 
     logger.info({ documentRequestId }, 'Document completion processed');

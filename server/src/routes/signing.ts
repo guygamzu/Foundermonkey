@@ -345,7 +345,9 @@ export function createSigningRouter(): Router {
           if (sender?.email) recipientEmails.add(sender.email);
 
           for (const email of recipientEmails) {
-            await emailService.sendCompletionNotification(email, doc.file_name, `${appUrl}/status/${doc.id}`, [attachment]);
+            const isSender = sender?.email && email === sender.email;
+            const senderCredits = isSender ? { credits: sender.credits, purchaseUrl: `${appUrl}/credits?user=${sender.id}` } : undefined;
+            await emailService.sendCompletionNotification(email, doc.file_name, `${appUrl}/status/${doc.id}`, [attachment], senderCredits);
           }
 
           logger.info({ documentId: doc.id, signerId: signer.id }, 'Individual signer completion processed');
@@ -383,7 +385,7 @@ export function createSigningRouter(): Router {
                 { filename: `${doc!.file_name.replace('.pdf', '')}-signed-all.pdf`, content: combinedPdf, contentType: 'application/pdf' },
                 { filename: `Certificate-of-Completion.pdf`, content: certificate, contentType: 'application/pdf' },
               ];
-              await emailService.sendCompletionNotification(sender.email, doc!.file_name, `${appUrl}/archive/${signer.document_request_id}`, attachments);
+              await emailService.sendCompletionNotification(sender.email, doc!.file_name, `${appUrl}/archive/${signer.document_request_id}`, attachments, { credits: sender.credits, purchaseUrl: `${appUrl}/credits?user=${sender.id}` });
             }
             logger.info({ documentId: doc!.id }, 'All individual signers complete — combined PDF sent');
           } catch (err) {
@@ -449,7 +451,9 @@ export function createSigningRouter(): Router {
               ];
 
               for (const email of allEmails) {
-                await emailService.sendCompletionNotification(email, completedDoc.file_name, `${process.env.APP_URL}/archive/${signer.document_request_id}`, attachments);
+                const isSender = sender?.email && email === sender.email;
+                const senderCredits = isSender ? { credits: sender.credits, purchaseUrl: `${process.env.APP_URL}/credits?user=${sender.id}` } : undefined;
+                await emailService.sendCompletionNotification(email, completedDoc.file_name, `${process.env.APP_URL}/archive/${signer.document_request_id}`, attachments, senderCredits);
               }
 
               logger.info({ documentId: signer.document_request_id }, 'Document completion processed inline');
@@ -528,10 +532,25 @@ export function createSigningRouter(): Router {
             if (sender) {
               const emailService = await import('../services/EmailService.js');
               const service = new emailService.EmailService();
+              const appUrl = process.env.APP_URL || 'https://app.lapen.ai';
+              const purchaseUrl = `${appUrl}/credits?user=${sender.id}`;
+              const creditFooter = service.renderCreditBalanceHtml(sender.credits, purchaseUrl);
+              const creditText = service.renderCreditBalanceText(sender.credits);
               await service.sendEmail({
                 to: sender.email,
                 subject: `Signing declined: ${doc.file_name}`,
-                text: `${signer.name || signer.email || 'A signer'} has declined to sign ${doc.file_name}.${reason ? `\n\nReason: ${reason}` : ''}`,
+                text: `${signer.name || signer.email || 'A signer'} has declined to sign ${doc.file_name}.${reason ? `\n\nReason: ${reason}` : ''}\n\n${creditText}`,
+                html: `
+<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; color: #111827;">
+  <div style="background: #dc2626; color: white; padding: 20px 24px; border-radius: 8px 8px 0 0;">
+    <h1 style="margin: 0; font-size: 20px;">Signing Declined</h1>
+  </div>
+  <div style="background: white; padding: 24px; border: 1px solid #e5e7eb; border-top: none;">
+    <p><strong>${signer.name || signer.email || 'A signer'}</strong> has declined to sign <strong>${doc.file_name}</strong>.</p>
+    ${reason ? `<p style="color: #6b7280;">Reason: ${reason}</p>` : ''}
+  </div>
+  ${creditFooter}
+</div>`,
               });
             }
           }

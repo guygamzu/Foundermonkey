@@ -510,6 +510,9 @@ export class EmailProcessor {
     // Preview URL for the sender to see what signees will see
     const appUrl = process.env.APP_URL || 'https://app.lapen.ai';
     const previewUrl = `${appUrl}/preview/${documentId}`;
+    const purchaseUrl = `${appUrl}/credits?user=${user.id}`;
+    const creditFooter = this.emailService.renderCreditBalanceHtml(user.credits, purchaseUrl);
+    const creditText = this.emailService.renderCreditBalanceText(user.credits);
 
     // Send the welcome/instructions email
     const html = `
@@ -541,9 +544,7 @@ export class EmailProcessor {
     </div>
   </div>
 
-  <div style="padding: 16px 24px; font-size: 12px; color: #9ca3af; text-align: center;">
-    Lapen • Secure E-Signatures
-  </div>
+  ${creditFooter}
 </div>`;
 
     await this.trySendEmail({
@@ -561,7 +562,9 @@ John Smith john@example.com
 Jane Doe +14155551234 whatsapp
 Bob Wilson +442071234567 sms
 
-Preview: ${previewUrl}`,
+Preview: ${previewUrl}
+
+${creditText}`,
       html,
       inReplyTo: messageId,
     });
@@ -620,8 +623,10 @@ Preview: ${previewUrl}`,
     if (user.credits < signeeCount) {
       // Only send the notification once: skip if already notified
       if (pendingDoc.status !== 'insufficient_credits') {
+        // Store pending signers so we can auto-process after credit purchase
         await db('document_requests').where({ id: pendingDoc.id }).update({
           status: 'insufficient_credits',
+          pending_signers_json: JSON.stringify(signees),
         });
         const purchaseUrl = `${appUrl}/credits?user=${user.id}`;
         // Ensure user has a referral code
@@ -634,7 +639,7 @@ Preview: ${previewUrl}`,
           messageId,
           freshUser?.referral_code || undefined,
         );
-        logger.info({ documentId: pendingDoc.id, required: signeeCount, available: user.credits }, 'Insufficient credits — notified sender');
+        logger.info({ documentId: pendingDoc.id, required: signeeCount, available: user.credits }, 'Insufficient credits — notified sender (signers stored for auto-processing)');
       } else {
         logger.info({ documentId: pendingDoc.id }, 'Insufficient credits — already notified, skipping duplicate email');
       }
@@ -760,6 +765,7 @@ Preview: ${previewUrl}`,
 
     // Send confirmation to sender
     const statusUrl = `${appUrl}/status/${pendingDoc.id}`;
+    const purchaseUrl = `${appUrl}/credits?user=${user.id}`;
     const sentList = sentContacts.map(c => `  • ${c}`).join('\n');
     const failedList = failedContacts.map(c => `  • ${c} (delivery failed)`).join('\n');
     const failedNote = failedContacts.length > 0
@@ -777,16 +783,22 @@ Preview: ${previewUrl}`,
       ? `<p style="color: #dc2626; font-size: 14px; margin-top: 12px;">⚠ ${failedContacts.length} notification(s) failed to deliver. The signing links have been created — you can share them manually from the status page.</p>`
       : '';
 
+    // Get updated credit balance after deduction
+    const updatedUser = await this.userRepo.findById(user.id);
+    const currentCredits = updatedUser?.credits ?? 0;
+    const creditFooter = this.emailService.renderCreditBalanceHtml(currentCredits, purchaseUrl);
+    const creditText = this.emailService.renderCreditBalanceText(currentCredits);
+
     await this.trySendEmail({
       to: senderEmail,
       subject: `✓ Document sent for signature: ${pendingDoc.file_name}`,
-      text: `Done! I've sent "${pendingDoc.file_name}" for signature to:\n\n${sentList}${failedList ? '\n' + failedList : ''}\n\nI'll notify you as each person signs.${failedNote}\n\nTrack status: ${statusUrl}`,
+      text: `Done! I've sent "${pendingDoc.file_name}" for signature to:\n\n${sentList}${failedList ? '\n' + failedList : ''}\n\nI'll notify you as each person signs.${failedNote}\n\nTrack status: ${statusUrl}\n\n${creditText}`,
       html: `
 <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; color: #111827;">
   <div style="background: #16a34a; color: white; padding: 20px 24px; border-radius: 8px 8px 0 0;">
     <h1 style="margin: 0; font-size: 20px;">✓ Document Sent</h1>
   </div>
-  <div style="background: white; padding: 24px; border: 1px solid #e5e7eb; border-top: none; border-radius: 0 0 8px 8px;">
+  <div style="background: white; padding: 24px; border: 1px solid #e5e7eb; border-top: none;">
     <p>I've sent <strong>${pendingDoc.file_name}</strong> for signature to:</p>
     <ul style="margin: 12px 0; padding-left: 20px;">
       ${recipientListHtml}${failedListHtml}
@@ -797,6 +809,7 @@ Preview: ${previewUrl}`,
       <a href="${statusUrl}" style="display: inline-block; background: #2563eb; color: white; padding: 12px 28px; border-radius: 8px; text-decoration: none; font-weight: 600;">Track Signing Status</a>
     </div>
   </div>
+  ${creditFooter}
 </div>`,
       inReplyTo: messageId,
     });
@@ -992,6 +1005,9 @@ Preview: ${previewUrl}`,
     // Reply with setup link
     const appUrl = process.env.APP_URL || 'https://app.lapen.ai';
     const setupUrl = `${appUrl}/setup/${documentId}`;
+    const purchaseUrl = `${appUrl}/credits?user=${user.id}`;
+    const creditFooter = this.emailService.renderCreditBalanceHtml(user.credits, purchaseUrl);
+    const creditText = this.emailService.renderCreditBalanceText(user.credits);
     const signerListHtml = signers.map(s =>
       `<li style="margin: 4px 0;">${s.name || s.email} (${s.email})</li>`
     ).join('');
@@ -999,7 +1015,7 @@ Preview: ${previewUrl}`,
     await this.trySendEmail({
       to: senderEmail,
       subject: `Re: ${subject || fileName}`,
-      text: `Hi ${user.name || senderEmail.split('@')[0]},\n\nGot your document "${fileName}".\n\n${summary}\n\nSigners detected:\n${signers.map(s => `  • ${s.name || s.email} (${s.email})`).join('\n')}\n\nSet up field placement and send: ${setupUrl}`,
+      text: `Hi ${user.name || senderEmail.split('@')[0]},\n\nGot your document "${fileName}".\n\n${summary}\n\nSigners detected:\n${signers.map(s => `  • ${s.name || s.email} (${s.email})`).join('\n')}\n\nSet up field placement and send: ${setupUrl}\n\n${creditText}`,
       html: `
 <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; color: #111827;">
   <div style="background: #2563eb; color: white; padding: 20px 24px; border-radius: 8px 8px 0 0;">
@@ -1018,9 +1034,7 @@ Preview: ${previewUrl}`,
       <a href="${setupUrl}" style="display: inline-block; background: #2563eb; color: white; padding: 12px 28px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 14px;">Set Up & Send</a>
     </div>
   </div>
-  <div style="padding: 16px 24px; font-size: 12px; color: #9ca3af; text-align: center;">
-    Lapen • Secure E-Signatures
-  </div>
+  ${creditFooter}
 </div>`,
       inReplyTo: messageId,
     });
