@@ -242,6 +242,51 @@ async function runIncrementalMigrations(database: Knex): Promise<void> {
     // Index may already exist
   }
 
+  // --- Signing mode on documents (20260405000001) ---
+  try {
+    const hasSigningMode = await database.raw(`
+      SELECT 1 FROM information_schema.columns
+      WHERE table_name = 'document_requests' AND column_name = 'signing_mode'
+    `);
+    if (hasSigningMode.rows.length === 0) {
+      await database.schema.alterTable('document_requests', (table) => {
+        table.string('signing_mode').notNullable().defaultTo('shared');
+      });
+    }
+  } catch (err) {
+    // Column may already exist
+  }
+
+  try {
+    const hasSignedS3Key = await database.raw(`
+      SELECT 1 FROM information_schema.columns
+      WHERE table_name = 'signers' AND column_name = 'signed_s3_key'
+    `);
+    if (hasSignedS3Key.rows.length === 0) {
+      await database.schema.alterTable('signers', (table) => {
+        table.string('signed_s3_key');
+        table.string('certificate_s3_key');
+      });
+    }
+  } catch (err) {
+    // Columns may already exist
+  }
+
+  // --- Pending signers JSON (20260406000001) ---
+  try {
+    const hasPendingSigners = await database.raw(`
+      SELECT 1 FROM information_schema.columns
+      WHERE table_name = 'document_requests' AND column_name = 'pending_signers_json'
+    `);
+    if (hasPendingSigners.rows.length === 0) {
+      await database.schema.alterTable('document_requests', (table) => {
+        table.text('pending_signers_json');
+      });
+    }
+  } catch (err) {
+    // Column may already exist
+  }
+
   // Fix documents stuck in pending_confirmation that already have notified signers
   try {
     await database.raw(`
