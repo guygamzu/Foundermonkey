@@ -60,32 +60,20 @@ export default function SigningPage() {
   const [otherFields, setOtherFields] = useState<OtherField[]>([]);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
+  // Effect 1: Load session data (unblocks page render immediately)
   useEffect(() => {
-    async function load() {
+    async function loadSession() {
       try {
         const data = await getSigningSession(token);
         setSession(data);
-        // Load any pre-existing fields (from previous partial sessions)
         if (data.fields.length > 0) {
           setPlacedItems(data.fields.map(f => ({
             ...f,
             completed: !!f.completed,
           })));
         }
-        // Load other signers' completed fields (shared mode)
         if (data.otherFields && data.otherFields.length > 0) {
           setOtherFields(data.otherFields);
-        }
-
-        // Auto-fetch AI summary
-        try {
-          const res = await askDocumentQuestion(token, 'Summarize this document in 1-2 sentences. State what it is, its purpose, and the key parties.', []);
-          setAiSummary(res.answer);
-          setChatMessages([{ role: 'assistant', content: res.answer }]);
-        } catch {
-          setAiSummary('Unable to generate summary at this time.');
-        } finally {
-          setAiSummaryLoading(false);
         }
       } catch (err: any) {
         setError(err.message);
@@ -94,8 +82,34 @@ export default function SigningPage() {
         setLoading(false);
       }
     }
-    load();
+    loadSession();
   }, [token]);
+
+  // Effect 2: Load AI summary independently (non-blocking)
+  useEffect(() => {
+    if (!session) return;
+    let cancelled = false;
+    async function loadSummary() {
+      try {
+        const res = await askDocumentQuestion(token, 'Summarize this document in 1-2 sentences. State what it is, its purpose, and the key parties.', []);
+        if (!cancelled) {
+          setAiSummary(res.answer);
+          setChatMessages([{ role: 'assistant', content: res.answer }]);
+        }
+      } catch {
+        if (!cancelled) {
+          setAiSummary('Unable to generate summary at this time.');
+        }
+      } finally {
+        if (!cancelled) {
+          setAiSummaryLoading(false);
+        }
+      }
+    }
+    loadSummary();
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session !== null]);
 
   const hasSignature = placedItems.some(item => item.type === 'signature' && item.completed);
 
