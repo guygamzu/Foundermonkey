@@ -91,7 +91,7 @@ export default function SigningPage() {
     let cancelled = false;
     async function loadSummary() {
       try {
-        const res = await askDocumentQuestion(token, 'Summarize this document in 1-2 sentences. State what it is, its purpose, and the key parties.', []);
+        const res = await askDocumentQuestion(token, 'Summarize this document in one concise sentence: what type of document it is and who the parties are. Be brief.', []);
         if (!cancelled) {
           setAiSummary(res.answer);
           setChatMessages([{ role: 'assistant', content: res.answer }]);

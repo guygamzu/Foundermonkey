@@ -66,7 +66,7 @@ export default function PreviewPage() {
         try {
           const result = await askPreviewQuestion(
             documentId,
-            'Summarize this document in 1-2 sentences. State what it is, its purpose, and the key parties.',
+            'Summarize this document in one concise sentence: what type of document it is and who the parties are. Be brief.',
             [],
           );
           setAiSummary(result.answer);
