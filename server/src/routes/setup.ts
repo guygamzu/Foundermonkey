@@ -129,15 +129,9 @@ export function createSetupRouter(): Router {
         text: { w: 0.15, h: 0.035 },
         date: { w: 0.12, h: 0.03 },
         checkbox: { w: 0.025, h: 0.025 },
-        option: { w: 0.15, h: 0.035 },
+        option: { w: 0.025, h: 0.025 },
       };
       const dim = dims[type as string] || { w: 0.15, h: 0.035 };
-
-      // For option fields, validate and store option_values
-      if (type === 'option' && (!optionValues || !Array.isArray(optionValues) || optionValues.length < 2)) {
-        res.status(400).json({ error: 'Option fields require at least 2 choices in optionValues' });
-        return;
-      }
 
       const fields = await documentRepo.createFields([{
         document_request_id: doc.id,
@@ -149,7 +143,6 @@ export function createSetupRouter(): Router {
         width: width || dim.w,
         height: height || dim.h,
         required: true,
-        ...(type === 'option' && optionValues ? { option_values: JSON.stringify(optionValues) } : {}),
       }]);
 
       const field = fields[0];

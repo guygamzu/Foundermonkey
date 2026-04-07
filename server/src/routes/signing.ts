@@ -249,16 +249,6 @@ export function createSigningRouter(): Router {
         return;
       }
 
-      // For option fields, validate the value against allowed choices
-      const existingField = await db('document_fields').where({ id: req.params.fieldId }).first();
-      if (existingField?.type === 'option' && existingField.option_values) {
-        const allowedValues: string[] = JSON.parse(existingField.option_values);
-        if (!allowedValues.includes(value)) {
-          res.status(400).json({ error: 'Invalid option value', allowedValues });
-          return;
-        }
-      }
-
       const field = await documentRepo.updateFieldValue(req.params.fieldId, value);
 
       await auditRepo.log({

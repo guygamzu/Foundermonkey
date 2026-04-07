@@ -62,7 +62,6 @@ export default function SigningPage() {
   const [otherFields, setOtherFields] = useState<OtherField[]>([]);
   const [editingFieldId, setEditingFieldId] = useState<string | null>(null);
   const [inlineTextValue, setInlineTextValue] = useState('');
-  const [showOptionSelect, setShowOptionSelect] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   // Effect 1: Load session data (unblocks page render immediately)
@@ -128,7 +127,8 @@ export default function SigningPage() {
 
   // Click-to-fill: handle clicking on a pre-placed field
   const handleFieldClick = useCallback(async (item: PlacedItem) => {
-    if (item.completed) return; // already filled
+    // Allow toggling checkbox and option even when completed
+    if (item.completed && item.type !== 'checkbox' && item.type !== 'option') return;
 
     if (item.type === 'signature') {
       setActiveItemId(item.id);
@@ -143,17 +143,38 @@ export default function SigningPage() {
         setError(err.message);
       }
     } else if (item.type === 'checkbox') {
+      // Toggle: if already checked, uncheck; if unchecked, check
+      const newValue = item.value === '✓' ? '' : '✓';
       try {
-        await submitFieldValue(token, item.id, '✓');
-        setPlacedItems(prev => prev.map(i => i.id === item.id ? { ...i, value: '✓', completed: true } : i));
+        await submitFieldValue(token, item.id, newValue || ' '); // server requires non-empty
+        setPlacedItems(prev => prev.map(i => i.id === item.id ? { ...i, value: newValue, completed: !!newValue } : i));
+      } catch (err: any) {
+        setError(err.message);
+      }
+    } else if (item.type === 'option') {
+      // Select this option and deselect all other option fields on the same page for the same signer
+      try {
+        await submitFieldValue(token, item.id, '●');
+        // Clear other options on same page
+        const otherOptions = placedItems.filter(
+          i => i.type === 'option' && i.page === item.page && i.id !== item.id,
+        );
+        for (const opt of otherOptions) {
+          if (opt.value) {
+            await submitFieldValue(token, opt.id, ' ');
+          }
+        }
+        setPlacedItems(prev => prev.map(i => {
+          if (i.id === item.id) return { ...i, value: '●', completed: true };
+          if (i.type === 'option' && i.page === item.page) return { ...i, value: '', completed: false };
+          return i;
+        }));
       } catch (err: any) {
         setError(err.message);
       }
     } else if (item.type === 'text') {
       setEditingFieldId(item.id);
       setInlineTextValue('');
-    } else if (item.type === 'option') {
-      // Radio buttons handle their own clicks inline — no modal needed
     }
   }, [token]);
 
@@ -172,20 +193,6 @@ export default function SigningPage() {
     setInlineTextValue('');
   }, [token, editingFieldId, inlineTextValue]);
 
-  // Submit option selection for click-to-fill
-  const handleOptionSelect = useCallback(async (value: string) => {
-    if (!editingFieldId) return;
-    try {
-      await submitFieldValue(token, editingFieldId, value);
-      setPlacedItems(prev => prev.map(i =>
-        i.id === editingFieldId ? { ...i, value, completed: true } : i,
-      ));
-    } catch (err: any) {
-      setError(err.message);
-    }
-    setEditingFieldId(null);
-    setShowOptionSelect(false);
-  }, [token, editingFieldId]);
 
   // Handle signature save for click-to-fill pre-placed fields
   const handlePreplacedSignatureSave = useCallback(async (signatureData: string) => {
@@ -786,9 +793,11 @@ export default function SigningPage() {
                           top: `${item.y * 100}%`,
                           width: `${item.width * 100}%`,
                           height: `${item.height * 100}%`,
-                          cursor: hasPreplacedFields && !item.completed ? 'pointer' : item.completed ? 'grab' : undefined,
+                          cursor: hasPreplacedFields && (!item.completed || item.type === 'checkbox' || item.type === 'option') ? 'pointer' : item.completed ? 'grab' : undefined,
                         }}
-                        onClick={() => hasPreplacedFields && !item.completed && handleFieldClick(item)}
+                        onClick={() => hasPreplacedFields && (
+                          !item.completed || item.type === 'checkbox' || item.type === 'option'
+                        ) && handleFieldClick(item)}
                         onMouseDown={(e) => !hasPreplacedFields && item.completed && handleDragStart(e, item.id)}
                         onTouchStart={(e) => !hasPreplacedFields && item.completed && handleDragStart(e, item.id)}
                       >
@@ -807,49 +816,35 @@ export default function SigningPage() {
                         {item.type === 'date' && item.value && (
                           <span style={{ fontSize: '10px', color: '#111' }}>{item.value}</span>
                         )}
-                        {item.type === 'checkbox' && item.value && (
-                          <span style={{ fontSize: '14px', color: '#111', fontWeight: 'bold' }}>✓</span>
+                        {/* Checkbox: show empty square or checked square */}
+                        {item.type === 'checkbox' && (
+                          <span style={{
+                            width: '60%', height: '60%', borderRadius: 2,
+                            border: '2px solid #111', display: 'inline-flex',
+                            alignItems: 'center', justifyContent: 'center',
+                            background: item.value === '✓' ? '#2563eb' : 'transparent',
+                            color: 'white', fontSize: '10px', fontWeight: 'bold',
+                          }}>
+                            {item.value === '✓' && '✓'}
+                          </span>
                         )}
-                        {/* Option field: show radio buttons (filled state shows selected) */}
-                        {item.type === 'option' && item.value && item.optionValues && (
-                          <div className="field-radio-group">
-                            {item.optionValues.map(opt => (
-                              <div key={opt} className="field-radio-item">
-                                <span className={`field-radio-circle ${opt === item.value ? 'selected' : ''}`} />
-                                <span className="field-radio-label">{opt}</span>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                        {item.type === 'option' && item.value && !item.optionValues && (
-                          <span style={{ fontSize: '10px', color: '#111' }}>{item.value}</span>
+                        {/* Option: show empty or filled round circle */}
+                        {item.type === 'option' && (
+                          <span style={{
+                            width: '60%', height: '60%', borderRadius: '50%',
+                            border: '2px solid #111', display: 'inline-block',
+                            background: item.value === '●' ? '#2563eb' : 'transparent',
+                            boxShadow: item.value === '●' ? 'inset 0 0 0 2px white' : 'none',
+                          }} />
                         )}
 
                         {/* Click-to-fill: unfilled placeholder labels */}
-                        {hasPreplacedFields && !item.completed && item.type !== 'option' && (
+                        {hasPreplacedFields && !item.completed && item.type !== 'option' && item.type !== 'checkbox' && (
                           <span className="field-placeholder-label">
                             {item.type === 'signature' && '✍ Signature'}
                             {item.type === 'text' && 'T Text'}
                             {item.type === 'date' && '📅 Date'}
-                            {item.type === 'checkbox' && '☑ Check'}
                           </span>
-                        )}
-
-                        {/* Option field: unfilled state shows clickable radio buttons */}
-                        {hasPreplacedFields && !item.completed && item.type === 'option' && item.optionValues && (
-                          <div className="field-radio-group" onClick={(e) => e.stopPropagation()}>
-                            {item.optionValues.map(opt => (
-                              <div
-                                key={opt}
-                                className="field-radio-item field-radio-clickable"
-                                onClick={() => handleOptionSelect(opt)}
-                                onMouseDown={() => setEditingFieldId(item.id)}
-                              >
-                                <span className="field-radio-circle" />
-                                <span className="field-radio-label">{opt}</span>
-                              </div>
-                            ))}
-                          </div>
                         )}
 
                         {/* Inline text input for click-to-fill */}
@@ -868,23 +863,6 @@ export default function SigningPage() {
                             onClick={(e) => e.stopPropagation()}
                             placeholder="Type here..."
                           />
-                        )}
-
-                        {/* Legacy dropdown fallback — no longer used for new option fields */}
-                        {editingFieldId === item.id && item.type === 'option' && showOptionSelect && !item.optionValues && (
-                          <select
-                            className="field-option-select"
-                            autoFocus
-                            defaultValue=""
-                            onChange={(e) => { if (e.target.value) handleOptionSelect(e.target.value); }}
-                            onBlur={() => { setEditingFieldId(null); setShowOptionSelect(false); }}
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            <option value="" disabled>Select...</option>
-                            {(item.optionValues || []).map(opt => (
-                              <option key={opt} value={opt}>{opt}</option>
-                            ))}
-                          </select>
                         )}
 
                         {/* Free-form mode: type label for unfilled, remove for filled */}

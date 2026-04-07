@@ -44,7 +44,7 @@ export default function PDFViewer({ url, pageCount, renderOverlay, onPageClick, 
     return null;
   }
 
-  const totalPages = numPages || pageCount;
+  const totalPages = Math.max(numPages || 0, pageCount || 1);
 
   return (
     <div ref={containerRef}>

@@ -40,9 +40,6 @@ export default function SetupPage() {
   const [showAddSigner, setShowAddSigner] = useState(false);
   const [newSignerEmail, setNewSignerEmail] = useState('');
   const [newSignerName, setNewSignerName] = useState('');
-  const [showOptionModal, setShowOptionModal] = useState(false);
-  const [pendingOptionPlacement, setPendingOptionPlacement] = useState<{ pageIndex: number; x: number; y: number } | null>(null);
-  const [optionChoices, setOptionChoices] = useState('');
   const [showVoidWarning, setShowVoidWarning] = useState(false);
   const [voiding, setVoiding] = useState(false);
   const [doneSuccess, setDoneSuccess] = useState(false);
@@ -103,20 +100,12 @@ export default function SetupPage() {
       text: { w: 0.15, h: 0.035 },
       date: { w: 0.12, h: 0.03 },
       checkbox: { w: 0.025, h: 0.025 },
-      option: { w: 0.15, h: 0.035 },
+      option: { w: 0.025, h: 0.025 }, // Same size as checkbox but round
     };
     const dim = dims[type] || { w: 0.15, h: 0.035 };
 
     const x = Math.max(0, Math.min(1 - dim.w, relativeX - dim.w / 2));
     const y = Math.max(0, Math.min(1 - dim.h, relativeY - dim.h / 2));
-
-    // For option fields, show modal to configure choices first
-    if (type === 'option') {
-      setPendingOptionPlacement({ pageIndex, x, y });
-      setOptionChoices('');
-      setShowOptionModal(true);
-      return;
-    }
 
     try {
       const field = await createSetupField(id, {
@@ -133,41 +122,11 @@ export default function SetupPage() {
       setError(err.message);
     }
 
-    setActiveTool(null);
+    // Don't clear tool for checkbox/option — allow placing multiple in a row
+    if (type !== 'checkbox' && type !== 'option') {
+      setActiveTool(null);
+    }
   }, [activeTool, selectedSigner, id]);
-
-  // Confirm option field with choices
-  const handleConfirmOption = useCallback(async () => {
-    if (!pendingOptionPlacement || !selectedSigner) return;
-    const choices = optionChoices.split('\n').map(c => c.trim()).filter(Boolean);
-    if (choices.length < 2) {
-      setError('Please provide at least 2 options (one per line)');
-      return;
-    }
-
-    // Height scales with number of options (~2.5% per option)
-    const optionHeight = Math.max(0.06, choices.length * 0.025);
-
-    try {
-      const field = await createSetupField(id, {
-        signerId: selectedSigner.id,
-        type: 'option',
-        page: pendingOptionPlacement.pageIndex + 1,
-        x: pendingOptionPlacement.x,
-        y: pendingOptionPlacement.y,
-        width: 0.18,
-        height: optionHeight,
-        optionValues: choices,
-      });
-      setFields(prev => [...prev, field]);
-    } catch (err: any) {
-      setError(err.message);
-    }
-
-    setShowOptionModal(false);
-    setPendingOptionPlacement(null);
-    setActiveTool(null);
-  }, [pendingOptionPlacement, selectedSigner, optionChoices, id]);
 
   // Done — mark template as ready (no signers needed)
   const handleDone = useCallback(async () => {
@@ -654,23 +613,16 @@ export default function SetupPage() {
                           onMouseDown={(e) => handleDragStart(e, f.id)}
                           onTouchStart={(e) => handleDragStart(e, f.id)}
                         >
-                          {f.type === 'option' && f.optionValues ? (
-                            <div style={{
-                              display: 'flex', flexDirection: 'column', justifyContent: 'center',
-                              gap: 1, padding: '1px 3px', width: '100%', overflow: 'hidden',
-                            }}>
-                              {f.optionValues.map((opt, oi) => (
-                                <div key={oi} style={{ display: 'flex', alignItems: 'center', gap: 3, lineHeight: 1 }}>
-                                  <span style={{
-                                    width: 8, height: 8, borderRadius: '50%', border: `1.5px solid ${color}`,
-                                    flexShrink: 0, display: 'inline-block',
-                                  }} />
-                                  <span style={{ fontSize: '7px', color, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                    {opt}
-                                  </span>
-                                </div>
-                              ))}
-                            </div>
+                          {f.type === 'option' ? (
+                            <span style={{
+                              width: '60%', height: '60%', borderRadius: '50%',
+                              border: `2px solid ${color}`, display: 'inline-block',
+                            }} />
+                          ) : f.type === 'checkbox' ? (
+                            <span style={{
+                              width: '60%', height: '60%', borderRadius: 2,
+                              border: `2px solid ${color}`, display: 'inline-block',
+                            }} />
                           ) : (
                             <span style={{
                               fontSize: '9px',
@@ -778,45 +730,6 @@ export default function SetupPage() {
                 onClick={handleAddSigner}
               >
                 Add
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-      {/* Option Configuration Modal */}
-      {showOptionModal && (
-        <div className="modal-overlay" onClick={() => { setShowOptionModal(false); setActiveTool(null); }}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2>Configure Dropdown Options</h2>
-              <button className="modal-close" onClick={() => { setShowOptionModal(false); setActiveTool(null); }}>&times;</button>
-            </div>
-            <p style={{ fontSize: '0.875rem', color: 'var(--gray-500)', margin: '0 0 12px' }}>
-              Enter one option per line (minimum 2):
-            </p>
-            <textarea
-              value={optionChoices}
-              onChange={(e) => setOptionChoices(e.target.value)}
-              placeholder={'Yes\nNo\nMaybe'}
-              autoFocus
-              rows={5}
-              style={{
-                width: '100%', padding: 12,
-                border: '1px solid var(--gray-200)', borderRadius: 'var(--radius)',
-                marginBottom: 12, fontSize: '1rem', resize: 'vertical',
-                fontFamily: 'inherit',
-              }}
-            />
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => { setShowOptionModal(false); setActiveTool(null); }}>
-                Cancel
-              </button>
-              <button
-                className="btn btn-primary" style={{ flex: 1 }}
-                disabled={optionChoices.split('\n').filter(c => c.trim()).length < 2}
-                onClick={handleConfirmOption}
-              >
-                Place Field
               </button>
             </div>
           </div>
