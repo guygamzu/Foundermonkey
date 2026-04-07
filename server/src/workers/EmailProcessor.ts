@@ -201,16 +201,18 @@ export class EmailProcessor {
       .flatMap(addr => 'value' in addr ? addr.value : [addr]);
 
     const toAddresses = toEntries.map(a => (a.address || '').toLowerCase());
+    const ccAddresses = ccEntries.map(a => (a.address || '').toLowerCase());
+    const allRecipientAddresses = [...toAddresses, ...ccAddresses];
 
-    // Check if any of our addresses are in TO
-    const isAddressedToUs = lapenAddresses.size === 0 || toAddresses.some(a => lapenAddresses.has(a));
+    // Check if any of our addresses are in TO or CC
+    const isAddressedToUs = lapenAddresses.size === 0 || allRecipientAddresses.some(a => lapenAddresses.has(a));
     if (!isAddressedToUs) {
-      logger.info(`Skipping email not addressed to us: from=${senderEmail} to=${toAddresses.join(',')}`);
+      logger.info(`Skipping email not addressed to us: from=${senderEmail} to=${toAddresses.join(',')} cc=${ccAddresses.join(',')}`);
       return;
     }
 
     // Determine which Lapen flow: sign@ or set@
-    const isSetFlow = toAddresses.includes(setEmail);
+    const isSetFlow = allRecipientAddresses.includes(setEmail);
     const isSignFlow = !isSetFlow;
 
     const senderLower = senderEmail.toLowerCase();
