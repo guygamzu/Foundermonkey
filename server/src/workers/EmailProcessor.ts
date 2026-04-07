@@ -389,14 +389,12 @@ export class EmailProcessor {
     }
 
     if (!pdfAttachment) {
-      if (body.length > 0) {
-        await this.trySendEmail({
-          to: senderEmail,
-          subject: `Re: ${subject}`,
-          text: `Welcome to Lapen! To send a document for signing:\n\n1. Compose a new email TO sign@lapen.ai and your signers (e.g. sign@lapen.ai, john@example.com)\n2. Attach the PDF\n3. Send!\n\nLapen will send signing links to your recipients automatically.\n\nWant to customize fields first? Send the PDF only to sign@lapen.ai (no other recipients) and we'll send you a setup link.`,
-          inReplyTo: messageId,
-        });
-      }
+      await this.trySendEmail({
+        to: senderEmail,
+        subject: `Re: ${subject}`,
+        text: `Welcome to Lapen! To send a document for signing:\n\n1. Compose a new email TO sign@lapen.ai and your signers (e.g. sign@lapen.ai, john@example.com)\n2. Attach the PDF\n3. Send!\n\nLapen will send signing links to your recipients automatically.\n\nWant to customize fields first? Send the PDF only to sign@lapen.ai (no other recipients) and we'll send you a setup link.`,
+        inReplyTo: messageId,
+      });
       return;
     }
 
