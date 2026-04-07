@@ -48,6 +48,13 @@ const envSchema = z.object({
   SIGNING_URL_SECRET: z.string().optional(),
   JWT_SECRET: z.string().optional(),
   ENCRYPTION_KEY: z.string().optional(),
+
+  // Risk Monitor
+  RISK_MONITOR_ENABLED: z.coerce.boolean().default(false),
+  RISK_MONITOR_RECIPIENTS: z.string().optional(),
+  RISK_MONITOR_POLL_INTERVAL_MS: z.coerce.number().default(180000),
+  ACLED_API_KEY: z.string().optional(),
+  ACLED_API_EMAIL: z.string().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;

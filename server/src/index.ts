@@ -124,6 +124,17 @@ async function main() {
     logger.warn('REDIS_URL not configured, background workers not started');
   }
 
+  // Start risk monitor worker
+  if (process.env.REDIS_URL && process.env.RISK_MONITOR_ENABLED === 'true') {
+    try {
+      const { startRiskMonitorWorker } = await import('./workers/RiskMonitorWorker.js');
+      startRiskMonitorWorker();
+      logger.info('Risk monitor worker started');
+    } catch (err) {
+      logger.error({ err }, 'Failed to start risk monitor worker');
+    }
+  }
+
   // Start email processor
   if (process.env.IMAP_HOST && process.env.IMAP_USER) {
     try {
