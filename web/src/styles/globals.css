@@ -854,6 +854,13 @@ body {
   border-color: var(--primary);
 }
 
+.toolbar-btn.disabled,
+.toolbar-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
 .toolbar-icon {
   font-size: 1rem;
 }

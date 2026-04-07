@@ -822,7 +822,7 @@ export default function SigningPage() {
                             {item.type === 'text' && 'T Text'}
                             {item.type === 'date' && '📅 Date'}
                             {item.type === 'checkbox' && '☑ Check'}
-                            {item.type === 'option' && '▼ Select'}
+                            {item.type === 'option' && '◉ Option'}
                           </span>
                         )}
 

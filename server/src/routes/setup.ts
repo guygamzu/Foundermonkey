@@ -321,9 +321,11 @@ export function createSetupRouter(): Router {
         return;
       }
 
-      const signers = await documentRepo.findSignersByDocumentId(doc.id);
+      const allSigners = await documentRepo.findSignersByDocumentId(doc.id);
+      // Filter out placeholder template signer
+      const signers = allSigners.filter(s => s.email !== 'template@lapen.ai');
       if (signers.length === 0) {
-        res.status(400).json({ error: 'At least one signer is required' });
+        res.status(400).json({ error: 'At least one signer is required. Use the Done button for template mode.' });
         return;
       }
 
@@ -457,6 +459,11 @@ export function createSetupRouter(): Router {
       await db('document_fields')
         .where({ document_request_id: doc.id })
         .update({ is_template: true });
+
+      // Remove placeholder template signer (cleanup)
+      await db('signers')
+        .where({ document_request_id: doc.id, email: 'template@lapen.ai' })
+        .del();
 
       // Update document status to template_ready
       await db('document_requests')

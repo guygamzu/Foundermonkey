@@ -51,10 +51,14 @@ export default function SetupPage() {
     async function load() {
       try {
         const data = await getSetupDocument(id);
-        // In template mode (no signers), auto-create a placeholder signer for field placement
+        // In template mode (no signers), auto-create a placeholder signer and default to individual mode
         if (data.signers.length === 0) {
           const templateSigner = await addSetupSigner(id, { name: 'Template', email: 'template@lapen.ai' });
           data.signers = [templateSigner];
+          if (data.signingMode !== 'individual') {
+            await updateSetupSigningMode(id, 'individual');
+            data.signingMode = 'individual';
+          }
         }
         setDoc(data);
         setFields(data.fields);
@@ -75,8 +79,9 @@ export default function SetupPage() {
     return SIGNER_COLORS[idx % SIGNER_COLORS.length];
   };
 
-  // Determine if this is template mode (individual + no signers, or template_ready status)
-  const isTemplateMode = doc ? (doc.signingMode === 'individual' && signers.length === 0) || doc.status === 'template_ready' : false;
+  // Determine if this is template mode: only signer is the placeholder template@lapen.ai
+  const isTemplateMode = signers.length === 0 || (signers.length === 1 && signers[0].email === 'template@lapen.ai');
+  const realSigners = signers.filter(s => s.email !== 'template@lapen.ai');
 
   // Place field on PDF click
   const handlePdfClick = useCallback(async (pageIndex: number, relativeX: number, relativeY: number) => {
@@ -328,6 +333,10 @@ export default function SetupPage() {
     try {
       await updateSetupSigningMode(id, newMode);
       setDoc(prev => prev ? { ...prev, signingMode: newMode } : prev);
+      // Clear activeTool if switching to shared with checkbox/option selected
+      if (newMode === 'shared' && (activeTool === 'checkbox' || activeTool === 'option')) {
+        setActiveTool(null);
+      }
     } catch (err: any) {
       setError(err.message);
     }
@@ -374,7 +383,7 @@ export default function SetupPage() {
     if (type === 'text') return 'Text';
     if (type === 'date') return 'Date';
     if (type === 'checkbox') return '✓';
-    if (type === 'option') return 'Select';
+    if (type === 'option') return 'Opt';
     return type;
   };
 
@@ -453,7 +462,7 @@ export default function SetupPage() {
       <div className="signing-header">
         <span className="logo">ləˈpɛn</span>
         <h1>{doc.fileName}</h1>
-        {signers.length > 0 ? (
+        {!isTemplateMode ? (
           <button
             className="btn btn-primary"
             style={{ padding: '6px 16px', fontSize: '0.8rem', minHeight: 'auto' }}
@@ -469,7 +478,7 @@ export default function SetupPage() {
             onClick={handleDone}
             disabled={sending || fields.length === 0}
           >
-            {sending ? 'Saving...' : 'Done — Get Prepared PDF'}
+            {sending ? 'Saving...' : 'Done'}
           </button>
         )}
       </div>
@@ -551,30 +560,36 @@ export default function SetupPage() {
       {/* Toolbar */}
       <div className="signing-toolbar">
         <span style={{ fontSize: '0.75rem', color: 'var(--gray-500)', marginRight: 8 }}>
-          Place for {selectedSigner?.name || selectedSigner?.email || 'signer'}:
+          {isTemplateMode ? 'Place fields:' : `Place for ${selectedSigner?.name || selectedSigner?.email || 'signer'}:`}
         </span>
-        {(['signature', 'text', 'date', 'checkbox', 'option'] as ToolType[]).map(tool => (
-          <button
-            key={tool!}
-            className={`toolbar-btn ${activeTool === tool ? 'active' : ''}`}
-            onClick={() => setActiveTool(activeTool === tool ? null : tool)}
-          >
-            <span className="toolbar-icon">
-              {tool === 'signature' && '✍'}
-              {tool === 'text' && 'T'}
-              {tool === 'date' && '📅'}
-              {tool === 'checkbox' && '☑'}
-              {tool === 'option' && '▼'}
-            </span>
-            <span className="toolbar-label">
-              {tool === 'signature' && 'Signature'}
-              {tool === 'text' && 'Text'}
-              {tool === 'date' && 'Date'}
-              {tool === 'checkbox' && 'Checkbox'}
-              {tool === 'option' && 'Dropdown'}
-            </span>
-          </button>
-        ))}
+        {(['signature', 'text', 'date', 'checkbox', 'option'] as ToolType[]).map(tool => {
+          // In shared mode, only signature/text/date are allowed
+          const isDisabled = doc?.signingMode === 'shared' && (tool === 'checkbox' || tool === 'option');
+          return (
+            <button
+              key={tool!}
+              className={`toolbar-btn ${activeTool === tool ? 'active' : ''}${isDisabled ? ' disabled' : ''}`}
+              onClick={() => !isDisabled && setActiveTool(activeTool === tool ? null : tool)}
+              disabled={isDisabled}
+              title={isDisabled ? 'Only available in Individual Copies mode' : undefined}
+            >
+              <span className="toolbar-icon">
+                {tool === 'signature' && '✍'}
+                {tool === 'text' && 'T'}
+                {tool === 'date' && '📅'}
+                {tool === 'checkbox' && '☑'}
+                {tool === 'option' && '◉'}
+              </span>
+              <span className="toolbar-label">
+                {tool === 'signature' && 'Signature'}
+                {tool === 'text' && 'Text'}
+                {tool === 'date' && 'Date'}
+                {tool === 'checkbox' && 'Checkbox'}
+                {tool === 'option' && 'Option'}
+              </span>
+            </button>
+          );
+        })}
       </div>
 
       {activeTool && (
@@ -657,11 +672,11 @@ export default function SetupPage() {
       {/* Send/Done Banner */}
       <div className="send-banner">
         <div style={{ fontSize: '0.8125rem', color: 'var(--gray-500)' }}>
-          {signers.length > 0
-            ? `${signers.length} signer${signers.length !== 1 ? 's' : ''} · ${fields.length} field${fields.length !== 1 ? 's' : ''} placed`
-            : `${fields.length} field${fields.length !== 1 ? 's' : ''} placed (template mode)`}
+          {isTemplateMode
+            ? `${fields.length} field${fields.length !== 1 ? 's' : ''} placed (template mode)`
+            : `${realSigners.length} signer${realSigners.length !== 1 ? 's' : ''} · ${fields.length} field${fields.length !== 1 ? 's' : ''} placed`}
         </div>
-        {signers.length > 0 ? (
+        {!isTemplateMode ? (
           <button
             className="btn btn-primary"
             onClick={handleSend}
@@ -677,7 +692,7 @@ export default function SetupPage() {
             disabled={sending || fields.length === 0}
             style={{ padding: '10px 24px' }}
           >
-            {sending ? 'Saving...' : 'Done — Get Prepared PDF'}
+            {sending ? 'Saving...' : 'Done'}
           </button>
         )}
       </div>
