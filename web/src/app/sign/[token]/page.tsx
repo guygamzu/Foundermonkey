@@ -30,7 +30,9 @@ interface PlacedItem {
   height: number;
   value: string | null;
   completed: boolean;
+  required?: boolean;
   isLocal?: boolean; // not yet saved to server
+  optionValues?: string[];
 }
 
 export default function SigningPage() {
@@ -58,6 +60,9 @@ export default function SigningPage() {
   const [chatInput, setChatInput] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
   const [otherFields, setOtherFields] = useState<OtherField[]>([]);
+  const [editingFieldId, setEditingFieldId] = useState<string | null>(null);
+  const [inlineTextValue, setInlineTextValue] = useState('');
+  const [showOptionSelect, setShowOptionSelect] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   // Effect 1: Load session data (unblocks page render immediately)
@@ -70,6 +75,8 @@ export default function SigningPage() {
           setPlacedItems(data.fields.map(f => ({
             ...f,
             completed: !!f.completed,
+            required: f.required,
+            optionValues: f.optionValues,
           })));
         }
         if (data.otherFields && data.otherFields.length > 0) {
@@ -112,6 +119,89 @@ export default function SigningPage() {
   }, [session !== null]);
 
   const hasSignature = placedItems.some(item => item.type === 'signature' && item.completed);
+
+  // Detect click-to-fill mode: pre-placed fields exist that haven't been filled yet
+  const hasPreplacedFields = placedItems.some(item => item.required && !item.isLocal);
+  const completedCount = placedItems.filter(item => item.completed).length;
+  const totalFields = placedItems.length;
+  const allRequiredFilled = placedItems.filter(item => item.required).every(item => item.completed);
+
+  // Click-to-fill: handle clicking on a pre-placed field
+  const handleFieldClick = useCallback(async (item: PlacedItem) => {
+    if (item.completed) return; // already filled
+
+    if (item.type === 'signature') {
+      setActiveItemId(item.id);
+      setShowSignatureModal(true);
+    } else if (item.type === 'date') {
+      // Auto-fill with today's date
+      const today = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+      try {
+        await submitFieldValue(token, item.id, today);
+        setPlacedItems(prev => prev.map(i => i.id === item.id ? { ...i, value: today, completed: true } : i));
+      } catch (err: any) {
+        setError(err.message);
+      }
+    } else if (item.type === 'checkbox') {
+      try {
+        await submitFieldValue(token, item.id, '✓');
+        setPlacedItems(prev => prev.map(i => i.id === item.id ? { ...i, value: '✓', completed: true } : i));
+      } catch (err: any) {
+        setError(err.message);
+      }
+    } else if (item.type === 'text') {
+      setEditingFieldId(item.id);
+      setInlineTextValue('');
+    } else if (item.type === 'option') {
+      setEditingFieldId(item.id);
+      setShowOptionSelect(true);
+    }
+  }, [token]);
+
+  // Submit inline text for click-to-fill
+  const handleInlineTextSubmit = useCallback(async () => {
+    if (!editingFieldId || !inlineTextValue.trim()) return;
+    try {
+      await submitFieldValue(token, editingFieldId, inlineTextValue.trim());
+      setPlacedItems(prev => prev.map(i =>
+        i.id === editingFieldId ? { ...i, value: inlineTextValue.trim(), completed: true } : i,
+      ));
+    } catch (err: any) {
+      setError(err.message);
+    }
+    setEditingFieldId(null);
+    setInlineTextValue('');
+  }, [token, editingFieldId, inlineTextValue]);
+
+  // Submit option selection for click-to-fill
+  const handleOptionSelect = useCallback(async (value: string) => {
+    if (!editingFieldId) return;
+    try {
+      await submitFieldValue(token, editingFieldId, value);
+      setPlacedItems(prev => prev.map(i =>
+        i.id === editingFieldId ? { ...i, value, completed: true } : i,
+      ));
+    } catch (err: any) {
+      setError(err.message);
+    }
+    setEditingFieldId(null);
+    setShowOptionSelect(false);
+  }, [token, editingFieldId]);
+
+  // Handle signature save for click-to-fill pre-placed fields
+  const handlePreplacedSignatureSave = useCallback(async (signatureData: string) => {
+    setShowSignatureModal(false);
+    if (!activeItemId) return;
+    try {
+      await submitFieldValue(token, activeItemId, signatureData);
+      setPlacedItems(prev => prev.map(i =>
+        i.id === activeItemId ? { ...i, value: signatureData, completed: true } : i,
+      ));
+    } catch (err: any) {
+      setError(err.message);
+    }
+    setActiveItemId(null);
+  }, [token, activeItemId]);
 
   // Handle clicking on the PDF to place a tool
   const handlePdfClick = useCallback((pageIndex: number, relativeX: number, relativeY: number) => {
@@ -498,38 +588,58 @@ export default function SigningPage() {
         </button>
       </div>
 
-      {/* Toolbar */}
-      <div className="signing-toolbar">
-        <span style={{ fontSize: '0.75rem', color: 'var(--gray-500)', marginRight: 8 }}>Place on document:</span>
-        {(['signature', 'text', 'date', 'checkbox'] as ToolType[]).map(tool => (
-          <button
-            key={tool!}
-            className={`toolbar-btn ${activeTool === tool ? 'active' : ''}`}
-            onClick={() => setActiveTool(activeTool === tool ? null : tool)}
-          >
-            <span className="toolbar-icon">
-              {tool === 'signature' && '✍'}
-              {tool === 'text' && 'T'}
-              {tool === 'date' && '📅'}
-              {tool === 'checkbox' && '☑'}
-            </span>
-            <span className="toolbar-label">
-              {tool === 'signature' && 'Signature'}
-              {tool === 'text' && 'Text'}
-              {tool === 'date' && 'Date'}
-              {tool === 'checkbox' && 'Checkbox'}
-            </span>
-          </button>
-        ))}
-      </div>
+      {/* Toolbar — hidden in click-to-fill mode */}
+      {!hasPreplacedFields && (
+        <>
+          <div className="signing-toolbar">
+            <span style={{ fontSize: '0.75rem', color: 'var(--gray-500)', marginRight: 8 }}>Place on document:</span>
+            {(['signature', 'text', 'date', 'checkbox'] as ToolType[]).map(tool => (
+              <button
+                key={tool!}
+                className={`toolbar-btn ${activeTool === tool ? 'active' : ''}`}
+                onClick={() => setActiveTool(activeTool === tool ? null : tool)}
+              >
+                <span className="toolbar-icon">
+                  {tool === 'signature' && '✍'}
+                  {tool === 'text' && 'T'}
+                  {tool === 'date' && '📅'}
+                  {tool === 'checkbox' && '☑'}
+                </span>
+                <span className="toolbar-label">
+                  {tool === 'signature' && 'Signature'}
+                  {tool === 'text' && 'Text'}
+                  {tool === 'date' && 'Date'}
+                  {tool === 'checkbox' && 'Checkbox'}
+                </span>
+              </button>
+            ))}
+          </div>
 
-      {activeTool && (
-        <div style={{
-          background: '#fef3c7', borderBottom: '1px solid #fbbf24', padding: '8px 16px',
-          fontSize: '0.8125rem', color: '#92400e', textAlign: 'center',
-          maxWidth: 832, margin: '0 auto', width: '100%',
-        }}>
-          Click anywhere on the document to place {activeTool === 'signature' ? 'your signature' : `a ${activeTool} field`}
+          {activeTool && (
+            <div style={{
+              background: '#fef3c7', borderBottom: '1px solid #fbbf24', padding: '8px 16px',
+              fontSize: '0.8125rem', color: '#92400e', textAlign: 'center',
+              maxWidth: 832, margin: '0 auto', width: '100%',
+            }}>
+              Click anywhere on the document to place {activeTool === 'signature' ? 'your signature' : `a ${activeTool} field`}
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Click-to-fill progress bar */}
+      {hasPreplacedFields && (
+        <div className="field-progress-bar">
+          <div style={{ flex: 1, background: '#e5e7eb', borderRadius: 4, height: 6 }}>
+            <div style={{
+              width: `${totalFields > 0 ? (completedCount / totalFields) * 100 : 0}%`,
+              background: allRequiredFilled ? '#16a34a' : '#2563eb',
+              height: '100%', borderRadius: 4, transition: 'width 0.3s ease',
+            }} />
+          </div>
+          <span style={{ fontSize: '0.75rem', color: 'var(--gray-500)', whiteSpace: 'nowrap' }}>
+            {completedCount} of {totalFields} fields completed
+          </span>
         </div>
       )}
 
@@ -669,17 +779,21 @@ export default function SigningPage() {
                     .map((item) => (
                       <div
                         key={item.id}
-                        className={`placed-item ${item.completed ? 'completed' : 'pending'} type-${item.type}`}
+                        className={`placed-item ${item.completed ? 'completed' : 'pending'} type-${item.type}${
+                          hasPreplacedFields && !item.completed ? ' field-clickable' : ''
+                        }${item.completed ? ' field-filled' : ''}`}
                         style={{
                           left: `${item.x * 100}%`,
                           top: `${item.y * 100}%`,
                           width: `${item.width * 100}%`,
                           height: `${item.height * 100}%`,
-                          cursor: item.completed ? 'grab' : undefined,
+                          cursor: hasPreplacedFields && !item.completed ? 'pointer' : item.completed ? 'grab' : undefined,
                         }}
-                        onMouseDown={(e) => item.completed && handleDragStart(e, item.id)}
-                        onTouchStart={(e) => item.completed && handleDragStart(e, item.id)}
+                        onClick={() => hasPreplacedFields && !item.completed && handleFieldClick(item)}
+                        onMouseDown={(e) => !hasPreplacedFields && item.completed && handleDragStart(e, item.id)}
+                        onTouchStart={(e) => !hasPreplacedFields && item.completed && handleDragStart(e, item.id)}
                       >
+                        {/* Filled state: show value */}
                         {item.type === 'signature' && item.value && (
                           <img
                             src={item.value}
@@ -697,12 +811,63 @@ export default function SigningPage() {
                         {item.type === 'checkbox' && item.value && (
                           <span style={{ fontSize: '14px', color: '#111', fontWeight: 'bold' }}>✓</span>
                         )}
-                        {!item.completed && !item.isLocal && (
+                        {item.type === 'option' && item.value && (
+                          <span style={{ fontSize: '10px', color: '#111' }}>{item.value}</span>
+                        )}
+
+                        {/* Click-to-fill: unfilled placeholder labels */}
+                        {hasPreplacedFields && !item.completed && (
+                          <span className="field-placeholder-label">
+                            {item.type === 'signature' && '✍ Signature'}
+                            {item.type === 'text' && 'T Text'}
+                            {item.type === 'date' && '📅 Date'}
+                            {item.type === 'checkbox' && '☑ Check'}
+                            {item.type === 'option' && '▼ Select'}
+                          </span>
+                        )}
+
+                        {/* Inline text input for click-to-fill */}
+                        {editingFieldId === item.id && item.type === 'text' && (
+                          <input
+                            type="text"
+                            className="field-inline-input"
+                            value={inlineTextValue}
+                            onChange={(e) => setInlineTextValue(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') handleInlineTextSubmit();
+                              if (e.key === 'Escape') { setEditingFieldId(null); setInlineTextValue(''); }
+                            }}
+                            onBlur={() => { if (inlineTextValue.trim()) handleInlineTextSubmit(); else { setEditingFieldId(null); } }}
+                            autoFocus
+                            onClick={(e) => e.stopPropagation()}
+                            placeholder="Type here..."
+                          />
+                        )}
+
+                        {/* Inline option select for click-to-fill */}
+                        {editingFieldId === item.id && item.type === 'option' && showOptionSelect && (
+                          <select
+                            className="field-option-select"
+                            autoFocus
+                            defaultValue=""
+                            onChange={(e) => { if (e.target.value) handleOptionSelect(e.target.value); }}
+                            onBlur={() => { setEditingFieldId(null); setShowOptionSelect(false); }}
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <option value="" disabled>Select...</option>
+                            {(item.optionValues || []).map(opt => (
+                              <option key={opt} value={opt}>{opt}</option>
+                            ))}
+                          </select>
+                        )}
+
+                        {/* Free-form mode: type label for unfilled, remove for filled */}
+                        {!hasPreplacedFields && !item.completed && !item.isLocal && (
                           <span style={{ fontSize: '9px', color: 'var(--primary)' }}>
                             {item.type}
                           </span>
                         )}
-                        {item.completed && (
+                        {!hasPreplacedFields && item.completed && (
                           <button
                             className="remove-item-btn"
                             onClick={(e) => { e.stopPropagation(); removeItem(item.id); }}
@@ -728,7 +893,7 @@ export default function SigningPage() {
       </div>
 
       {/* Consent & Complete */}
-      {hasSignature && (
+      {(hasPreplacedFields ? allRequiredFilled && hasSignature : hasSignature) && (
         <div className="consent-banner">
           <div className="consent-checkbox">
             <input
@@ -755,8 +920,12 @@ export default function SigningPage() {
       {/* Signature Modal */}
       {showSignatureModal && (
         <SignatureCanvas
-          onSave={handleSignatureSave}
-          onCancel={handleCancelModal}
+          onSave={hasPreplacedFields ? handlePreplacedSignatureSave : handleSignatureSave}
+          onCancel={() => {
+            setShowSignatureModal(false);
+            if (!hasPreplacedFields) handleCancelModal();
+            setActiveItemId(null);
+          }}
         />
       )}
 

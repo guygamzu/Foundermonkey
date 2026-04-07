@@ -37,6 +37,7 @@ export interface SigningSession {
     required: boolean;
     value: string | null;
     completed: boolean;
+    optionValues?: string[];
   }>;
 }
 
@@ -176,6 +177,8 @@ export interface SetupField {
   width: number;
   height: number;
   required: boolean;
+  optionValues?: string[];
+  isTemplate?: boolean;
 }
 
 export interface SetupDocument {
@@ -185,6 +188,8 @@ export interface SetupDocument {
   isSequential: boolean;
   signingMode: 'shared' | 'individual';
   creditsRequired: number;
+  status?: string;
+  warning?: { alreadySent: boolean; signerCount: number; signedCount: number };
   signers: SetupSigner[];
   fields: SetupField[];
 }
@@ -199,7 +204,7 @@ export function getSetupDocumentProxyUrl(id: string): string {
 
 export async function createSetupField(
   id: string,
-  field: { signerId: string; type: string; page: number; x: number; y: number; width?: number; height?: number },
+  field: { signerId: string; type: string; page: number; x: number; y: number; width?: number; height?: number; optionValues?: string[] },
 ): Promise<SetupField> {
   return apiFetch(`/api/setup/${id}/fields`, {
     method: 'POST',
@@ -244,4 +249,12 @@ export async function updateSetupSigningMode(
 
 export async function sendForSigning(id: string): Promise<{ success: boolean; statusUrl: string }> {
   return apiFetch(`/api/setup/${id}/send`, { method: 'POST' });
+}
+
+export async function finishSetup(id: string): Promise<{ success: boolean }> {
+  return apiFetch(`/api/setup/${id}/done`, { method: 'POST' });
+}
+
+export async function voidAndReconfigure(id: string): Promise<{ success: boolean }> {
+  return apiFetch(`/api/setup/${id}/void-and-reconfigure`, { method: 'POST' });
 }

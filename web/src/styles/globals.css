@@ -1067,6 +1067,92 @@ body {
   width: 100%;
 }
 
+/* Click-to-fill: field placeholders */
+.placed-item.field-clickable {
+  border: 2px dashed #2563eb;
+  background: rgba(37, 99, 235, 0.08);
+  animation: fieldPulseBlue 2s ease-in-out infinite;
+  cursor: pointer !important;
+}
+
+.placed-item.field-clickable:hover {
+  background: rgba(37, 99, 235, 0.15);
+  border-color: #1d4ed8;
+  transform: scale(1.02);
+}
+
+.placed-item.field-filled {
+  border: 1px solid rgba(22, 163, 74, 0.5);
+  background: rgba(22, 163, 74, 0.05);
+}
+
+.field-placeholder-label {
+  font-size: 9px;
+  color: #2563eb;
+  font-weight: 600;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+  padding: 0 2px;
+  pointer-events: none;
+}
+
+@keyframes fieldPulseBlue {
+  0%, 100% { border-color: #2563eb; }
+  50% { border-color: #93c5fd; }
+}
+
+/* Click-to-fill: inline input */
+.field-inline-input {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  border: 2px solid #2563eb;
+  border-radius: 3px;
+  background: white;
+  font-size: 10px;
+  padding: 2px 4px;
+  outline: none;
+  z-index: 15;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.2);
+}
+
+/* Click-to-fill: option dropdown */
+.field-option-select {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: auto;
+  min-height: 100%;
+  border: 2px solid #2563eb;
+  border-radius: 3px;
+  background: white;
+  font-size: 10px;
+  padding: 1px 2px;
+  outline: none;
+  z-index: 15;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.2);
+  cursor: pointer;
+}
+
+/* Click-to-fill: progress bar */
+.field-progress-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  background: white;
+  border-bottom: 1px solid var(--gray-200);
+  max-width: 832px;
+  margin: 0 auto;
+  width: 100%;
+}
+
 /* Responsive — app pages */
 @media (max-width: 640px) {
   .chat-panel {

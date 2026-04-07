@@ -58,6 +58,8 @@ export interface DocumentFieldRow {
   required: boolean;
   value: string | null;
   completed_at: Date | null;
+  option_values: string | null;
+  is_template: boolean;
 }
 
 export class DocumentRepository {

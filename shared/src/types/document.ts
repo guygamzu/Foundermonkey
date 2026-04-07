@@ -1,6 +1,8 @@
 export enum DocumentStatus {
   DRAFT = 'draft',
   PENDING_CONFIRMATION = 'pending_confirmation',
+  PENDING_SETUP = 'pending_setup',
+  TEMPLATE_READY = 'template_ready',
   SENT = 'sent',
   PARTIALLY_SIGNED = 'partially_signed',
   COMPLETED = 'completed',
@@ -15,6 +17,7 @@ export enum FieldType {
   DATE = 'date',
   TEXT = 'text',
   CHECKBOX = 'checkbox',
+  OPTION = 'option',
 }
 
 export interface DocumentField {
@@ -29,6 +32,8 @@ export interface DocumentField {
   required: boolean;
   value?: string;
   completedAt?: string;
+  optionValues?: string[];
+  isTemplate?: boolean;
 }
 
 export interface DocumentMetadata {
