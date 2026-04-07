@@ -332,10 +332,11 @@ body {
 
 /* Signing Page */
 .signing-page {
-  min-height: 100vh;
+  height: 100vh;
   display: flex;
   flex-direction: column;
   background: var(--gray-100);
+  overflow: hidden;
 }
 
 .signing-header {
