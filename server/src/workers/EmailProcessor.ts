@@ -207,7 +207,7 @@ export class EmailProcessor {
     // Check if any of our addresses are in TO or CC
     const isAddressedToUs = lapenAddresses.size === 0 || allRecipientAddresses.some(a => lapenAddresses.has(a));
     if (!isAddressedToUs) {
-      logger.info(`Skipping email not addressed to us: from=${senderEmail} to=${toAddresses.join(',')} cc=${ccAddresses.join(',')}`);
+      logger.info(`Skipping email not addressed to us: from=${senderEmail} to=${toAddresses.join(',')} cc=${ccAddresses.join(',')} lapenAddresses=${[...lapenAddresses].join(',')}`);
       return;
     }
 
