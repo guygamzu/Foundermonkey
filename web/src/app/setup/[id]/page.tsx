@@ -51,20 +51,30 @@ export default function SetupPage() {
     async function load() {
       try {
         const data = await getSetupDocument(id);
-        // In template mode (no signers), auto-create a placeholder signer and default to individual mode
-        if (data.signers.length === 0) {
-          const templateSigner = await addSetupSigner(id, { name: 'Template', email: 'template@lapen.ai' });
-          data.signers = [templateSigner];
-          if (data.signingMode !== 'individual') {
-            await updateSetupSigningMode(id, 'individual');
-            data.signingMode = 'individual';
-          }
-        }
+        // Show page immediately with whatever data we have
         setDoc(data);
         setFields(data.fields);
+        setLoading(false);
+
+        // In template mode (no signers), auto-create a placeholder signer and default to individual mode
+        const hasTemplateSigner = data.signers.some(s => s.email === 'template@lapen.ai');
+        if (data.signers.length === 0 || (data.signers.length === 0 && !hasTemplateSigner)) {
+          try {
+            const [templateSigner] = await Promise.all([
+              addSetupSigner(id, { name: 'Template', email: 'template@lapen.ai' }),
+              data.signingMode !== 'individual' ? updateSetupSigningMode(id, 'individual') : Promise.resolve(),
+            ]);
+            setDoc(prev => prev ? {
+              ...prev,
+              signers: [...prev.signers, templateSigner],
+              signingMode: 'individual',
+            } : prev);
+          } catch {
+            // Template signer creation failed — page still works, user can add signers manually
+          }
+        }
       } catch (err: any) {
         setError(err.message);
-      } finally {
         setLoading(false);
       }
     }
@@ -135,6 +145,9 @@ export default function SetupPage() {
       return;
     }
 
+    // Height scales with number of options (~2.5% per option)
+    const optionHeight = Math.max(0.06, choices.length * 0.025);
+
     try {
       const field = await createSetupField(id, {
         signerId: selectedSigner.id,
@@ -142,6 +155,8 @@ export default function SetupPage() {
         page: pendingOptionPlacement.pageIndex + 1,
         x: pendingOptionPlacement.x,
         y: pendingOptionPlacement.y,
+        width: 0.18,
+        height: optionHeight,
         optionValues: choices,
       });
       setFields(prev => [...prev, field]);
@@ -639,18 +654,37 @@ export default function SetupPage() {
                           onMouseDown={(e) => handleDragStart(e, f.id)}
                           onTouchStart={(e) => handleDragStart(e, f.id)}
                         >
-                          <span style={{
-                            fontSize: '9px',
-                            color,
-                            fontWeight: 600,
-                            whiteSpace: 'nowrap',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            maxWidth: '100%',
-                            padding: '0 2px',
-                          }}>
-                            {fieldTypeLabel(f.type)} — {signer?.name || signer?.email || ''}
-                          </span>
+                          {f.type === 'option' && f.optionValues ? (
+                            <div style={{
+                              display: 'flex', flexDirection: 'column', justifyContent: 'center',
+                              gap: 1, padding: '1px 3px', width: '100%', overflow: 'hidden',
+                            }}>
+                              {f.optionValues.map((opt, oi) => (
+                                <div key={oi} style={{ display: 'flex', alignItems: 'center', gap: 3, lineHeight: 1 }}>
+                                  <span style={{
+                                    width: 8, height: 8, borderRadius: '50%', border: `1.5px solid ${color}`,
+                                    flexShrink: 0, display: 'inline-block',
+                                  }} />
+                                  <span style={{ fontSize: '7px', color, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                    {opt}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <span style={{
+                              fontSize: '9px',
+                              color,
+                              fontWeight: 600,
+                              whiteSpace: 'nowrap',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              maxWidth: '100%',
+                              padding: '0 2px',
+                            }}>
+                              {fieldTypeLabel(f.type)} — {signer?.name || signer?.email || ''}
+                            </span>
+                          )}
                           <button
                             className="remove-item-btn"
                             onClick={(e) => { e.stopPropagation(); handleRemoveField(f.id); }}

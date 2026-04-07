@@ -13,6 +13,9 @@ export function createSetupRouter(): Router {
   const auditRepo = new AuditRepository(db);
   const userRepo = new UserRepository(db);
 
+  // Statuses that allow field/signer editing
+  const editableStatuses = ['pending_setup', 'template_ready'];
+
   // Get setup data: document + signers + fields
   router.get('/:id', async (req: Request<{ id: string }>, res: Response) => {
     try {
@@ -110,7 +113,7 @@ export function createSetupRouter(): Router {
   router.post('/:id/fields', async (req: Request<{ id: string }>, res: Response) => {
     try {
       const doc = await documentRepo.findById(req.params.id);
-      if (!doc || doc.status !== 'pending_setup') {
+      if (!doc || !editableStatuses.includes(doc.status)) {
         res.status(400).json({ error: 'Document not in setup state' });
         return;
       }
@@ -172,7 +175,7 @@ export function createSetupRouter(): Router {
   router.delete('/:id/fields/:fieldId', async (req: Request<{ id: string; fieldId: string }>, res: Response) => {
     try {
       const doc = await documentRepo.findById(req.params.id);
-      if (!doc || doc.status !== 'pending_setup') {
+      if (!doc || !editableStatuses.includes(doc.status)) {
         res.status(400).json({ error: 'Document not in setup state' });
         return;
       }
@@ -189,7 +192,7 @@ export function createSetupRouter(): Router {
   router.patch('/:id/fields/:fieldId', async (req: Request<{ id: string; fieldId: string }>, res: Response) => {
     try {
       const doc = await documentRepo.findById(req.params.id);
-      if (!doc || doc.status !== 'pending_setup') {
+      if (!doc || !editableStatuses.includes(doc.status)) {
         res.status(400).json({ error: 'Document not in setup state' });
         return;
       }
@@ -216,7 +219,7 @@ export function createSetupRouter(): Router {
   router.post('/:id/signers', async (req: Request<{ id: string }>, res: Response) => {
     try {
       const doc = await documentRepo.findById(req.params.id);
-      if (!doc || doc.status !== 'pending_setup') {
+      if (!doc || !editableStatuses.includes(doc.status)) {
         res.status(400).json({ error: 'Document not in setup state' });
         return;
       }
@@ -264,7 +267,7 @@ export function createSetupRouter(): Router {
   router.delete('/:id/signers/:signerId', async (req: Request<{ id: string; signerId: string }>, res: Response) => {
     try {
       const doc = await documentRepo.findById(req.params.id);
-      if (!doc || doc.status !== 'pending_setup') {
+      if (!doc || !editableStatuses.includes(doc.status)) {
         res.status(400).json({ error: 'Document not in setup state' });
         return;
       }
@@ -293,7 +296,7 @@ export function createSetupRouter(): Router {
   router.patch('/:id', async (req: Request<{ id: string }>, res: Response) => {
     try {
       const doc = await documentRepo.findById(req.params.id);
-      if (!doc || doc.status !== 'pending_setup') {
+      if (!doc || !editableStatuses.includes(doc.status)) {
         res.status(400).json({ error: 'Document not in setup state' });
         return;
       }
@@ -316,7 +319,7 @@ export function createSetupRouter(): Router {
   router.post('/:id/send', async (req: Request<{ id: string }>, res: Response) => {
     try {
       const doc = await documentRepo.findById(req.params.id);
-      if (!doc || doc.status !== 'pending_setup') {
+      if (!doc || !editableStatuses.includes(doc.status)) {
         res.status(400).json({ error: 'Document not in setup state' });
         return;
       }
@@ -444,7 +447,7 @@ export function createSetupRouter(): Router {
   router.post('/:id/done', async (req: Request<{ id: string }>, res: Response) => {
     try {
       const doc = await documentRepo.findById(req.params.id);
-      if (!doc || doc.status !== 'pending_setup') {
+      if (!doc || !editableStatuses.includes(doc.status)) {
         res.status(400).json({ error: 'Document not in setup state' });
         return;
       }

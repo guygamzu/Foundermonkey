@@ -153,8 +153,7 @@ export default function SigningPage() {
       setEditingFieldId(item.id);
       setInlineTextValue('');
     } else if (item.type === 'option') {
-      setEditingFieldId(item.id);
-      setShowOptionSelect(true);
+      // Radio buttons handle their own clicks inline — no modal needed
     }
   }, [token]);
 
@@ -811,19 +810,46 @@ export default function SigningPage() {
                         {item.type === 'checkbox' && item.value && (
                           <span style={{ fontSize: '14px', color: '#111', fontWeight: 'bold' }}>✓</span>
                         )}
-                        {item.type === 'option' && item.value && (
+                        {/* Option field: show radio buttons (filled state shows selected) */}
+                        {item.type === 'option' && item.value && item.optionValues && (
+                          <div className="field-radio-group">
+                            {item.optionValues.map(opt => (
+                              <div key={opt} className="field-radio-item">
+                                <span className={`field-radio-circle ${opt === item.value ? 'selected' : ''}`} />
+                                <span className="field-radio-label">{opt}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {item.type === 'option' && item.value && !item.optionValues && (
                           <span style={{ fontSize: '10px', color: '#111' }}>{item.value}</span>
                         )}
 
                         {/* Click-to-fill: unfilled placeholder labels */}
-                        {hasPreplacedFields && !item.completed && (
+                        {hasPreplacedFields && !item.completed && item.type !== 'option' && (
                           <span className="field-placeholder-label">
                             {item.type === 'signature' && '✍ Signature'}
                             {item.type === 'text' && 'T Text'}
                             {item.type === 'date' && '📅 Date'}
                             {item.type === 'checkbox' && '☑ Check'}
-                            {item.type === 'option' && '◉ Option'}
                           </span>
+                        )}
+
+                        {/* Option field: unfilled state shows clickable radio buttons */}
+                        {hasPreplacedFields && !item.completed && item.type === 'option' && item.optionValues && (
+                          <div className="field-radio-group" onClick={(e) => e.stopPropagation()}>
+                            {item.optionValues.map(opt => (
+                              <div
+                                key={opt}
+                                className="field-radio-item field-radio-clickable"
+                                onClick={() => handleOptionSelect(opt)}
+                                onMouseDown={() => setEditingFieldId(item.id)}
+                              >
+                                <span className="field-radio-circle" />
+                                <span className="field-radio-label">{opt}</span>
+                              </div>
+                            ))}
+                          </div>
                         )}
 
                         {/* Inline text input for click-to-fill */}
@@ -844,8 +870,8 @@ export default function SigningPage() {
                           />
                         )}
 
-                        {/* Inline option select for click-to-fill */}
-                        {editingFieldId === item.id && item.type === 'option' && showOptionSelect && (
+                        {/* Legacy dropdown fallback — no longer used for new option fields */}
+                        {editingFieldId === item.id && item.type === 'option' && showOptionSelect && !item.optionValues && (
                           <select
                             className="field-option-select"
                             autoFocus
