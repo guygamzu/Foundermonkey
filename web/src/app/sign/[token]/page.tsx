@@ -271,7 +271,7 @@ export default function SigningPage() {
       signature: { w: 0.25, h: 0.05 },
       text: { w: 0.15, h: 0.035 },
       date: { w: 0.12, h: 0.03 },
-      checkbox: { w: 0.025, h: 0.025 },
+      checkbox: { w: 0.04, h: 0.04 },
     }[type] || { w: 0.15, h: 0.035 };
 
     const x = Math.max(0, Math.min(1 - dims.w, relativeX - dims.w / 2));

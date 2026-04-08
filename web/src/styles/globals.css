@@ -887,9 +887,18 @@ body {
   animation: fieldPulse 2s ease-in-out infinite;
 }
 
-.placed-item.type-checkbox.completed {
+.placed-item.type-checkbox.completed,
+.placed-item.type-option.completed {
   border: 1px solid var(--gray-300);
   background: transparent;
+}
+
+/* Ensure small fields (checkbox/option) have a visible hover zone for remove button */
+.placed-item.type-checkbox,
+.placed-item.type-option {
+  overflow: visible;
+  min-width: 20px;
+  min-height: 20px;
 }
 
 .remove-item-btn {

@@ -99,8 +99,8 @@ export default function SetupPage() {
       signature: { w: 0.25, h: 0.05 },
       text: { w: 0.15, h: 0.035 },
       date: { w: 0.12, h: 0.03 },
-      checkbox: { w: 0.025, h: 0.025 },
-      option: { w: 0.025, h: 0.025 }, // Same size as checkbox but round
+      checkbox: { w: 0.04, h: 0.04 },
+      option: { w: 0.04, h: 0.04 },
     };
     const dim = dims[type] || { w: 0.15, h: 0.035 };
 
@@ -122,10 +122,8 @@ export default function SetupPage() {
       setError(err.message);
     }
 
-    // Don't clear tool for checkbox/option — allow placing multiple in a row
-    if (type !== 'checkbox' && type !== 'option') {
-      setActiveTool(null);
-    }
+    // Always clear tool after placing a field
+    setActiveTool(null);
   }, [activeTool, selectedSigner, id]);
 
   // Done — mark template as ready (no signers needed)
@@ -615,14 +613,19 @@ export default function SetupPage() {
                         >
                           {f.type === 'option' ? (
                             <span style={{
-                              width: '60%', height: '60%', borderRadius: '50%',
-                              border: `2px solid ${color}`, display: 'inline-block',
+                              width: '55%', height: '55%', borderRadius: '50%',
+                              border: `2.5px solid ${color}`, display: 'inline-block',
+                              background: 'transparent',
                             }} />
                           ) : f.type === 'checkbox' ? (
                             <span style={{
-                              width: '60%', height: '60%', borderRadius: 2,
-                              border: `2px solid ${color}`, display: 'inline-block',
-                            }} />
+                              width: '55%', height: '55%', borderRadius: 3,
+                              border: `2.5px solid ${color}`, display: 'inline-flex',
+                              alignItems: 'center', justifyContent: 'center',
+                              background: 'transparent', fontSize: '10px', fontWeight: 900,
+                              color, lineHeight: 1,
+                            }}>
+                            </span>
                           ) : (
                             <span style={{
                               fontSize: '9px',
