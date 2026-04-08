@@ -613,19 +613,14 @@ export default function SetupPage() {
                         >
                           {f.type === 'option' ? (
                             <span style={{
-                              width: '55%', height: '55%', borderRadius: '50%',
-                              border: `2.5px solid ${color}`, display: 'inline-block',
-                              background: 'transparent',
-                            }} />
+                              fontSize: '16px', color, fontWeight: 700,
+                              lineHeight: 1, display: 'inline-block',
+                            }}>○</span>
                           ) : f.type === 'checkbox' ? (
                             <span style={{
-                              width: '55%', height: '55%', borderRadius: 3,
-                              border: `2.5px solid ${color}`, display: 'inline-flex',
-                              alignItems: 'center', justifyContent: 'center',
-                              background: 'transparent', fontSize: '10px', fontWeight: 900,
-                              color, lineHeight: 1,
-                            }}>
-                            </span>
+                              fontSize: '16px', color, fontWeight: 700,
+                              lineHeight: 1, display: 'inline-block',
+                            }}>☐</span>
                           ) : (
                             <span style={{
                               fontSize: '9px',
