@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, lazy, Suspense, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, lazy, Suspense, useRef } from 'react';
 import { useParams } from 'next/navigation';
 import SignatureCanvas from '@/components/SignatureCanvas';
 import {
@@ -60,6 +60,7 @@ export default function SigningPage() {
   const [otherFields, setOtherFields] = useState<OtherField[]>([]);
   const [editingFieldId, setEditingFieldId] = useState<string | null>(null);
   const [inlineTextValue, setInlineTextValue] = useState('');
+  const [currentStepIndex, setCurrentStepIndex] = useState(-1); // -1 = not started (guided flow)
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   // Effect 1: Load session data (unblocks page render immediately)
@@ -116,9 +117,76 @@ export default function SigningPage() {
 
   // Detect click-to-fill mode: pre-placed fields exist that haven't been filled yet
   const hasPreplacedFields = placedItems.some(item => item.required && !item.isLocal);
-  const completedCount = placedItems.filter(item => item.completed).length;
-  const totalFields = placedItems.length;
-  const allRequiredFilled = placedItems.filter(item => item.required).every(item => item.completed);
+
+  // Group option fields by page — each group counts as ONE field (mutually exclusive)
+  const optionGroups = useMemo(() => {
+    const groups = new Map<number, PlacedItem[]>();
+    placedItems.filter(item => item.type === 'option').forEach(item => {
+      const group = groups.get(item.page) || [];
+      group.push(item);
+      groups.set(item.page, group);
+    });
+    return groups;
+  }, [placedItems]);
+
+  const nonOptionCompleted = placedItems.filter(item => item.type !== 'option' && item.completed).length;
+  const optionGroupsCompleted = [...optionGroups.values()].filter(group => group.some(item => item.completed)).length;
+  const completedCount = nonOptionCompleted + optionGroupsCompleted;
+  const totalFields = placedItems.filter(item => item.type !== 'option').length + optionGroups.size;
+
+  const allNonOptionFilled = placedItems.filter(item => item.required && item.type !== 'option').every(item => item.completed);
+  const allOptionGroupsFilled = [...optionGroups.values()].every(group =>
+    !group.some(item => item.required) || group.some(item => item.completed)
+  );
+  const allRequiredFilled = allNonOptionFilled && allOptionGroupsFilled;
+
+  // Build ordered steps for guided flow (sorted by page, then y position)
+  const fieldSteps = useMemo(() => {
+    if (!hasPreplacedFields) return [];
+    const steps: { type: 'field' | 'option-group'; page: number; y: number; items: PlacedItem[] }[] = [];
+    placedItems.filter(item => item.type !== 'option').forEach(item => {
+      steps.push({ type: 'field', page: item.page, y: item.y, items: [item] });
+    });
+    optionGroups.forEach((group, page) => {
+      const minY = Math.min(...group.map(item => item.y));
+      steps.push({ type: 'option-group', page, y: minY, items: group });
+    });
+    steps.sort((a, b) => a.page - b.page || a.y - b.y);
+    return steps;
+  }, [placedItems, hasPreplacedFields, optionGroups]);
+
+  const isStepComplete = useCallback((step: typeof fieldSteps[number]) => {
+    if (step.type === 'option-group') return step.items.some(item => item.completed);
+    return step.items[0]?.completed ?? false;
+  }, []);
+
+  // Auto-advance to next incomplete step when current step is completed
+  useEffect(() => {
+    if (currentStepIndex < 0 || currentStepIndex >= fieldSteps.length) return;
+    if (!isStepComplete(fieldSteps[currentStepIndex])) return;
+    // Current step just completed — auto-advance after brief delay
+    const timer = setTimeout(() => {
+      const nextIncomplete = fieldSteps.findIndex((step, i) => i > currentStepIndex && !isStepComplete(step));
+      if (nextIncomplete !== -1) {
+        setCurrentStepIndex(nextIncomplete);
+      } else if (fieldSteps.every(isStepComplete)) {
+        setCurrentStepIndex(fieldSteps.length); // all done
+      }
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [currentStepIndex, fieldSteps, isStepComplete, placedItems]);
+
+  // Scroll to current step's field
+  useEffect(() => {
+    if (currentStepIndex < 0 || currentStepIndex >= fieldSteps.length) return;
+    const step = fieldSteps[currentStepIndex];
+    const fieldId = step.items[0]?.id;
+    if (!fieldId) return;
+    const el = document.querySelector(`[data-field-id="${fieldId}"]`);
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [currentStepIndex, fieldSteps]);
 
   // Click-to-fill: handle clicking on a pre-placed field
   const handleFieldClick = useCallback(async (item: PlacedItem) => {
@@ -780,9 +848,12 @@ export default function SigningPage() {
                     .map((item) => (
                       <div
                         key={item.id}
+                        data-field-id={item.id}
                         className={`placed-item ${item.completed ? 'completed' : 'pending'} type-${item.type}${
                           hasPreplacedFields && !item.completed ? ' field-clickable' : ''
-                        }${item.completed ? ' field-filled' : ''}`}
+                        }${item.completed ? ' field-filled' : ''}${
+                          currentStepIndex >= 0 && currentStepIndex < fieldSteps.length && fieldSteps[currentStepIndex].items.some(i => i.id === item.id) ? ' field-active' : ''
+                        }`}
                         style={{
                           left: `${item.x * 100}%`,
                           top: `${item.y * 100}%`,
@@ -891,8 +962,78 @@ export default function SigningPage() {
         </div>
       </div>
 
-      {/* Consent & Complete */}
-      {(hasPreplacedFields ? allRequiredFilled && hasSignature : hasSignature) && (
+      {/* Guided flow for template (pre-placed fields) mode */}
+      {hasPreplacedFields && (
+        <div className="consent-banner">
+          {currentStepIndex === -1 ? (
+            /* Not started yet — show Start button */
+            <button
+              className="btn btn-primary btn-block"
+              onClick={() => setCurrentStepIndex(0)}
+            >
+              Start
+            </button>
+          ) : currentStepIndex < fieldSteps.length ? (
+            /* In progress — show step info + Next when step is done */
+            <>
+              <div style={{ fontSize: '0.8125rem', color: '#374151', marginBottom: 8, textAlign: 'center' }}>
+                Step {currentStepIndex + 1} of {fieldSteps.length}:{' '}
+                {fieldSteps[currentStepIndex].type === 'option-group'
+                  ? 'Select an option'
+                  : fieldSteps[currentStepIndex].items[0]?.type === 'signature'
+                    ? 'Place your signature'
+                    : fieldSteps[currentStepIndex].items[0]?.type === 'text'
+                      ? 'Enter text'
+                      : fieldSteps[currentStepIndex].items[0]?.type === 'date'
+                        ? 'Confirm date'
+                        : fieldSteps[currentStepIndex].items[0]?.type === 'checkbox'
+                          ? 'Check the box'
+                          : 'Complete this field'}
+              </div>
+              <button
+                className="btn btn-primary btn-block"
+                disabled={!isStepComplete(fieldSteps[currentStepIndex])}
+                onClick={() => {
+                  const nextIncomplete = fieldSteps.findIndex((step, i) => i > currentStepIndex && !isStepComplete(step));
+                  if (nextIncomplete !== -1) {
+                    setCurrentStepIndex(nextIncomplete);
+                  } else {
+                    setCurrentStepIndex(fieldSteps.length); // all done
+                  }
+                }}
+              >
+                {currentStepIndex === fieldSteps.length - 1 || fieldSteps.slice(currentStepIndex + 1).every(isStepComplete) ? 'Finish' : 'Next'}
+              </button>
+            </>
+          ) : (
+            /* All steps done — show consent + Finish & Agree */
+            <>
+              <div className="consent-checkbox">
+                <input
+                  type="checkbox"
+                  id="consent"
+                  checked={consent}
+                  onChange={(e) => setConsent(e.target.checked)}
+                />
+                <label htmlFor="consent">
+                  I agree to sign this document electronically. I understand that my electronic signature
+                  has the same legal effect as a handwritten signature.
+                </label>
+              </div>
+              <button
+                className="btn btn-primary btn-block"
+                onClick={handleComplete}
+                disabled={!consent || isSubmitting}
+              >
+                {isSubmitting ? 'Completing...' : 'Finish & Agree'}
+              </button>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Free-form mode: show consent when signature is placed */}
+      {!hasPreplacedFields && hasSignature && (
         <div className="consent-banner">
           <div className="consent-checkbox">
             <input
