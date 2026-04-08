@@ -382,7 +382,6 @@ body {
   background: white;
   box-shadow: var(--shadow-lg);
   border-radius: var(--radius);
-  overflow: hidden;
   max-width: 100%;
   width: 800px;
 }

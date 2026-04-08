@@ -138,10 +138,11 @@ function PageWithOverlay({ pageIndex, width, renderOverlay, onPageClick }: {
             height: canvasSize.height,
             zIndex: 10,
             pointerEvents: onPageClick ? 'auto' : 'none',
+            touchAction: 'pan-y',
           }}
           onClick={handleClick}
         >
-          <div style={{ position: 'relative', width: '100%', height: '100%', pointerEvents: 'auto' }}>
+          <div style={{ position: 'relative', width: '100%', height: '100%', pointerEvents: 'none' }}>
             {renderOverlay(pageIndex, canvasSize)}
           </div>
         </div>
