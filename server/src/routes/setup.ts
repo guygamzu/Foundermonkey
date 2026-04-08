@@ -456,10 +456,9 @@ export function createSetupRouter(): Router {
         .where({ document_request_id: doc.id })
         .update({ is_template: true });
 
-      // Remove placeholder template signer (cleanup)
-      await db('signers')
-        .where({ document_request_id: doc.id, email: 'template@lapen.ai' })
-        .del();
+      // NOTE: Do NOT delete the template@lapen.ai signer here — document_fields.signer_id
+      // has ON DELETE CASCADE, so deleting the signer would cascade-delete all the fields.
+      // The template signer is filtered out by other code (send endpoint, template forward).
 
       // Update document status to template_ready
       await db('document_requests')
