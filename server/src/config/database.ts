@@ -300,4 +300,20 @@ async function runIncrementalMigrations(database: Knex): Promise<void> {
   } catch (err) {
     // Non-critical
   }
+
+  // --- Template flow: option_values + is_template on document_fields (20260407000001) ---
+  try {
+    const hasIsTemplate = await database.raw(`
+      SELECT 1 FROM information_schema.columns
+      WHERE table_name = 'document_fields' AND column_name = 'is_template'
+    `);
+    if (hasIsTemplate.rows.length === 0) {
+      await database.schema.alterTable('document_fields', (table) => {
+        table.text('option_values');
+        table.boolean('is_template').notNullable().defaultTo(false);
+      });
+    }
+  } catch (err) {
+    // Columns may already exist
+  }
 }
