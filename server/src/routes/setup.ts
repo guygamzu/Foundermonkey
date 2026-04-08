@@ -466,20 +466,21 @@ export function createSetupRouter(): Router {
         .where({ id: doc.id })
         .update({ status: 'template_ready', updated_at: new Date() });
 
-      // Email sender with instructions
-      const sender = await db('users').where({ id: doc.sender_id }).first();
-      if (sender) {
-        const { EmailService } = await import('../services/EmailService.js');
-        const emailService = new EmailService();
+      // Email sender with instructions (non-critical — don't fail endpoint)
+      try {
+        const sender = await db('users').where({ id: doc.sender_id }).first();
+        if (sender?.email) {
+          const { EmailService } = await import('../services/EmailService.js');
+          const emailService = new EmailService();
 
-        const appUrl = process.env.APP_URL || 'https://app.lapen.ai';
-        const purchaseUrl = `${appUrl}/credits?user=${sender.id}`;
-        const creditFooter = emailService.renderCreditBalanceHtml(sender.credits, purchaseUrl);
+          const appUrl = process.env.APP_URL || 'https://app.lapen.ai';
+          const purchaseUrl = `${appUrl}/credits?user=${sender.id}`;
+          const creditFooter = emailService.renderCreditBalanceHtml(sender.credits ?? 0, purchaseUrl);
 
-        await emailService.sendEmail({
-          to: sender.email,
-          subject: `Your document "${doc.file_name}" is ready`,
-          html: `
+          await emailService.sendEmail({
+            to: sender.email,
+            subject: `Your document "${doc.file_name}" is ready`,
+            html: `
 <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; color: #111827;">
   <div style="background: #16a34a; color: white; padding: 20px 24px; border-radius: 8px 8px 0 0;">
     <h1 style="margin: 0; font-size: 20px;">✓ Document Ready</h1>
@@ -499,8 +500,11 @@ export function createSetupRouter(): Router {
   </div>
   ${creditFooter}
 </div>`,
-          text: `Your document "${doc.file_name}" is ready!\n\nWhat to do next:\n1. Email the PDF "${doc.file_name}" to your recipients\n2. Add sign@lapen.ai in CC\n3. Lapen will send each recipient a personalized signing link with your pre-configured fields\n\nLapen will recognize the document by its filename and your email address.`,
-        });
+            text: `Your document "${doc.file_name}" is ready!\n\nWhat to do next:\n1. Email the PDF "${doc.file_name}" to your recipients\n2. Add sign@lapen.ai in CC\n3. Lapen will send each recipient a personalized signing link with your pre-configured fields\n\nLapen will recognize the document by its filename and your email address.`,
+          });
+        }
+      } catch (emailErr) {
+        logger.warn({ err: emailErr, docId: doc.id }, 'Failed to send template_ready email');
       }
 
       await auditRepo.log({
