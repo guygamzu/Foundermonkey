@@ -6,6 +6,11 @@ import { AuditRepository } from '../models/AuditRepository.js';
 import { UserRepository } from '../models/UserRepository.js';
 import { logger } from '../config/logger.js';
 
+function safeJsonParse(value: string | null | undefined): any {
+  if (!value) return undefined;
+  try { return JSON.parse(value); } catch { return undefined; }
+}
+
 export function createSetupRouter(): Router {
   const router = Router();
   const db = getDatabase();
@@ -66,7 +71,7 @@ export function createSetupRouter(): Router {
           width: f.width,
           height: f.height,
           required: f.required,
-          optionValues: f.option_values ? JSON.parse(f.option_values) : undefined,
+          optionValues: safeJsonParse(f.option_values),
           isTemplate: f.is_template,
         })),
       });
@@ -118,7 +123,7 @@ export function createSetupRouter(): Router {
         return;
       }
 
-      const { signerId, type, page, x, y, width, height, optionValues } = req.body;
+      const { signerId, type, page, x, y, width, height } = req.body;
       if (!signerId || !type || !page || x === undefined || y === undefined) {
         res.status(400).json({ error: 'signerId, type, page, x, y are required' });
         return;
@@ -156,7 +161,7 @@ export function createSetupRouter(): Router {
         width: field.width,
         height: field.height,
         required: field.required,
-        optionValues: field.option_values ? JSON.parse(field.option_values) : undefined,
+        optionValues: safeJsonParse(field.option_values),
       });
     } catch (err) {
       logger.error({ err }, 'Error creating setup field');

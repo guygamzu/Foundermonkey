@@ -5,6 +5,11 @@ import { AuditRepository } from '../models/AuditRepository.js';
 import { logger } from '../config/logger.js';
 import { notifyAdmin } from './admin.js';
 
+function safeJsonParse(value: string | null | undefined): any {
+  if (!value) return undefined;
+  try { return JSON.parse(value); } catch { return undefined; }
+}
+
 export function createSigningRouter(): Router {
   const router = Router();
   const db = getDatabase();
@@ -123,7 +128,7 @@ export function createSigningRouter(): Router {
           required: f.required,
           value: f.value,
           completed: !!f.completed_at,
-          optionValues: f.option_values ? JSON.parse(f.option_values) : undefined,
+          optionValues: safeJsonParse(f.option_values),
         })),
         otherFields: otherCompletedFields,
       });

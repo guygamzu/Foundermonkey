@@ -32,7 +32,6 @@ interface PlacedItem {
   completed: boolean;
   required?: boolean;
   isLocal?: boolean; // not yet saved to server
-  optionValues?: string[];
 }
 
 export default function SigningPage() {
@@ -54,7 +53,6 @@ export default function SigningPage() {
   const [loading, setLoading] = useState(true);
   const [showTextInput, setShowTextInput] = useState(false);
   const [textInputValue, setTextInputValue] = useState('');
-  const [aiSummary, setAiSummary] = useState<string | null>(null);
   const [aiSummaryLoading, setAiSummaryLoading] = useState(true);
   const [chatMessages, setChatMessages] = useState<Array<{ role: 'user' | 'assistant'; content: string }>>([]);
   const [chatInput, setChatInput] = useState('');
@@ -75,7 +73,6 @@ export default function SigningPage() {
             ...f,
             completed: !!f.completed,
             required: f.required,
-            optionValues: f.optionValues,
           })));
         }
         if (data.otherFields && data.otherFields.length > 0) {
@@ -83,7 +80,6 @@ export default function SigningPage() {
         }
       } catch (err: any) {
         setError(err.message);
-        setAiSummaryLoading(false);
       } finally {
         setLoading(false);
       }
@@ -99,12 +95,11 @@ export default function SigningPage() {
       try {
         const res = await askDocumentQuestion(token, 'Summarize this document in one concise sentence: what type of document it is and who the parties are. Be brief.', []);
         if (!cancelled) {
-          setAiSummary(res.answer);
           setChatMessages([{ role: 'assistant', content: res.answer }]);
         }
       } catch {
         if (!cancelled) {
-          setAiSummary('Unable to generate summary at this time.');
+          setChatMessages([{ role: 'assistant', content: 'Unable to generate summary at this time.' }]);
         }
       } finally {
         if (!cancelled) {

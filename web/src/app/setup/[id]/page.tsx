@@ -55,7 +55,7 @@ export default function SetupPage() {
 
         // In template mode (no signers), auto-create a placeholder signer and default to individual mode
         const hasTemplateSigner = data.signers.some(s => s.email === 'template@lapen.ai');
-        if (data.signers.length === 0 || (data.signers.length === 0 && !hasTemplateSigner)) {
+        if (data.signers.length === 0) {
           try {
             const [templateSigner] = await Promise.all([
               addSetupSigner(id, { name: 'Template', email: 'template@lapen.ai' }),
