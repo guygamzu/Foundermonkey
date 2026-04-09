@@ -321,7 +321,8 @@ export class EmailProcessor {
       const senderUser = await this.userRepo.findByEmail(senderEmail);
       if (senderUser) {
         const templateDoc = await db('document_requests')
-          .where({ sender_id: senderUser.id, file_name: fileName, status: 'template_ready' })
+          .where({ sender_id: senderUser.id, status: 'template_ready' })
+          .whereRaw('LOWER(file_name) = LOWER(?)', [fileName])
           .orderBy('updated_at', 'desc')
           .first();
         if (templateDoc) {
@@ -914,10 +915,22 @@ export class EmailProcessor {
     // Deduct credits
     await this.userRepo.deductCredits(user.id, signeeCount, templateDoc.id);
 
-    // Update template doc status to sent
-    await db('document_requests').where({ id: templateDoc.id }).update({
+    // Create a NEW document cloned from the template (leave template untouched for reuse)
+    const newDoc = await this.documentRepo.create({
+      sender_id: user.id,
       status: 'sent',
+      file_name: templateDoc.file_name,
+      file_size: templateDoc.file_size,
+      page_count: templateDoc.page_count,
+      mime_type: templateDoc.mime_type,
+      document_hash: templateDoc.document_hash,
+      s3_key: templateDoc.s3_key,
+      is_sequential: templateDoc.is_sequential,
+      signing_mode: templateDoc.signing_mode || 'shared',
       credits_required: signeeCount,
+      original_email_message_id: messageId,
+      subject,
+      expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
     });
 
     // Get template fields
@@ -951,9 +964,9 @@ export class EmailProcessor {
       const { email, name: signeeName } = signers[i];
       const signingToken = crypto.randomBytes(32).toString('base64url');
 
-      // Create signer
+      // Create signer on the new document
       await this.documentRepo.createSigner({
-        document_request_id: templateDoc.id,
+        document_request_id: newDoc.id,
         email,
         phone: null,
         name: signeeName,
@@ -965,14 +978,14 @@ export class EmailProcessor {
       });
 
       // Get the signer record to get its ID
-      const signer = await db('signers').where({ document_request_id: templateDoc.id, email }).first();
+      const signer = await db('signers').where({ document_request_id: newDoc.id, email }).first();
 
-      // Clone template fields for this signer
+      // Clone template fields for this signer on the new document
       if (signer && templateFields.length > 0) {
         for (const tf of templateFields) {
           await db('document_fields').insert({
             id: crypto.randomUUID(),
-            document_request_id: templateDoc.id,
+            document_request_id: newDoc.id,
             signer_id: signer.id,
             type: tf.type,
             page: tf.page,
@@ -1018,17 +1031,17 @@ export class EmailProcessor {
 
     // Audit
     await this.auditRepo.log({
-      document_request_id: templateDoc.id,
+      document_request_id: newDoc.id,
       signer_id: null,
       action: 'document_sent',
       ip_address: 'email',
       user_agent: 'email-agent',
-      metadata: { flow: 'template-forward', signerCount: signeeCount },
+      metadata: { flow: 'template-forward', templateDocId: templateDoc.id, signerCount: signeeCount },
     });
 
-    // Send confirmation to sender
-    const statusUrl = `${appUrl}/status/${templateDoc.id}`;
-    const setupUrl = `${appUrl}/setup/${templateDoc.id}`;
+    // Send confirmation to sender (link to the new document's status page)
+    const statusUrl = `${appUrl}/status/${newDoc.id}`;
+    const setupUrl = `${appUrl}/setup/${newDoc.id}`;
     const purchaseUrl = `${appUrl}/credits?user=${user.id}`;
     const sentList = sentContacts.map(c => `  • ${c}`).join('\n');
     const recipientListHtml = sentContacts.map(c =>
@@ -1068,7 +1081,7 @@ export class EmailProcessor {
       inReplyTo: messageId,
     });
 
-    logger.info({ templateDocId: templateDoc.id, sent: sentContacts.length, failed: failedContacts.length }, 'Template forward complete');
+    logger.info({ newDocId: newDoc.id, templateDocId: templateDoc.id, sent: sentContacts.length, failed: failedContacts.length }, 'Template forward complete');
   }
 
   // =========================================================================
