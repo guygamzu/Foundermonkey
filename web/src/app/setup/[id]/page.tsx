@@ -361,6 +361,15 @@ export default function SetupPage() {
 
   // Show done success page
   if (doneSuccess) {
+    const emailSubject = encodeURIComponent(`Please sign: ${doc?.fileName || 'Document'}`);
+    const emailBody = encodeURIComponent(
+      `Hi,\n\nPlease review and sign the attached document "${doc?.fileName || 'Document'}".\n\n` +
+      `Once you receive this email, Lapen will send you a simple and secure link to sign the document electronically — no account or downloads needed.\n\n` +
+      `Thank you!`
+    );
+    const mailtoLink = `mailto:?cc=sign@lapen.ai&subject=${emailSubject}&body=${emailBody}`;
+    const downloadUrl = `${getSetupDocumentProxyUrl(id)}?download=true`;
+
     return (
       <div className="message-page">
         <div className="message-card" style={{ textAlign: 'center' }}>
@@ -375,13 +384,33 @@ export default function SetupPage() {
           }}>
             <p style={{ fontWeight: 600, margin: '0 0 8px' }}>What to do next:</p>
             <ol style={{ margin: 0, paddingLeft: 20, lineHeight: 1.8 }}>
-              <li>Email the PDF <strong>&quot;{doc?.fileName}&quot;</strong> to your recipients</li>
-              <li>Add <strong>sign@lapen.ai</strong> in CC</li>
+              <li>Click <strong>&quot;Send via Email&quot;</strong> below to open your email with everything pre-filled</li>
+              <li>Attach the PDF <strong>&quot;{doc?.fileName}&quot;</strong> (download it below if needed)</li>
+              <li>Add your recipients and hit send</li>
               <li>Lapen will send each recipient a personalized signing link</li>
             </ol>
           </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, margin: '20px 0' }}>
+            <a
+              href={mailtoLink}
+              className="btn btn-primary btn-block"
+              style={{ textDecoration: 'none', textAlign: 'center' }}
+            >
+              Send via Email
+            </a>
+            <a
+              href={downloadUrl}
+              className="btn btn-block"
+              style={{
+                textDecoration: 'none', textAlign: 'center',
+                background: 'white', border: '1px solid var(--gray-300)', color: 'var(--gray-700)',
+              }}
+            >
+              Download PDF
+            </a>
+          </div>
           <p style={{ fontSize: '0.8125rem', color: 'var(--gray-400)' }}>
-            Check your email for detailed instructions.
+            Make sure <strong>sign@lapen.ai</strong> is in CC so we can send signing links to your recipients.
           </p>
         </div>
       </div>

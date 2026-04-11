@@ -101,7 +101,8 @@ export function createSetupRouter(): Router {
         const pdfBuffer = await storageService.getDocument(doc.s3_key);
 
         res.setHeader('Content-Type', 'application/pdf');
-        res.setHeader('Content-Disposition', `inline; filename="${doc.file_name}"`);
+        const disposition = req.query.download === 'true' ? 'attachment' : 'inline';
+        res.setHeader('Content-Disposition', `${disposition}; filename="${doc.file_name}"`);
         res.setHeader('Content-Length', pdfBuffer.length);
         res.send(pdfBuffer);
       } catch (s3Err) {
