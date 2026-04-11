@@ -225,6 +225,48 @@ export class DocumentService {
           thickness: 0.5,
           color: rgb(0, 0, 0),
         });
+      } else if (field.type === 'checkbox') {
+        // Draw a checkbox: border + checkmark if checked
+        const boxSize = Math.min(width, height) * 0.8;
+        const boxX = x + (width - boxSize) / 2;
+        const boxY = y + (height - boxSize) / 2;
+        // Border
+        page.drawRectangle({
+          x: boxX, y: boxY, width: boxSize, height: boxSize,
+          borderColor: rgb(0, 0, 0), borderWidth: 1,
+          color: rgb(1, 1, 1),
+        });
+        // Checkmark (draw two lines forming a check)
+        if (field.value === '\u2713' || field.value === 'true') {
+          page.drawLine({
+            start: { x: boxX + boxSize * 0.2, y: boxY + boxSize * 0.5 },
+            end: { x: boxX + boxSize * 0.4, y: boxY + boxSize * 0.25 },
+            thickness: 1.5, color: rgb(0, 0, 0),
+          });
+          page.drawLine({
+            start: { x: boxX + boxSize * 0.4, y: boxY + boxSize * 0.25 },
+            end: { x: boxX + boxSize * 0.8, y: boxY + boxSize * 0.75 },
+            thickness: 1.5, color: rgb(0, 0, 0),
+          });
+        }
+      } else if (field.type === 'option') {
+        // Draw a radio button: circle + filled dot if selected
+        const radius = Math.min(width, height) * 0.35;
+        const cx = x + width / 2;
+        const cy = y + height / 2;
+        // Outer circle
+        page.drawCircle({
+          x: cx, y: cy, size: radius,
+          borderColor: rgb(0, 0, 0), borderWidth: 1,
+          color: rgb(1, 1, 1),
+        });
+        // Filled inner dot if selected
+        if (field.value === '\u25CF' || field.value === 'true') {
+          page.drawCircle({
+            x: cx, y: cy, size: radius * 0.55,
+            color: rgb(0, 0, 0),
+          });
+        }
       } else {
         // Date, text, name, title — all render as text
         const fontSize = Math.min(height * 0.7, 11);
