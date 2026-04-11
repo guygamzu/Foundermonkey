@@ -712,6 +712,77 @@ export default function SigningPage() {
         </div>
       )}
 
+      {/* Guided flow top action bar — template mode only */}
+      {hasPreplacedFields && (
+        <div className="guided-action-bar">
+          {currentStepIndex === -1 ? (
+            /* Not started — consent checkbox + Start button */
+            <>
+              <div className="consent-checkbox" style={{ marginBottom: 8 }}>
+                <input
+                  type="checkbox"
+                  id="consent-top"
+                  checked={consent}
+                  onChange={(e) => setConsent(e.target.checked)}
+                />
+                <label htmlFor="consent-top">
+                  I agree to sign this document electronically. I understand that my electronic signature
+                  has the same legal effect as a handwritten signature.
+                </label>
+              </div>
+              <button
+                className="btn btn-primary btn-block"
+                disabled={!consent}
+                onClick={() => setCurrentStepIndex(0)}
+              >
+                Start
+              </button>
+            </>
+          ) : currentStepIndex < fieldSteps.length ? (
+            /* In progress — step info + Next/Finish */
+            <>
+              <div style={{ fontSize: '0.8125rem', color: '#374151', marginBottom: 8, textAlign: 'center' }}>
+                Step {currentStepIndex + 1} of {fieldSteps.length}:{' '}
+                {fieldSteps[currentStepIndex].type === 'option-group'
+                  ? 'Select an option'
+                  : fieldSteps[currentStepIndex].items[0]?.type === 'signature'
+                    ? 'Place your signature'
+                    : fieldSteps[currentStepIndex].items[0]?.type === 'text'
+                      ? 'Enter text'
+                      : fieldSteps[currentStepIndex].items[0]?.type === 'date'
+                        ? 'Confirm date'
+                        : fieldSteps[currentStepIndex].items[0]?.type === 'checkbox'
+                          ? 'Check the box'
+                          : 'Complete this field'}
+              </div>
+              <button
+                className="btn btn-primary btn-block"
+                disabled={!isStepComplete(fieldSteps[currentStepIndex])}
+                onClick={() => {
+                  const nextIncomplete = fieldSteps.findIndex((step, i) => i > currentStepIndex && !isStepComplete(step));
+                  if (nextIncomplete !== -1) {
+                    setCurrentStepIndex(nextIncomplete);
+                  } else {
+                    setCurrentStepIndex(fieldSteps.length); // all done
+                  }
+                }}
+              >
+                {currentStepIndex === fieldSteps.length - 1 || fieldSteps.slice(currentStepIndex + 1).every(isStepComplete) ? 'Finish' : 'Next'}
+              </button>
+            </>
+          ) : (
+            /* All steps done — Finish & Agree (consent already given at start) */
+            <button
+              className="btn btn-primary btn-block"
+              onClick={handleComplete}
+              disabled={isSubmitting}
+            >
+              {isSubmitting ? 'Completing...' : 'Finish & Agree'}
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Document Viewer */}
       <div className="document-viewer">
         {/* AI Summary + Chat Panel */}
@@ -961,76 +1032,6 @@ export default function SigningPage() {
           </Suspense>
         </div>
       </div>
-
-      {/* Guided flow for template (pre-placed fields) mode */}
-      {hasPreplacedFields && (
-        <div className="consent-banner">
-          {currentStepIndex === -1 ? (
-            /* Not started yet — show Start button */
-            <button
-              className="btn btn-primary btn-block"
-              onClick={() => setCurrentStepIndex(0)}
-            >
-              Start
-            </button>
-          ) : currentStepIndex < fieldSteps.length ? (
-            /* In progress — show step info + Next when step is done */
-            <>
-              <div style={{ fontSize: '0.8125rem', color: '#374151', marginBottom: 8, textAlign: 'center' }}>
-                Step {currentStepIndex + 1} of {fieldSteps.length}:{' '}
-                {fieldSteps[currentStepIndex].type === 'option-group'
-                  ? 'Select an option'
-                  : fieldSteps[currentStepIndex].items[0]?.type === 'signature'
-                    ? 'Place your signature'
-                    : fieldSteps[currentStepIndex].items[0]?.type === 'text'
-                      ? 'Enter text'
-                      : fieldSteps[currentStepIndex].items[0]?.type === 'date'
-                        ? 'Confirm date'
-                        : fieldSteps[currentStepIndex].items[0]?.type === 'checkbox'
-                          ? 'Check the box'
-                          : 'Complete this field'}
-              </div>
-              <button
-                className="btn btn-primary btn-block"
-                disabled={!isStepComplete(fieldSteps[currentStepIndex])}
-                onClick={() => {
-                  const nextIncomplete = fieldSteps.findIndex((step, i) => i > currentStepIndex && !isStepComplete(step));
-                  if (nextIncomplete !== -1) {
-                    setCurrentStepIndex(nextIncomplete);
-                  } else {
-                    setCurrentStepIndex(fieldSteps.length); // all done
-                  }
-                }}
-              >
-                {currentStepIndex === fieldSteps.length - 1 || fieldSteps.slice(currentStepIndex + 1).every(isStepComplete) ? 'Finish' : 'Next'}
-              </button>
-            </>
-          ) : (
-            /* All steps done — show consent + Finish & Agree */
-            <>
-              <div className="consent-checkbox">
-                <input
-                  type="checkbox"
-                  id="consent"
-                  checked={consent}
-                  onChange={(e) => setConsent(e.target.checked)}
-                />
-                <label htmlFor="consent">
-                  I agree to sign this document electronically. I understand that my electronic signature
-                  has the same legal effect as a handwritten signature.
-                </label>
-              </div>
-              <button
-                className="btn btn-primary btn-block"
-                onClick={handleComplete}
-                disabled={!consent || isSubmitting}
-              >
-                {isSubmitting ? 'Completing...' : 'Finish & Agree'}
-              </button>
-            </>
-          )}
-        </div>
-      )}
 
       {/* Free-form mode: show consent when signature is placed */}
       {!hasPreplacedFields && hasSignature && (
