@@ -160,21 +160,12 @@ export default function SigningPage() {
     return step.items[0]?.completed ?? false;
   }, []);
 
-  // Auto-advance to next incomplete step when current step is completed
-  useEffect(() => {
-    if (currentStepIndex < 0 || currentStepIndex >= fieldSteps.length) return;
-    if (!isStepComplete(fieldSteps[currentStepIndex])) return;
-    // Current step just completed — auto-advance after brief delay
-    const timer = setTimeout(() => {
-      const nextIncomplete = fieldSteps.findIndex((step, i) => i > currentStepIndex && !isStepComplete(step));
-      if (nextIncomplete !== -1) {
-        setCurrentStepIndex(nextIncomplete);
-      } else if (fieldSteps.every(isStepComplete)) {
-        setCurrentStepIndex(fieldSteps.length); // all done
-      }
-    }, 400);
-    return () => clearTimeout(timer);
-  }, [currentStepIndex, fieldSteps, isStepComplete, placedItems]);
+  // Derive indices of still-incomplete steps (used by the Next/Finish button)
+  const incompleteStepIndices = useMemo(
+    () => fieldSteps.map((s, i) => (isStepComplete(s) ? -1 : i)).filter(i => i !== -1),
+    [fieldSteps, isStepComplete],
+  );
+  const allStepsComplete = fieldSteps.length > 0 && incompleteStepIndices.length === 0;
 
   // Scroll to current step's field
   useEffect(() => {
@@ -696,95 +687,96 @@ export default function SigningPage() {
         </>
       )}
 
-      {/* Click-to-fill progress bar */}
-      {hasPreplacedFields && (
-        <div className="field-progress-bar">
-          <div style={{ flex: 1, background: '#e5e7eb', borderRadius: 4, height: 6 }}>
-            <div style={{
-              width: `${totalFields > 0 ? (completedCount / totalFields) * 100 : 0}%`,
-              background: allRequiredFilled ? '#16a34a' : '#2563eb',
-              height: '100%', borderRadius: 4, transition: 'width 0.3s ease',
-            }} />
-          </div>
-          <span style={{ fontSize: '0.75rem', color: 'var(--gray-500)', whiteSpace: 'nowrap' }}>
-            {completedCount} of {totalFields} fields completed
-          </span>
-        </div>
-      )}
-
-      {/* Guided flow top action bar — template mode only */}
-      {hasPreplacedFields && (
-        <div className="guided-action-bar">
-          {currentStepIndex === -1 ? (
-            /* Not started — consent checkbox + Start button */
-            <>
-              <div className="consent-checkbox" style={{ marginBottom: 8 }}>
-                <input
-                  type="checkbox"
-                  id="consent-top"
-                  checked={consent}
-                  onChange={(e) => setConsent(e.target.checked)}
-                />
-                <label htmlFor="consent-top">
-                  I agree to sign this document electronically. I understand that my electronic signature
-                  has the same legal effect as a handwritten signature.
-                </label>
-              </div>
-              <button
-                className="btn btn-primary btn-block"
-                disabled={!consent}
-                onClick={() => setCurrentStepIndex(0)}
-              >
-                Start
-              </button>
-            </>
-          ) : currentStepIndex < fieldSteps.length ? (
-            /* In progress — step info + Next/Finish */
-            <>
-              <div style={{ fontSize: '0.8125rem', color: '#374151', marginBottom: 8, textAlign: 'center' }}>
-                Step {currentStepIndex + 1} of {fieldSteps.length}:{' '}
-                {fieldSteps[currentStepIndex].type === 'option-group'
-                  ? 'Select an option'
-                  : fieldSteps[currentStepIndex].items[0]?.type === 'signature'
-                    ? 'Place your signature'
-                    : fieldSteps[currentStepIndex].items[0]?.type === 'text'
-                      ? 'Enter text'
-                      : fieldSteps[currentStepIndex].items[0]?.type === 'date'
-                        ? 'Confirm date'
-                        : fieldSteps[currentStepIndex].items[0]?.type === 'checkbox'
-                          ? 'Check the box'
-                          : 'Complete this field'}
-              </div>
-              <button
-                className="btn btn-primary btn-block"
-                disabled={!isStepComplete(fieldSteps[currentStepIndex])}
-                onClick={() => {
-                  const nextIncomplete = fieldSteps.findIndex((step, i) => i > currentStepIndex && !isStepComplete(step));
-                  if (nextIncomplete !== -1) {
-                    setCurrentStepIndex(nextIncomplete);
-                  } else {
-                    setCurrentStepIndex(fieldSteps.length); // all done
-                  }
-                }}
-              >
-                {currentStepIndex === fieldSteps.length - 1 || fieldSteps.slice(currentStepIndex + 1).every(isStepComplete) ? 'Finish' : 'Next'}
-              </button>
-            </>
-          ) : (
-            /* All steps done — Finish & Agree (consent already given at start) */
-            <button
-              className="btn btn-primary btn-block"
-              onClick={handleComplete}
-              disabled={isSubmitting}
-            >
-              {isSubmitting ? 'Completing...' : 'Finish & Agree'}
-            </button>
-          )}
-        </div>
-      )}
-
       {/* Document Viewer */}
       <div className="document-viewer">
+        {/* Click-to-fill progress bar (sticky inside viewer) */}
+        {hasPreplacedFields && (
+          <div className="field-progress-bar">
+            <div style={{ flex: 1, background: '#e5e7eb', borderRadius: 4, height: 6 }}>
+              <div style={{
+                width: `${totalFields > 0 ? (completedCount / totalFields) * 100 : 0}%`,
+                background: allRequiredFilled ? '#16a34a' : '#2563eb',
+                height: '100%', borderRadius: 4, transition: 'width 0.3s ease',
+              }} />
+            </div>
+            <span style={{ fontSize: '0.75rem', color: 'var(--gray-500)', whiteSpace: 'nowrap' }}>
+              {completedCount} of {totalFields} fields completed
+            </span>
+          </div>
+        )}
+
+        {/* Guided flow top action bar — template mode only (sticky inside viewer) */}
+        {hasPreplacedFields && (
+          <div className="guided-action-bar">
+            {currentStepIndex === -1 ? (
+              /* Not started — consent checkbox + Start button */
+              <>
+                <div className="consent-checkbox" style={{ marginBottom: 8 }}>
+                  <input
+                    type="checkbox"
+                    id="consent-top"
+                    checked={consent}
+                    onChange={(e) => setConsent(e.target.checked)}
+                  />
+                  <label htmlFor="consent-top">
+                    I agree to sign this document electronically. I understand that my electronic signature
+                    has the same legal effect as a handwritten signature.
+                  </label>
+                </div>
+                <button
+                  className="btn btn-primary btn-block"
+                  disabled={!consent}
+                  onClick={() => setCurrentStepIndex(0)}
+                >
+                  Start
+                </button>
+              </>
+            ) : currentStepIndex < fieldSteps.length ? (
+              /* In progress — step info + Next/Finish */
+              <>
+                <div style={{ fontSize: '0.8125rem', color: '#374151', marginBottom: 8, textAlign: 'center' }}>
+                  Step {currentStepIndex + 1} of {fieldSteps.length}:{' '}
+                  {fieldSteps[currentStepIndex].type === 'option-group'
+                    ? 'Select an option'
+                    : fieldSteps[currentStepIndex].items[0]?.type === 'signature'
+                      ? 'Place your signature'
+                      : fieldSteps[currentStepIndex].items[0]?.type === 'text'
+                        ? 'Enter text'
+                        : fieldSteps[currentStepIndex].items[0]?.type === 'date'
+                          ? 'Confirm date'
+                          : fieldSteps[currentStepIndex].items[0]?.type === 'checkbox'
+                            ? 'Check the box'
+                            : 'Complete this field'}
+                </div>
+                <button
+                  className="btn btn-primary btn-block"
+                  onClick={() => {
+                    if (allStepsComplete) {
+                      setCurrentStepIndex(fieldSteps.length); // show Finish & Agree
+                      return;
+                    }
+                    const next =
+                      incompleteStepIndices.find(i => i > currentStepIndex) ??
+                      incompleteStepIndices[0];
+                    setCurrentStepIndex(next);
+                  }}
+                >
+                  {allStepsComplete ? 'Finish' : 'Next'}
+                </button>
+              </>
+            ) : (
+              /* All steps done — Finish & Agree (consent already given at start) */
+              <button
+                className="btn btn-primary btn-block"
+                onClick={handleComplete}
+                disabled={isSubmitting}
+              >
+                {isSubmitting ? 'Completing...' : 'Finish & Agree'}
+              </button>
+            )}
+          </div>
+        )}
+
         {/* AI Summary + Chat Panel */}
         <div style={{
           background: '#eff6ff', border: '1px solid #bfdbfe', padding: '16px', borderRadius: 8,

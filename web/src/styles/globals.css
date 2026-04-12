@@ -1026,7 +1026,7 @@ body {
 }
 
 
-/* Click-to-fill: progress bar */
+/* Click-to-fill: progress bar — sticks to top of .document-viewer scroll area */
 .field-progress-bar {
   display: flex;
   align-items: center;
@@ -1037,16 +1037,22 @@ body {
   max-width: 832px;
   margin: 0 auto;
   width: 100%;
+  position: sticky;
+  top: 0;
+  z-index: 20;
 }
 
-/* Guided flow: top action bar (template mode) */
+/* Guided flow: top action bar (template mode) — sticks below the progress bar */
 .guided-action-bar {
   background: white;
   border-bottom: 1px solid var(--gray-200);
   padding: 12px 16px;
   max-width: 832px;
-  margin: 0 auto;
+  margin: 0 auto 12px;
   width: 100%;
+  position: sticky;
+  top: 23px;
+  z-index: 19;
 }
 
 /* Responsive — app pages */
