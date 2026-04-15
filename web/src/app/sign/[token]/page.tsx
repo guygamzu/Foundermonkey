@@ -88,23 +88,40 @@ export default function SigningPage() {
     loadSession();
   }, [token]);
 
-  // Effect 2: Load AI summary independently (non-blocking)
+  // Effect 2: Load AI summary independently (non-blocking) with retry.
+  // Early attempts can fail when the document upload / text extraction is still
+  // propagating (especially in the direct email flow), so retry a few times
+  // with backoff before surrendering.
   useEffect(() => {
     if (!session) return;
     let cancelled = false;
     async function loadSummary() {
-      try {
-        const res = await askDocumentQuestion(token, 'Summarize this document in one concise sentence: what type of document it is and who the parties are. Be brief.', []);
-        if (!cancelled) {
-          setChatMessages([{ role: 'assistant', content: res.answer }]);
+      const delays = [0, 1500, 3500, 6000]; // 4 attempts: 0s, 1.5s, 3.5s, 6s
+      for (let attempt = 0; attempt < delays.length; attempt++) {
+        if (cancelled) return;
+        if (delays[attempt] > 0) {
+          await new Promise(r => setTimeout(r, delays[attempt]));
+          if (cancelled) return;
         }
-      } catch {
-        if (!cancelled) {
-          setChatMessages([{ role: 'assistant', content: 'Unable to generate summary at this time.' }]);
-        }
-      } finally {
-        if (!cancelled) {
-          setAiSummaryLoading(false);
+        try {
+          const res = await askDocumentQuestion(
+            token,
+            'Summarize this document in one concise sentence: what type of document it is and who the parties are. Be brief.',
+            [],
+          );
+          if (!cancelled) {
+            setChatMessages([{ role: 'assistant', content: res.answer }]);
+            setAiSummaryLoading(false);
+          }
+          return;
+        } catch {
+          if (attempt === delays.length - 1 && !cancelled) {
+            setChatMessages([{
+              role: 'assistant',
+              content: 'Summary is still loading — try asking a question below to chat with the document.',
+            }]);
+            setAiSummaryLoading(false);
+          }
         }
       }
     }
@@ -594,6 +611,22 @@ export default function SigningPage() {
   }
 
   if (isCompleted) {
+    const tryLapenBody =
+      'Hi,\n\n' +
+      'The attached PDF is for your signature. You will receive a follow-up email from Lapen shortly with a secure signing link — no need to sign the attachment directly.\n\n' +
+      'Thank you\n\n' +
+      '---------- HOW LAPEN WORKS · DELETE THIS SECTION BEFORE SENDING ----------\n' +
+      'Lapen is the simplest way to get documents signed by email — no accounts, no downloads.\n\n' +
+      'To use this email:\n' +
+      '  1. Attach the PDF you want signed\n' +
+      '  2. Add your signers in the To/CC field (keep sign@lapen.ai in CC)\n' +
+      '  3. Send — Lapen will email each signer a secure signing link\n' +
+      '  4. You will receive the signed copy and audit trail back by email\n\n' +
+      'Because you just signed a document via Lapen, sending your first document now grants\n' +
+      'you AND the person who sent it to you 5 bonus credits each (1 credit = 1 signature).\n\n' +
+      'Please delete this section before sending.\n' +
+      '--------------------------------------------------------------------------';
+    const tryLapenHref = `mailto:sign@lapen.ai?subject=${encodeURIComponent('Please sign')}&body=${encodeURIComponent(tryLapenBody)}`;
     return (
       <div className="message-page">
         <div className="message-card">
@@ -601,12 +634,19 @@ export default function SigningPage() {
           <p>Thank you for signing. A completed copy will be sent to your email shortly.</p>
           <hr style={{ border: 'none', borderTop: '1px solid var(--gray-200)', margin: '20px 0' }} />
           <h3 style={{ fontSize: '1rem', marginBottom: 8 }}>Need documents signed?</h3>
-          <p style={{ fontSize: '0.875rem', color: 'var(--gray-500)', marginBottom: 16 }}>
-            Try Lapen free &mdash; get 5 extra credits when you sign up.
-            Just email your PDF to <strong>sign@lapen.ai</strong> along with your signers.
+          <p style={{ fontSize: '0.875rem', color: 'var(--gray-500)', marginBottom: 8 }}>
+            Try Lapen free &mdash; just email your PDF to <strong>sign@lapen.ai</strong> along with your signers.
           </p>
+          <div style={{
+            background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8,
+            padding: 12, margin: '0 0 16px', fontSize: '0.8125rem', color: '#166534',
+          }}>
+            <strong>Bonus:</strong> because you just signed a document through Lapen, sending your
+            first document now grants <strong>you AND the sender 5 bonus credits each</strong>
+            {' '}(1 credit = 1 signature).
+          </div>
           <a
-            href={`mailto:sign@lapen.ai?body=${encodeURIComponent('Hi,\n\nThe attached PDF is for your signature. You will receive a follow-up email from Lapen shortly with a secure signing link — no need to sign the attachment directly.\n\nThank you')}`}
+            href={tryLapenHref}
             style={{
               display: 'inline-block', padding: '10px 24px', background: 'var(--primary)',
               color: 'white', borderRadius: 8, textDecoration: 'none', fontWeight: 600,
@@ -684,6 +724,27 @@ export default function SigningPage() {
               Click anywhere on the document to place {activeTool === 'signature' ? 'your signature' : `a ${activeTool} field`}
             </div>
           )}
+
+          {/* Consent checkbox — under toolbar, always visible (matches guided/individual flow wording) */}
+          <div className="consent-checkbox" style={{
+            padding: '12px 16px',
+            background: 'white',
+            borderBottom: '1px solid var(--gray-200)',
+            maxWidth: 832,
+            margin: '0 auto',
+            width: '100%',
+          }}>
+            <input
+              type="checkbox"
+              id="consent-direct"
+              checked={consent}
+              onChange={(e) => setConsent(e.target.checked)}
+            />
+            <label htmlFor="consent-direct">
+              I agree to sign this document electronically. I understand that my electronic signature
+              has the same legal effect as a handwritten signature.
+            </label>
+          </div>
         </>
       )}
 
@@ -1025,27 +1086,15 @@ export default function SigningPage() {
         </div>
       </div>
 
-      {/* Free-form mode: show consent when signature is placed */}
+      {/* Free-form mode: show Finish button once a signature is placed (consent lives under the toolbar) */}
       {!hasPreplacedFields && hasSignature && (
         <div className="consent-banner">
-          <div className="consent-checkbox">
-            <input
-              type="checkbox"
-              id="consent"
-              checked={consent}
-              onChange={(e) => setConsent(e.target.checked)}
-            />
-            <label htmlFor="consent">
-              I agree to sign this document electronically. I understand that my electronic signature
-              has the same legal effect as a handwritten signature.
-            </label>
-          </div>
           <button
             className="btn btn-primary btn-block"
             onClick={handleComplete}
             disabled={!consent || isSubmitting}
           >
-            {isSubmitting ? 'Completing...' : 'Finish & Agree'}
+            {isSubmitting ? 'Completing...' : !consent ? 'Check the agreement above to finish' : 'Finish & Agree'}
           </button>
         </div>
       )}

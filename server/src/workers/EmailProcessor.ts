@@ -682,6 +682,18 @@ export class EmailProcessor {
     // Create user
     const user = await this.userRepo.findOrCreateByEmail(senderEmail, senderName || undefined);
 
+    // Referral bonus: if this is their first document and they've previously
+    // signed a Lapen document, grant 5 credits to both them and the original sender.
+    try {
+      const referral = await this.userRepo.autoRedeemReferralFromSigningHistory(user.id, senderEmail);
+      if (referral) {
+        logger.info({ newSenderId: user.id, referrerId: referral.referrerId }, 'Referral bonus redeemed on first direct-sign');
+        user.credits = referral.referredCredits;
+      }
+    } catch (refErr) {
+      logger.warn({ err: refErr }, 'Referral auto-redeem failed (non-fatal)');
+    }
+
     // Extract text and page count
     let pageCount = 1;
     try {
@@ -762,6 +774,18 @@ export class EmailProcessor {
 
     // Create user
     const user = await this.userRepo.findOrCreateByEmail(senderEmail, senderName || undefined);
+
+    // Referral bonus: first-time sender who previously signed a Lapen doc →
+    // grant 5 credits to both them and the original sender.
+    try {
+      const referral = await this.userRepo.autoRedeemReferralFromSigningHistory(user.id, senderEmail);
+      if (referral) {
+        logger.info({ newSenderId: user.id, referrerId: referral.referrerId }, 'Referral bonus redeemed on first template setup');
+        user.credits = referral.referredCredits;
+      }
+    } catch (refErr) {
+      logger.warn({ err: refErr }, 'Referral auto-redeem failed (non-fatal)');
+    }
 
     // Extract text and page count
     let documentText = '';

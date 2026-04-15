@@ -56,6 +56,46 @@ export class UserRepository {
     return this.db('users').where({ referral_code: code.toUpperCase() }).first();
   }
 
+  /**
+   * Auto-redeem a referral for users who signed a Lapen document before sending
+   * their own first document. Looks up the most recent signed document by this
+   * user's email in the `signers` table and, if found, grants 5 credits to both
+   * parties via `redeemReferral`.
+   *
+   * Returns the referral result when redeemed, or null if the user is not
+   * eligible (no signing history, already sent documents before, self-referral,
+   * or already redeemed).
+   */
+  async autoRedeemReferralFromSigningHistory(
+    newSenderId: string,
+    newSenderEmail: string,
+  ): Promise<{ referrerId: string; referrerCredits: number; referredCredits: number } | null> {
+    // Only eligible if this user has not previously sent any documents as sender
+    const priorSend = await this.db('document_requests')
+      .where({ sender_id: newSenderId })
+      .first();
+    if (priorSend) return null;
+
+    // Find the most recent document they signed via Lapen
+    const recentSigned = await this.db('signers')
+      .join('document_requests', 'signers.document_request_id', 'document_requests.id')
+      .whereRaw('LOWER(signers.email) = LOWER(?)', [newSenderEmail])
+      .whereNotNull('signers.signed_at')
+      .orderBy('signers.signed_at', 'desc')
+      .select('document_requests.sender_id as sender_id')
+      .first();
+    if (!recentSigned?.sender_id) return null;
+    if (recentSigned.sender_id === newSenderId) return null;
+
+    try {
+      const result = await this.redeemReferral(recentSigned.sender_id, newSenderId);
+      return { referrerId: recentSigned.sender_id, ...result };
+    } catch {
+      // Already redeemed or other non-fatal — swallow
+      return null;
+    }
+  }
+
   async redeemReferral(referrerId: string, referredId: string): Promise<{ referrerCredits: number; referredCredits: number }> {
     const REFERRAL_BONUS = 5;
     return this.db.transaction(async (trx) => {
