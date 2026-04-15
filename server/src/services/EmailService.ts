@@ -110,29 +110,52 @@ export class EmailService {
 
   /**
    * Renders a credit balance footer for sender emails.
-   * When balance < 5, shows in red with a top-up suggestion.
+   * Always prominent; escalates to a bold red banner with an explicit
+   * top-up CTA button when the balance is <= 5.
    */
   renderCreditBalanceHtml(credits: number, purchaseUrl: string): string {
-    const isLow = credits < 5;
-    const color = isLow ? '#dc2626' : '#6b7280';
-    const balanceLabel = `${credits} credit${credits !== 1 ? 's' : ''} remaining`;
-    const topUpLink = isLow
-      ? ` &mdash; <a href="${purchaseUrl}" style="color: #2563eb; text-decoration: underline; font-weight: 600;">top up now</a>`
-      : '';
+    const isLow = credits <= 5;
+    const plural = credits === 1 ? '' : 's';
+
+    if (isLow) {
+      return `
+        <div style="background: #fef2f2; padding: 18px 24px; border: 2px solid #dc2626; border-top: none; border-radius: 0 0 12px 12px; text-align: center;">
+          <p style="margin: 0 0 6px; color: #dc2626; font-size: 18px; font-weight: 800; letter-spacing: 0.2px;">
+            Only ${credits} credit${plural} left
+          </p>
+          <p style="margin: 0 0 12px; color: #991b1b; font-size: 13px; font-weight: 600;">
+            Top up now so your next document is not delayed.
+          </p>
+          <a href="${purchaseUrl}" style="display: inline-block; padding: 10px 22px; background: #dc2626; color: white; text-decoration: none; border-radius: 8px; font-weight: 700; font-size: 14px;">
+            Top up credits
+          </a>
+          <p style="margin: 14px 0 0; color: #9ca3af; font-size: 11px;">Powered by Lapen &mdash; AI-powered e-signatures</p>
+        </div>
+      `;
+    }
+
     return `
-      <div style="background: ${isLow ? '#fef2f2' : '#f9fafb'}; padding: 12px 24px; border: 1px solid ${isLow ? '#fecaca' : '#e5e7eb'}; border-top: none; border-radius: 0 0 12px 12px; text-align: center;">
-        <p style="margin: 0 0 4px; color: ${color}; font-size: 13px; font-weight: ${isLow ? '700' : '400'};">
-          ${balanceLabel}${topUpLink}
+      <div style="background: #f9fafb; padding: 16px 24px; border: 1px solid #e5e7eb; border-top: none; border-radius: 0 0 12px 12px; text-align: center;">
+        <p style="margin: 0 0 4px; color: #111827; font-size: 15px; font-weight: 700;">
+          ${credits} credit${plural} remaining
         </p>
-        <p style="margin: 0; color: #9ca3af; font-size: 11px;">Powered by Lapen &mdash; AI-powered e-signatures</p>
+        <p style="margin: 0 0 10px; color: #6b7280; font-size: 12px;">
+          1 credit = 1 signature request
+        </p>
+        <a href="${purchaseUrl}" style="display: inline-block; color: #2563eb; text-decoration: none; font-weight: 600; font-size: 13px; border-bottom: 1px solid #2563eb; padding-bottom: 1px;">
+          Manage credits
+        </a>
+        <p style="margin: 12px 0 0; color: #9ca3af; font-size: 11px;">Powered by Lapen &mdash; AI-powered e-signatures</p>
       </div>
     `;
   }
 
   renderCreditBalanceText(credits: number): string {
-    const isLow = credits < 5;
-    const line = `Credits remaining: ${credits}`;
-    return isLow ? `${line} (running low — top up at your dashboard)` : line;
+    const plural = credits === 1 ? '' : 's';
+    if (credits <= 5) {
+      return `>>> ONLY ${credits} CREDIT${plural.toUpperCase()} LEFT — top up now so your next document is not delayed.`;
+    }
+    return `Credits remaining: ${credits} (1 credit = 1 signature request)`;
   }
 
   async sendCreditsAppliedEmail(
