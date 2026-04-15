@@ -682,17 +682,8 @@ export class EmailProcessor {
     // Create user
     const user = await this.userRepo.findOrCreateByEmail(senderEmail, senderName || undefined);
 
-    // Referral bonus: if this is their first document and they've previously
-    // signed a Lapen document, grant 5 credits to both them and the original sender.
-    try {
-      const referral = await this.userRepo.autoRedeemReferralFromSigningHistory(user.id, senderEmail);
-      if (referral) {
-        logger.info({ newSenderId: user.id, referrerId: referral.referrerId }, 'Referral bonus redeemed on first direct-sign');
-        user.credits = referral.referredCredits;
-      }
-    } catch (refErr) {
-      logger.warn({ err: refErr }, 'Referral auto-redeem failed (non-fatal)');
-    }
+    // Referral bonus: first-time sender who previously signed a Lapen doc.
+    await this.tryRedeemAndNotifyReferral(user, senderEmail);
 
     // Extract text and page count
     let pageCount = 1;
@@ -775,17 +766,8 @@ export class EmailProcessor {
     // Create user
     const user = await this.userRepo.findOrCreateByEmail(senderEmail, senderName || undefined);
 
-    // Referral bonus: first-time sender who previously signed a Lapen doc →
-    // grant 5 credits to both them and the original sender.
-    try {
-      const referral = await this.userRepo.autoRedeemReferralFromSigningHistory(user.id, senderEmail);
-      if (referral) {
-        logger.info({ newSenderId: user.id, referrerId: referral.referrerId }, 'Referral bonus redeemed on first template setup');
-        user.credits = referral.referredCredits;
-      }
-    } catch (refErr) {
-      logger.warn({ err: refErr }, 'Referral auto-redeem failed (non-fatal)');
-    }
+    // Referral bonus: first-time sender who previously signed a Lapen doc.
+    await this.tryRedeemAndNotifyReferral(user, senderEmail);
 
     // Extract text and page count
     let documentText = '';
@@ -1111,6 +1093,66 @@ export class EmailProcessor {
   // =========================================================================
   // Helpers
   // =========================================================================
+
+  /**
+   * Attempt to auto-redeem a referral for a first-time sender. On success,
+   * mutates `user.credits` in place to the fresh balance and fires celebratory
+   * emails to both parties to drive virality. All failures are non-fatal so
+   * the primary flow is never blocked.
+   */
+  private async tryRedeemAndNotifyReferral(
+    user: { id: string; email: string; name: string | null; credits: number },
+    senderEmail: string,
+  ): Promise<void> {
+    let referral: { referrerId: string; referrerCredits: number; referredCredits: number } | null;
+    try {
+      referral = await this.userRepo.autoRedeemReferralFromSigningHistory(user.id, senderEmail);
+    } catch (refErr) {
+      logger.warn({ err: refErr }, 'Referral auto-redeem failed (non-fatal)');
+      return;
+    }
+    if (!referral) return;
+
+    logger.info({ newSenderId: user.id, referrerId: referral.referrerId }, 'Referral bonus redeemed');
+    user.credits = referral.referredCredits;
+
+    // Fire celebratory emails to both sides — virality hook.
+    try {
+      const referrer = await this.userRepo.findById(referral.referrerId);
+      if (!referrer) return;
+      const appUrl = process.env.APP_URL || 'https://app.lapen.ai';
+      const BONUS = 5;
+
+      const referrerPurchaseUrl = `${appUrl}/credits?user=${referrer.id}`;
+      const referredPurchaseUrl = `${appUrl}/credits?user=${user.id}`;
+
+      await Promise.allSettled([
+        this.emailService.sendReferralBonusEmail({
+          to: referrer.email,
+          recipientName: referrer.name,
+          otherPartyEmail: user.email,
+          otherPartyName: user.name,
+          bonusAmount: BONUS,
+          newBalance: referral.referrerCredits,
+          purchaseUrl: referrerPurchaseUrl,
+          role: 'referrer',
+        }),
+        this.emailService.sendReferralBonusEmail({
+          to: user.email,
+          recipientName: user.name,
+          otherPartyEmail: referrer.email,
+          otherPartyName: referrer.name,
+          bonusAmount: BONUS,
+          newBalance: referral.referredCredits,
+          purchaseUrl: referredPurchaseUrl,
+          role: 'referred',
+        }),
+      ]);
+    } catch (emailErr) {
+      logger.warn({ err: emailErr }, 'Referral bonus email dispatch failed (non-fatal)');
+    }
+  }
+
   private async createBasicDocument(
     senderId: string,
     attachment: { content: Buffer; filename?: string; size: number },

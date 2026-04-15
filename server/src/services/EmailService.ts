@@ -213,6 +213,103 @@ export class EmailService {
     });
   }
 
+  /**
+   * Sends a celebratory email when a user earns credits through another user
+   * (currently: the first-time-sender referral bonus). Fires for both parties
+   * after a successful `redeemReferral`, with copy tailored to each role to
+   * drive virality:
+   *   - role=referrer: "your contact joined → you just earned free credits"
+   *   - role=referred: "welcome bonus from <contact> → keep the chain going"
+   */
+  async sendReferralBonusEmail(params: {
+    to: string;
+    recipientName: string | null;
+    otherPartyEmail: string;
+    otherPartyName: string | null;
+    bonusAmount: number;
+    newBalance: number;
+    purchaseUrl: string;
+    role: 'referrer' | 'referred';
+  }): Promise<string> {
+    const {
+      to, recipientName, otherPartyEmail, otherPartyName,
+      bonusAmount, newBalance, purchaseUrl, role,
+    } = params;
+
+    const greeting = recipientName ? `Hi ${recipientName},` : 'Hi,';
+    const otherDisplay = otherPartyName || otherPartyEmail;
+    const plural = bonusAmount === 1 ? '' : 's';
+
+    // Each role gets its own hook copy + share CTA
+    const whyLine = role === 'referrer'
+      ? `<strong>${otherDisplay}</strong> just sent their first document through Lapen — because they first discovered Lapen by signing one of yours, you both earned <strong>${bonusAmount} bonus credit${plural} each</strong> as a thank-you.`
+      : `Welcome to Lapen! Because you first discovered us by signing a document from <strong>${otherDisplay}</strong>, you <em>and</em> they each earned <strong>${bonusAmount} bonus credit${plural}</strong> to get started.`;
+
+    const ctaHeadline = role === 'referrer'
+      ? 'Keep the chain going'
+      : 'Pass it on and earn 5 more';
+
+    const ctaSubline = role === 'referrer'
+      ? 'Every time someone who has signed one of your Lapen documents comes back and sends their own first document, you both earn 5 more credits. Invite more people to experience Lapen — the more they use it, the more free credits you get.'
+      : 'The next time one of your signers comes back to Lapen and sends their own first document, you and they will each earn another 5 credits — automatically. Send a document now to start the cycle.';
+
+    const shareBody =
+      'Hi,\n\n' +
+      'I just used Lapen to get a document signed — it is the simplest way I have seen. No accounts, no downloads, just email.\n\n' +
+      'If you ever need to get a PDF signed, just attach it to an email, put sign@lapen.ai in CC, and Lapen will email your signers a secure link. Try it — if you come from this intro, we both get 5 bonus credits.\n\n' +
+      'Thanks!';
+    const shareHref = `mailto:?cc=${encodeURIComponent('sign@lapen.ai')}&subject=${encodeURIComponent('Try Lapen — get documents signed by email')}&body=${encodeURIComponent(shareBody)}`;
+
+    const balanceColor = newBalance <= 5 ? '#dc2626' : '#16a34a';
+
+    const html = `
+      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; color: #111827;">
+        <div style="background: linear-gradient(135deg, #16a34a 0%, #15803d 100%); padding: 28px 24px; border-radius: 12px 12px 0 0; text-align: center;">
+          <p style="margin: 0 0 6px; color: rgba(255,255,255,0.85); font-size: 13px; font-weight: 600; letter-spacing: 0.5px; text-transform: uppercase;">Bonus credits earned</p>
+          <h1 style="margin: 0; color: white; font-size: 32px; font-weight: 800;">+${bonusAmount} credit${plural}</h1>
+        </div>
+        <div style="background: white; padding: 24px; border: 1px solid #e5e7eb; border-top: none;">
+          <p style="margin: 0 0 14px; font-size: 15px;">${greeting}</p>
+          <p style="margin: 0 0 16px; font-size: 15px; line-height: 1.55;">${whyLine}</p>
+          <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 16px; margin: 16px 0; text-align: center;">
+            <p style="margin: 0 0 4px; color: #166534; font-size: 12px; font-weight: 700; letter-spacing: 0.4px; text-transform: uppercase;">New balance</p>
+            <p style="margin: 0; color: ${balanceColor}; font-size: 28px; font-weight: 800;">${newBalance} credit${newBalance === 1 ? '' : 's'}</p>
+            <p style="margin: 6px 0 0; color: #6b7280; font-size: 12px;">1 credit = 1 signature request</p>
+          </div>
+          <h2 style="margin: 20px 0 8px; font-size: 16px; font-weight: 700; color: #111827;">${ctaHeadline}</h2>
+          <p style="margin: 0 0 16px; font-size: 14px; color: #374151; line-height: 1.55;">${ctaSubline}</p>
+          <div style="text-align: center; margin: 20px 0 4px;">
+            <a href="${shareHref}" style="display: inline-block; padding: 12px 28px; background: #2563eb; color: white; text-decoration: none; border-radius: 8px; font-weight: 700; font-size: 14px;">
+              Share Lapen via email
+            </a>
+          </div>
+          <p style="margin: 14px 0 0; font-size: 12px; color: #9ca3af; text-align: center;">
+            You earned these credits automatically — nothing else to claim.
+          </p>
+        </div>
+        ${this.renderCreditBalanceHtml(newBalance, purchaseUrl)}
+      </div>
+    `;
+
+    const text =
+      `${greeting}\n\n` +
+      `+${bonusAmount} credit${plural} added to your Lapen account.\n\n` +
+      (role === 'referrer'
+        ? `${otherDisplay} just sent their first document through Lapen. Because they discovered Lapen by signing one of yours, you both earned ${bonusAmount} bonus credit${plural} each.\n\n`
+        : `Welcome to Lapen! Because you first discovered us by signing a document from ${otherDisplay}, you and they each earned ${bonusAmount} bonus credit${plural}.\n\n`) +
+      `New balance: ${newBalance} credit${newBalance === 1 ? '' : 's'}\n\n` +
+      `${ctaHeadline} — ${ctaSubline}\n\n` +
+      `Share Lapen: ${shareHref}\n\n` +
+      `${this.renderCreditBalanceText(newBalance)}`;
+
+    return this.sendEmail({
+      to,
+      subject: `You earned +${bonusAmount} bonus credit${plural} on Lapen`,
+      text,
+      html,
+    });
+  }
+
   async sendConfirmationEmail(
     to: string,
     senderName: string,
