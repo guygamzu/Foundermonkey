@@ -259,6 +259,31 @@ export class DocumentService {
 
     const signers = await this.documentRepo.findSignersByDocumentId(documentId);
     const auditEvents = await this.auditRepo.findByDocumentId(documentId);
+    const allFields = await this.documentRepo.findFieldsByDocumentId(documentId);
+
+    // Prefer the name the signer actually typed into a "name" field during
+    // signing over the auto-populated signer.name, which is often just the
+    // email prefix (e.g. "alice" from alice@example.com) and should not be
+    // shown as a real name on the certificate.
+    const resolveDisplayName = (
+      signerId: string,
+      fallbackName: string | null,
+      email: string | null,
+      identifier: string,
+    ): string => {
+      const nameField = allFields.find(
+        f => f.signer_id === signerId && f.type === 'name' && typeof f.value === 'string' && f.value.trim().length > 0,
+      );
+      if (nameField?.value) return nameField.value.trim();
+
+      // Only trust signer.name when it looks like a real name, not the email prefix.
+      const trimmed = fallbackName?.trim() ?? '';
+      const emailPrefix = email ? email.split('@')[0].toLowerCase() : '';
+      const looksLikeEmailPrefix = trimmed.length > 0 && trimmed.toLowerCase() === emailPrefix;
+      if (trimmed.length > 0 && !looksLikeEmailPrefix) return trimmed;
+
+      return identifier;
+    };
 
     const pdfDoc = await PDFDocument.create();
     const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
@@ -300,7 +325,8 @@ export class DocumentService {
     for (const signer of signers) {
       ensureSpace(60);
       const identifier = signer.email || signer.phone || 'Unknown';
-      currentPage.drawText(`• ${signer.name || identifier}`, { x: margin + 10, y, size: 11, font: boldFont });
+      const displayName = resolveDisplayName(signer.id, signer.name, signer.email, identifier);
+      currentPage.drawText(`• ${displayName}`, { x: margin + 10, y, size: 11, font: boldFont });
       y -= 16;
       currentPage.drawText(`  Contact: ${identifier}`, { x: margin + 10, y, size: 10, font });
       y -= 16;
