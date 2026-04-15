@@ -626,7 +626,7 @@ export default function SigningPage() {
       'you AND the person who sent it to you 5 bonus credits each (1 credit = 1 signature).\n\n' +
       'Please delete this section before sending.\n' +
       '--------------------------------------------------------------------------';
-    const tryLapenHref = `mailto:sign@lapen.ai?subject=${encodeURIComponent('Please sign')}&body=${encodeURIComponent(tryLapenBody)}`;
+    const tryLapenHref = `mailto:?cc=${encodeURIComponent('sign@lapen.ai')}&subject=${encodeURIComponent('Please sign')}&body=${encodeURIComponent(tryLapenBody)}`;
     return (
       <div className="message-page">
         <div className="message-card">
