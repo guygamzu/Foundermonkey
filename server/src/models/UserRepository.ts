@@ -1,6 +1,18 @@
 import { Knex } from 'knex';
-import { FREE_CREDITS } from '@lapen/shared';
+import { FREE_CREDITS, REFERRAL_BONUS, MONTHLY_REFERRAL_CAP } from '@lapen/shared';
 import { notifyAdmin } from '../routes/admin.js';
+
+const DISPOSABLE_EMAIL_DOMAINS = new Set([
+  'mailinator.com', 'guerrillamail.com', 'guerrillamail.de', 'grr.la',
+  'guerrillamailblock.com', 'tempmail.com', 'throwaway.email',
+  'temp-mail.org', 'fakeinbox.com', 'sharklasers.com', 'guerrillamail.info',
+  'guerrillamail.biz', 'guerrillamail.net', 'yopmail.com', 'yopmail.fr',
+  'trashmail.com', 'trashmail.me', 'trashmail.net', 'dispostable.com',
+  'mailnesia.com', 'maildrop.cc', 'discard.email', 'tempail.com',
+  'tempr.email', 'temp-mail.io', '10minutemail.com', '10minutemail.net',
+  'minutemail.com', 'emailondeck.com', 'mailcatch.com', 'inboxbear.com',
+  'mohmal.com', 'getnada.com', 'tmpmail.net', 'tmpmail.org',
+]);
 
 export interface UserRow {
   id: string;
@@ -56,79 +68,75 @@ export class UserRepository {
     return this.db('users').where({ referral_code: code.toUpperCase() }).first();
   }
 
-  /**
-   * Auto-redeem a referral for users who signed a Lapen document before sending
-   * their own first document. Looks up the most recent signed document by this
-   * user's email in the `signers` table and, if found, grants 5 credits to both
-   * parties via `redeemReferral`.
-   *
-   * Returns the referral result when redeemed, or null if the user is not
-   * eligible (no signing history, already sent documents before, self-referral,
-   * or already redeemed).
-   */
   async autoRedeemReferralFromSigningHistory(
     newSenderId: string,
     newSenderEmail: string,
-  ): Promise<{ referrerId: string; referrerCredits: number; referredCredits: number } | null> {
-    // Only eligible if this user has not previously sent any documents as sender
+  ): Promise<{ referrerId: string; referrerCredits: number } | null> {
+    const domain = newSenderEmail.split('@')[1]?.toLowerCase();
+    if (domain && DISPOSABLE_EMAIL_DOMAINS.has(domain)) return null;
+
     const priorSend = await this.db('document_requests')
       .where({ sender_id: newSenderId })
       .first();
     if (priorSend) return null;
 
-    // Find the most recent document they signed via Lapen
-    const recentSigned = await this.db('signers')
+    const earliestSigned = await this.db('signers')
       .join('document_requests', 'signers.document_request_id', 'document_requests.id')
       .whereRaw('LOWER(signers.email) = LOWER(?)', [newSenderEmail])
       .whereNotNull('signers.signed_at')
-      .orderBy('signers.signed_at', 'desc')
+      .orderBy('signers.signed_at', 'asc')
       .select('document_requests.sender_id as sender_id')
       .first();
-    if (!recentSigned?.sender_id) return null;
-    if (recentSigned.sender_id === newSenderId) return null;
+    if (!earliestSigned?.sender_id) return null;
+    if (earliestSigned.sender_id === newSenderId) return null;
 
     try {
-      const result = await this.redeemReferral(recentSigned.sender_id, newSenderId);
-      return { referrerId: recentSigned.sender_id, ...result };
+      const result = await this.redeemReferral(earliestSigned.sender_id, newSenderId);
+      return { referrerId: earliestSigned.sender_id, referrerCredits: result.referrerCredits };
     } catch {
-      // Already redeemed or other non-fatal — swallow
       return null;
     }
   }
 
-  async redeemReferral(referrerId: string, referredId: string): Promise<{ referrerCredits: number; referredCredits: number }> {
-    const REFERRAL_BONUS = 5;
+  async redeemReferral(referrerId: string, referredId: string): Promise<{ referrerCredits: number }> {
     return this.db.transaction(async (trx) => {
-      // Check not self-referral
       if (referrerId === referredId) throw new Error('Cannot refer yourself');
 
-      // Check not already referred
       const existing = await trx('referrals')
         .where({ referrer_id: referrerId, referred_id: referredId })
         .first();
       if (existing) throw new Error('Referral already redeemed');
 
-      // Award credits to both
-      await trx('users').where({ id: referrerId }).increment('credits', REFERRAL_BONUS);
-      await trx('users').where({ id: referredId }).increment('credits', REFERRAL_BONUS);
+      const monthStart = new Date();
+      monthStart.setUTCDate(1);
+      monthStart.setUTCHours(0, 0, 0, 0);
+      const monthlyEarned = await trx('referrals')
+        .where({ referrer_id: referrerId })
+        .where('created_at', '>=', monthStart)
+        .sum('credits_awarded as total')
+        .first();
+      if ((monthlyEarned?.total || 0) >= MONTHLY_REFERRAL_CAP) {
+        throw new Error('Monthly referral cap reached');
+      }
 
-      // Record the referral
+      await trx('users').where({ id: referrerId }).increment('credits', REFERRAL_BONUS);
+
       await trx('referrals').insert({
         referrer_id: referrerId,
         referred_id: referredId,
         credits_awarded: REFERRAL_BONUS,
       });
 
-      // Log transactions
       const referrer = await trx('users').where({ id: referrerId }).first();
-      const referred = await trx('users').where({ id: referredId }).first();
 
-      await trx('credit_transactions').insert([
-        { user_id: referrerId, amount: REFERRAL_BONUS, balance_after: referrer.credits, reason: 'referral_bonus' },
-        { user_id: referredId, amount: REFERRAL_BONUS, balance_after: referred.credits, reason: 'referral_bonus' },
-      ]);
+      await trx('credit_transactions').insert({
+        user_id: referrerId,
+        amount: REFERRAL_BONUS,
+        balance_after: referrer.credits,
+        reason: 'referral_bonus',
+      });
 
-      return { referrerCredits: referrer.credits, referredCredits: referred.credits };
+      return { referrerCredits: referrer.credits };
     });
   }
 

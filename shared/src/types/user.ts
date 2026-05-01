@@ -26,4 +26,7 @@ export const CREDIT_PACKAGES = [
   { credits: 100, priceUsd: 2499, label: '100 Credits - $24.99' },
 ] as const;
 
-export const FREE_CREDITS = 10;
+export const FREE_CREDITS = 5;
+
+export const REFERRAL_BONUS = 3;
+export const MONTHLY_REFERRAL_CAP = 25;

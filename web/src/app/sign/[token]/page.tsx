@@ -611,49 +611,35 @@ export default function SigningPage() {
   }
 
   if (isCompleted) {
-    const tryLapenBody =
-      'Hi,\n\n' +
-      'The attached PDF is for your signature. You will receive a follow-up email from Lapen shortly with a secure signing link — no need to sign the attachment directly.\n\n' +
-      'Thank you\n\n' +
-      '---------- HOW LAPEN WORKS · DELETE THIS SECTION BEFORE SENDING ----------\n' +
-      'Lapen is the simplest way to get documents signed by email — no accounts, no downloads.\n\n' +
-      'To use this email:\n' +
-      '  1. Attach the PDF you want signed\n' +
-      '  2. Add your signers in the To/CC field (keep sign@lapen.ai in CC)\n' +
-      '  3. Send — Lapen will email each signer a secure signing link\n' +
-      '  4. You will receive the signed copy and audit trail back by email\n\n' +
-      'Because you just signed a document via Lapen, sending your first document now grants\n' +
-      'you AND the person who sent it to you 5 bonus credits each (1 credit = 1 signature).\n\n' +
-      'Please delete this section before sending.\n' +
-      '--------------------------------------------------------------------------';
-    const tryLapenHref = `mailto:?cc=${encodeURIComponent('sign@lapen.ai')}&subject=${encodeURIComponent('Please sign')}&body=${encodeURIComponent(tryLapenBody)}`;
     return (
       <div className="message-page">
         <div className="message-card">
           <h2 style={{ color: 'var(--success)' }}>Document Signed!</h2>
           <p>Thank you for signing. A completed copy will be sent to your email shortly.</p>
           <hr style={{ border: 'none', borderTop: '1px solid var(--gray-200)', margin: '20px 0' }} />
-          <h3 style={{ fontSize: '1rem', marginBottom: 8 }}>Need documents signed?</h3>
-          <p style={{ fontSize: '0.875rem', color: 'var(--gray-500)', marginBottom: 8 }}>
-            Try Lapen free &mdash; just email your PDF to <strong>sign@lapen.ai</strong> along with your signers.
+          <h3 style={{ fontSize: '1rem', marginBottom: 8 }}>Need to send something for signature yourself?</h3>
+          <p style={{ fontSize: '0.875rem', color: 'var(--gray-500)', marginBottom: 12 }}>
+            Just email <strong style={{ color: 'var(--primary)' }}>sign@lapen.ai</strong> with a PDF attached. Your first 5 are free.
           </p>
-          <div style={{
-            background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8,
-            padding: 12, margin: '0 0 16px', fontSize: '0.8125rem', color: '#166534',
-          }}>
-            <strong>Bonus:</strong> because you just signed a document through Lapen, sending your
-            first document now grants <strong>you AND the sender 5 bonus credits each</strong>
-            {' '}(1 credit = 1 signature).
-          </div>
+          <details style={{ fontSize: '0.8125rem', color: 'var(--gray-500)', marginBottom: 16 }}>
+            <summary style={{ cursor: 'pointer', fontWeight: 600, color: 'var(--ink)', marginBottom: 8 }}>How it works</summary>
+            <ol style={{ paddingLeft: 20, lineHeight: 1.8, margin: '8px 0 0' }}>
+              <li>Compose a new email to <strong>sign@lapen.ai</strong></li>
+              <li>Add your signers in the To or CC field</li>
+              <li>Attach the PDF and hit send</li>
+              <li>Each signer gets a secure signing link — no account needed</li>
+              <li>You receive the signed copy and audit trail by email</li>
+            </ol>
+          </details>
           <a
-            href={tryLapenHref}
+            href="mailto:sign@lapen.ai"
             style={{
               display: 'inline-block', padding: '10px 24px', background: 'var(--primary)',
               color: 'white', borderRadius: 8, textDecoration: 'none', fontWeight: 600,
               fontSize: '0.875rem',
             }}
           >
-            Try Lapen Free
+            Send your first document
           </a>
         </div>
       </div>

@@ -224,43 +224,15 @@ export class EmailService {
   async sendReferralBonusEmail(params: {
     to: string;
     recipientName: string | null;
-    otherPartyEmail: string;
-    otherPartyName: string | null;
+    newSenderEmail: string;
+    newSenderName: string | null;
     bonusAmount: number;
     newBalance: number;
-    purchaseUrl: string;
-    role: 'referrer' | 'referred';
   }): Promise<string> {
-    const {
-      to, recipientName, otherPartyEmail, otherPartyName,
-      bonusAmount, newBalance, purchaseUrl, role,
-    } = params;
-
+    const { to, recipientName, newSenderEmail, newSenderName, bonusAmount, newBalance } = params;
     const greeting = recipientName ? `Hi ${recipientName},` : 'Hi,';
-    const otherDisplay = otherPartyName || otherPartyEmail;
+    const newSenderDisplay = newSenderName || newSenderEmail;
     const plural = bonusAmount === 1 ? '' : 's';
-
-    // Each role gets its own hook copy + share CTA
-    const whyLine = role === 'referrer'
-      ? `<strong>${otherDisplay}</strong> just sent their first document through Lapen — because they first discovered Lapen by signing one of yours, you both earned <strong>${bonusAmount} bonus credit${plural} each</strong> as a thank-you.`
-      : `Welcome to Lapen! Because you first discovered us by signing a document from <strong>${otherDisplay}</strong>, you <em>and</em> they each earned <strong>${bonusAmount} bonus credit${plural}</strong> to get started.`;
-
-    const ctaHeadline = role === 'referrer'
-      ? 'Keep the chain going'
-      : 'Pass it on and earn 5 more';
-
-    const ctaSubline = role === 'referrer'
-      ? 'Every time someone who has signed one of your Lapen documents comes back and sends their own first document, you both earn 5 more credits. Invite more people to experience Lapen — the more they use it, the more free credits you get.'
-      : 'The next time one of your signers comes back to Lapen and sends their own first document, you and they will each earn another 5 credits — automatically. Send a document now to start the cycle.';
-
-    const shareBody =
-      'Hi,\n\n' +
-      'I just used Lapen to get a document signed — it is the simplest way I have seen. No accounts, no downloads, just email.\n\n' +
-      'If you ever need to get a PDF signed, just attach it to an email, put sign@lapen.ai in CC, and Lapen will email your signers a secure link. Try it — if you come from this intro, we both get 5 bonus credits.\n\n' +
-      'Thanks!';
-    const shareHref = `mailto:?cc=${encodeURIComponent('sign@lapen.ai')}&subject=${encodeURIComponent('Try Lapen — get documents signed by email')}&body=${encodeURIComponent(shareBody)}`;
-
-    const balanceColor = newBalance <= 5 ? '#dc2626' : '#16a34a';
 
     const html = `
       <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; color: #111827;">
@@ -270,41 +242,31 @@ export class EmailService {
         </div>
         <div style="background: white; padding: 24px; border: 1px solid #e5e7eb; border-top: none;">
           <p style="margin: 0 0 14px; font-size: 15px;">${greeting}</p>
-          <p style="margin: 0 0 16px; font-size: 15px; line-height: 1.55;">${whyLine}</p>
-          <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 16px; margin: 16px 0; text-align: center;">
-            <p style="margin: 0 0 4px; color: #166534; font-size: 12px; font-weight: 700; letter-spacing: 0.4px; text-transform: uppercase;">New balance</p>
-            <p style="margin: 0; color: ${balanceColor}; font-size: 28px; font-weight: 800;">${newBalance} credit${newBalance === 1 ? '' : 's'}</p>
-            <p style="margin: 6px 0 0; color: #6b7280; font-size: 12px;">1 credit = 1 signature request</p>
-          </div>
-          <h2 style="margin: 20px 0 8px; font-size: 16px; font-weight: 700; color: #111827;">${ctaHeadline}</h2>
-          <p style="margin: 0 0 16px; font-size: 14px; color: #374151; line-height: 1.55;">${ctaSubline}</p>
-          <div style="text-align: center; margin: 20px 0 4px;">
-            <a href="${shareHref}" style="display: inline-block; padding: 12px 28px; background: #2c4a35; color: white; text-decoration: none; border-radius: 8px; font-weight: 700; font-size: 14px;">
-              Share Lapen via email
-            </a>
-          </div>
-          <p style="margin: 14px 0 0; font-size: 12px; color: #9ca3af; text-align: center;">
-            You earned these credits automatically — nothing else to claim.
+          <p style="margin: 0 0 16px; font-size: 15px; line-height: 1.55;">
+            <strong>${newSenderDisplay}</strong> (${newSenderEmail}) just sent their first document via Lapen &mdash; because you sent them one first.
+          </p>
+          <p style="margin: 0 0 16px; font-size: 15px; line-height: 1.55;">
+            We&rsquo;ve added <strong>${bonusAmount} credit${plural}</strong> to your account as a thank-you. You now have <strong>${newBalance}</strong>.
+          </p>
+          <p style="margin: 0; font-size: 13px; color: #6b7280; line-height: 1.5;">
+            Every time someone who signed one of your documents comes back and sends their own first document, you earn ${bonusAmount} more credits &mdash; automatically.
           </p>
         </div>
-        ${this.renderCreditBalanceHtml(newBalance, purchaseUrl)}
+        <div style="background: #f9fafb; padding: 12px 24px; border: 1px solid #e5e7eb; border-top: none; border-radius: 0 0 12px 12px; text-align: center;">
+          <p style="margin: 0; color: #9ca3af; font-size: 11px;">Powered by La Pen<span style="color: #2c4a35;">.</span> &mdash; a quieter way to get things signed</p>
+        </div>
       </div>
     `;
 
     const text =
       `${greeting}\n\n` +
-      `+${bonusAmount} credit${plural} added to your Lapen account.\n\n` +
-      (role === 'referrer'
-        ? `${otherDisplay} just sent their first document through Lapen. Because they discovered Lapen by signing one of yours, you both earned ${bonusAmount} bonus credit${plural} each.\n\n`
-        : `Welcome to Lapen! Because you first discovered us by signing a document from ${otherDisplay}, you and they each earned ${bonusAmount} bonus credit${plural}.\n\n`) +
-      `New balance: ${newBalance} credit${newBalance === 1 ? '' : 's'}\n\n` +
-      `${ctaHeadline} — ${ctaSubline}\n\n` +
-      `Share Lapen: ${shareHref}\n\n` +
-      `${this.renderCreditBalanceText(newBalance)}`;
+      `${newSenderDisplay} (${newSenderEmail}) just sent their first document via Lapen — because you sent them one first.\n\n` +
+      `We've added ${bonusAmount} credit${plural} to your account as a thank-you. You now have ${newBalance}.\n\n` +
+      `Powered by La Pen. — a quieter way to get things signed`;
 
     return this.sendEmail({
       to,
-      subject: `You earned +${bonusAmount} bonus credit${plural} on Lapen`,
+      subject: `You earned ${bonusAmount} credits on Lapen`,
       text,
       html,
     });
@@ -460,12 +422,23 @@ export class EmailService {
     attachments: Array<{ filename: string; content: Buffer; contentType: string }>,
     senderCredits?: { credits: number; purchaseUrl: string },
   ): Promise<string> {
+    const isSender = !!senderCredits;
     const creditFooter = senderCredits
       ? this.renderCreditBalanceHtml(senderCredits.credits, senderCredits.purchaseUrl)
       : `<div style="background: #f9fafb; padding: 12px 24px; border: 1px solid #e5e7eb; border-top: none; border-radius: 0 0 12px 12px; text-align: center;">
           <p style="margin: 0; color: #9ca3af; font-size: 11px;">Powered by La Pen<span style="color: #2c4a35;">.</span> &mdash; a quieter way to get things signed</p>
         </div>`;
     const creditText = senderCredits ? `\n\n${this.renderCreditBalanceText(senderCredits.credits)}` : '';
+
+    const sendYourOwnPrompt = isSender ? '' : `
+          <div style="border-top: 1px solid #e5e7eb; margin-top: 20px; padding-top: 16px;">
+            <p style="margin: 0; font-size: 13px; color: #6b7280; line-height: 1.6;">
+              Need to send something for signature yourself? Just email
+              <a href="mailto:sign@lapen.ai" style="color: #2c4a35; font-weight: 600; text-decoration: none;">sign@lapen.ai</a>
+              with a PDF attached. Your first 5 are free.
+            </p>
+          </div>`;
+    const sendYourOwnText = isSender ? '' : '\n\n---\n\nNeed to send something for signature yourself? Just email sign@lapen.ai with a PDF attached. Your first 5 are free.';
 
     const html = `
       <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; color: #111827;">
@@ -480,7 +453,7 @@ export class EmailService {
             <li>The fully executed document</li>
             <li>The Certificate of Completion with the full audit trail</li>
           </ol>
-          <p style="margin: 0; font-size: 13px; color: #6b7280;">Please save the attached files for your records.</p>
+          <p style="margin: 0; font-size: 13px; color: #6b7280;">Please save the attached files for your records.</p>${sendYourOwnPrompt}
         </div>
         ${creditFooter}
       </div>
@@ -489,7 +462,7 @@ export class EmailService {
     return this.sendEmail({
       to,
       subject: `Completed: ${fileName}`,
-      text: `Hi,\n\nThe document ${fileName} has been successfully signed by all parties.\n\nPlease find the fully executed document and Certificate of Completion attached.${creditText}\n\nPowered by La Pen. — a quieter way to get things signed`,
+      text: `Hi,\n\nThe document ${fileName} has been successfully signed by all parties.\n\nPlease find the fully executed document and Certificate of Completion attached.${creditText}${sendYourOwnText}\n\nPowered by La Pen. — a quieter way to get things signed`,
       html,
       attachments,
     });

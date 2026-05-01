@@ -1094,17 +1094,11 @@ export class EmailProcessor {
   // Helpers
   // =========================================================================
 
-  /**
-   * Attempt to auto-redeem a referral for a first-time sender. On success,
-   * mutates `user.credits` in place to the fresh balance and fires celebratory
-   * emails to both parties to drive virality. All failures are non-fatal so
-   * the primary flow is never blocked.
-   */
   private async tryRedeemAndNotifyReferral(
     user: { id: string; email: string; name: string | null; credits: number },
     senderEmail: string,
   ): Promise<void> {
-    let referral: { referrerId: string; referrerCredits: number; referredCredits: number } | null;
+    let referral: { referrerId: string; referrerCredits: number } | null;
     try {
       referral = await this.userRepo.autoRedeemReferralFromSigningHistory(user.id, senderEmail);
     } catch (refErr) {
@@ -1114,40 +1108,19 @@ export class EmailProcessor {
     if (!referral) return;
 
     logger.info({ newSenderId: user.id, referrerId: referral.referrerId }, 'Referral bonus redeemed');
-    user.credits = referral.referredCredits;
 
-    // Fire celebratory emails to both sides — virality hook.
     try {
       const referrer = await this.userRepo.findById(referral.referrerId);
       if (!referrer) return;
-      const appUrl = process.env.APP_URL || 'https://app.lapen.ai';
-      const BONUS = 5;
 
-      const referrerPurchaseUrl = `${appUrl}/credits?user=${referrer.id}`;
-      const referredPurchaseUrl = `${appUrl}/credits?user=${user.id}`;
-
-      await Promise.allSettled([
-        this.emailService.sendReferralBonusEmail({
-          to: referrer.email,
-          recipientName: referrer.name,
-          otherPartyEmail: user.email,
-          otherPartyName: user.name,
-          bonusAmount: BONUS,
-          newBalance: referral.referrerCredits,
-          purchaseUrl: referrerPurchaseUrl,
-          role: 'referrer',
-        }),
-        this.emailService.sendReferralBonusEmail({
-          to: user.email,
-          recipientName: user.name,
-          otherPartyEmail: referrer.email,
-          otherPartyName: referrer.name,
-          bonusAmount: BONUS,
-          newBalance: referral.referredCredits,
-          purchaseUrl: referredPurchaseUrl,
-          role: 'referred',
-        }),
-      ]);
+      await this.emailService.sendReferralBonusEmail({
+        to: referrer.email,
+        recipientName: referrer.name,
+        newSenderEmail: user.email,
+        newSenderName: user.name,
+        bonusAmount: 3,
+        newBalance: referral.referrerCredits,
+      });
     } catch (emailErr) {
       logger.warn({ err: emailErr }, 'Referral bonus email dispatch failed (non-fatal)');
     }

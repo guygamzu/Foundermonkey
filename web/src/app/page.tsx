@@ -59,7 +59,7 @@ export default function Home() {
           </div>
           <div className="lp-stat-divider" />
           <div className="lp-stat">
-            <span className="lp-stat-num">10 free</span>
+            <span className="lp-stat-num">5 free</span>
             <span className="lp-stat-label">Credits to start</span>
           </div>
         </div>
@@ -162,7 +162,7 @@ export default function Home() {
             <div className="lp-price-card">
               <h3>Free</h3>
               <div className="lp-price-amount">$0</div>
-              <p className="lp-price-desc">10 credits to start</p>
+              <p className="lp-price-desc">5 credits to start</p>
               <ul>
                 <li>All features included</li>
                 <li>AI document analysis</li>
@@ -217,7 +217,7 @@ export default function Home() {
             </div>
           </div>
           <p className="lp-referral">
-            Refer a friend &mdash; you both get <strong>5 free credits</strong>
+            When your signers start using Lapen, you earn <strong>3 free credits</strong>
           </p>
         </div>
       </section>
