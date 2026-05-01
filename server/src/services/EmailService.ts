@@ -489,7 +489,7 @@ export class EmailService {
     return this.sendEmail({
       to,
       subject: `Completed: ${fileName}`,
-      text: `Hi,\n\nThe document ${fileName} has been successfully signed by all parties.\n\nPlease find the fully executed document and Certificate of Completion attached.${creditText}\n\nPowered by Lapen`,
+      text: `Hi,\n\nThe document ${fileName} has been successfully signed by all parties.\n\nPlease find the fully executed document and Certificate of Completion attached.${creditText}\n\nPowered by La Pen. — a quieter way to get things signed`,
       html,
       attachments,
     });

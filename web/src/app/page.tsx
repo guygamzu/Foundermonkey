@@ -1,8 +1,8 @@
 import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
-  title: 'Lapen',
-  description: 'No signup. No app. Just email your PDF and Lapen handles the rest. AI-powered e-signatures with free-form signing tools.',
+  title: 'La Pen. — A quieter way to get things signed',
+  description: 'Email a PDF — we\'ll take it from there. No signup, no dashboard, no app. AI-powered e-signatures for freelancers and small studios.',
 };
 
 const MAILTO_BODY = encodeURIComponent(
@@ -22,7 +22,7 @@ export default function Home() {
             <a href="#features">Features</a>
             <a href="#pricing">Pricing</a>
           </div>
-          <a href={SIGN_MAILTO} className="lp-nav-cta">Get Started</a>
+          <a href={SIGN_MAILTO} className="lp-nav-cta">Try it</a>
         </div>
       </nav>
 
@@ -32,10 +32,11 @@ export default function Home() {
         <h1 className="lp-hero-h1">
           Email a&nbsp;PDF.<br />
           <em>We&rsquo;ll take it</em><br />
-          <span className="lp-gradient-text">from there</span>
+          <span className="lp-underline">from there</span><span className="lp-seal">.</span>
         </h1>
         <p className="lp-hero-p">
-          No signup. No app. Just a note to <strong style={{ fontWeight: 500 }}>sign@lapen.ai</strong> and a small,
+          An e-signature service for freelancers and small studios.
+          No dashboard. No app. Just a note to <strong style={{ fontWeight: 500 }}>sign@lapen.ai</strong> and a small,
           careful hand to take it the rest of the way.
         </p>
         <div className="lp-hero-actions">
@@ -238,7 +239,8 @@ export default function Home() {
         <div className="lp-footer-inner">
           <div className="lp-footer-brand">
             <span className="lp-logo lapen-mark">La <span className="pen">Pen</span><span className="seal">.</span></span>
-            <p>AI-powered e-signatures.<br />Simple, fast, and secure.</p>
+            <p>A quieter way to get things signed.</p>
+            <span className="lp-footer-hand">&mdash; a quieter pen.</span>
           </div>
           <div className="lp-footer-links">
             <a href="#how">How it works</a>
