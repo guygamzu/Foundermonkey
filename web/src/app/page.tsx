@@ -16,7 +16,7 @@ export default function Home() {
       {/* Nav */}
       <nav className="lp-nav">
         <div className="lp-nav-inner">
-          <span className="lp-logo">ləˈpɛn</span>
+          <span className="lp-logo lapen-mark">La <span className="pen">Pen</span><span className="seal">.</span></span>
           <div className="lp-nav-links">
             <a href="#how">How it works</a>
             <a href="#features">Features</a>
@@ -28,14 +28,15 @@ export default function Home() {
 
       {/* Hero */}
       <section className="lp-hero lp-panel" style={{ zIndex: 0 }}>
-        <div className="lp-hero-badge">AI-POWERED E-SIGNATURES</div>
+        <div className="lp-hero-badge">a quieter way to get things signed</div>
         <h1 className="lp-hero-h1">
-          Get documents signed<br />
-          <span className="lp-gradient-text">as easy as sending an email</span>
+          Email a&nbsp;PDF.<br />
+          <em>We&rsquo;ll take it</em><br />
+          <span className="lp-gradient-text">from there</span>
         </h1>
         <p className="lp-hero-p">
-          No signup. No app. Just email your PDF with the signers &mdash;
-          Lapen sends them signing links instantly. AI-powered, legally binding.
+          No signup. No app. Just a note to <strong style={{ fontWeight: 500 }}>sign@lapen.ai</strong> and a small,
+          careful hand to take it the rest of the way.
         </p>
         <div className="lp-hero-actions">
           <a href={SIGN_MAILTO} className="lp-btn lp-btn-primary">
@@ -236,7 +237,7 @@ export default function Home() {
       <footer className="lp-footer" style={{ zIndex: 6 }}>
         <div className="lp-footer-inner">
           <div className="lp-footer-brand">
-            <span className="lp-logo">ləˈpɛn</span>
+            <span className="lp-logo lapen-mark">La <span className="pen">Pen</span><span className="seal">.</span></span>
             <p>AI-powered e-signatures.<br />Simple, fast, and secure.</p>
           </div>
           <div className="lp-footer-links">

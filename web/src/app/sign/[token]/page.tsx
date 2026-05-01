@@ -677,7 +677,7 @@ export default function SigningPage() {
     <div className="signing-page">
       {/* Header */}
       <div className="signing-header">
-        <span className="logo">ləˈpɛn</span>
+        <span className="logo">La <span className="pen">Pen</span><span className="seal">.</span></span>
         <h1>{session.document.fileName}</h1>
         <button
           className="btn btn-danger"

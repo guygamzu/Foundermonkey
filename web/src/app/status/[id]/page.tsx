@@ -143,7 +143,9 @@ export default function StatusPage() {
   return (
     <div className="status-page">
       <div style={{ marginBottom: 24 }}>
-        <div style={{ fontSize: '1.125rem', fontWeight: 800, color: 'var(--primary)' }}>ləˈpɛn</div>
+        <div style={{ fontFamily: 'var(--font-serif)', fontSize: '1.4rem', fontWeight: 400, color: 'var(--ink)', letterSpacing: '-0.01em' }}>
+          La <em style={{ fontWeight: 300 }}>Pen</em><span style={{ color: 'var(--seal)' }}>.</span>
+        </div>
       </div>
 
       {/* Document header */}

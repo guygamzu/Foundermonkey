@@ -131,7 +131,7 @@ export default function PreviewPage() {
     <div className="signing-page">
       {/* Header — matches signing page but Decline is dimmed */}
       <div className="signing-header">
-        <span className="logo">ləˈpɛn</span>
+        <span className="logo">La <span className="pen">Pen</span><span className="seal">.</span></span>
         <h1>{preview.fileName}</h1>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <button

@@ -57,7 +57,7 @@ export class EmailService {
       const replyTo = (process.env.IMAP_USER || '').replace(/@@/g, '@');
 
       const payload: any = {
-        from: `ləˈpɛn <${this.fromEmail}>`,
+        from: `La Pen. <${this.fromEmail}>`,
         reply_to: replyTo || undefined,
         to: [options.to],
         subject: options.subject,
@@ -129,7 +129,7 @@ export class EmailService {
           <a href="${purchaseUrl}" style="display: inline-block; padding: 10px 22px; background: #dc2626; color: white; text-decoration: none; border-radius: 8px; font-weight: 700; font-size: 14px;">
             Top up credits
           </a>
-          <p style="margin: 14px 0 0; color: #9ca3af; font-size: 11px;">Powered by Lapen &mdash; AI-powered e-signatures</p>
+          <p style="margin: 14px 0 0; color: #9ca3af; font-size: 11px;">Powered by La Pen<span style="color: #2c4a35;">.</span> &mdash; a quieter way to get things signed</p>
         </div>
       `;
     }
@@ -142,10 +142,10 @@ export class EmailService {
         <p style="margin: 0 0 10px; color: #6b7280; font-size: 12px;">
           1 credit = 1 signature request
         </p>
-        <a href="${purchaseUrl}" style="display: inline-block; color: #2563eb; text-decoration: none; font-weight: 600; font-size: 13px; border-bottom: 1px solid #2563eb; padding-bottom: 1px;">
+        <a href="${purchaseUrl}" style="display: inline-block; color: #2c4a35; text-decoration: none; font-weight: 600; font-size: 13px; border-bottom: 1px solid #2c4a35; padding-bottom: 1px;">
           Manage credits
         </a>
-        <p style="margin: 12px 0 0; color: #9ca3af; font-size: 11px;">Powered by Lapen &mdash; AI-powered e-signatures</p>
+        <p style="margin: 12px 0 0; color: #9ca3af; font-size: 11px;">Powered by La Pen<span style="color: #2c4a35;">.</span> &mdash; a quieter way to get things signed</p>
       </div>
     `;
   }
@@ -179,7 +179,7 @@ export class EmailService {
     const isLow = newBalance < 5;
     const balanceColor = isLow ? '#dc2626' : '#16a34a';
     const lowWarning = isLow
-      ? `<p style="margin: 12px 0 0; color: #dc2626; font-size: 13px;">Your balance is getting low. <a href="${purchaseUrl}" style="color: #2563eb; text-decoration: underline;">Top up</a> to keep sending without interruption.</p>`
+      ? `<p style="margin: 12px 0 0; color: #dc2626; font-size: 13px;">Your balance is getting low. <a href="${purchaseUrl}" style="color: #2c4a35; text-decoration: underline;">Top up</a> to keep sending without interruption.</p>`
       : '';
 
     const html = `
@@ -279,7 +279,7 @@ export class EmailService {
           <h2 style="margin: 20px 0 8px; font-size: 16px; font-weight: 700; color: #111827;">${ctaHeadline}</h2>
           <p style="margin: 0 0 16px; font-size: 14px; color: #374151; line-height: 1.55;">${ctaSubline}</p>
           <div style="text-align: center; margin: 20px 0 4px;">
-            <a href="${shareHref}" style="display: inline-block; padding: 12px 28px; background: #2563eb; color: white; text-decoration: none; border-radius: 8px; font-weight: 700; font-size: 14px;">
+            <a href="${shareHref}" style="display: inline-block; padding: 12px 28px; background: #2c4a35; color: white; text-decoration: none; border-radius: 8px; font-weight: 700; font-size: 14px;">
               Share Lapen via email
             </a>
           </div>
@@ -330,7 +330,7 @@ export class EmailService {
         This will use <strong>${creditsRequired}</strong> of your <strong>${creditsRemaining}</strong> free signature credits.</p>
 
         <p>Here is a preview of the document with the fields I've identified:</p>
-        <p><a href="${previewUrl}" style="color: #2563eb;">View all detected fields on the full document</a></p>
+        <p><a href="${previewUrl}" style="color: #2c4a35;">View all detected fields on the full document</a></p>
 
         <p>And here is the message your recipient(s) will receive:</p>
         <div style="background: #f3f4f6; padding: 16px; border-radius: 8px; margin: 12px 0;">
@@ -340,7 +340,7 @@ export class EmailService {
         <p><strong>Shall I proceed? Reply Y or N.</strong></p>
 
         <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 24px 0;" />
-        <p style="color: #6b7280; font-size: 12px;">Lapen - AI-powered e-signatures</p>
+        <p style="color: #6b7280; font-size: 12px;">La Pen. — a quieter way to get things signed</p>
       </div>
     `;
 
@@ -371,7 +371,7 @@ export class EmailService {
     const html = `
       <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; color: #111827;">
         <!-- Header -->
-        <div style="background: linear-gradient(135deg, #2563eb 0%, #1e40af 100%); padding: 24px; border-radius: 12px 12px 0 0; text-align: center;">
+        <div style="background: linear-gradient(135deg, #2c4a35 0%, #1d3624 100%); padding: 24px; border-radius: 12px 12px 0 0; text-align: center;">
           <h1 style="margin: 0; color: white; font-size: 18px; font-weight: 700;">${senderName} sent you a document to sign</h1>
         </div>
 
@@ -380,7 +380,7 @@ export class EmailService {
           <p style="margin: 0 0 20px; font-size: 15px; line-height: 1.5;">${greeting}</p>
 
           <p style="margin: 0 0 20px; font-size: 15px; line-height: 1.5;">
-            <strong>${senderName}</strong> (<a href="mailto:${senderEmail}" style="color: #2563eb;">${senderEmail}</a>)
+            <strong>${senderName}</strong> (<a href="mailto:${senderEmail}" style="color: #2c4a35;">${senderEmail}</a>)
             has requested your signature on the following document:
           </p>
 
@@ -409,14 +409,14 @@ export class EmailService {
               Click the button below to review and sign the document online. You can place your signature, add text, dates, and checkboxes anywhere on the document.
             </p>
             <div style="text-align: center;">
-              <a href="${signingUrl}" style="display: inline-block; background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%); color: white; padding: 12px 32px; border-radius: 10px; text-decoration: none; font-weight: 700; font-size: 15px; box-shadow: 0 4px 14px rgba(37,99,235,0.35);">
+              <a href="${signingUrl}" style="display: inline-block; background: linear-gradient(135deg, #2c4a35 0%, #1d3624 100%); color: white; padding: 12px 32px; border-radius: 10px; text-decoration: none; font-weight: 700; font-size: 15px; box-shadow: 0 4px 14px rgba(44,74,53,0.35);">
                 Review & Sign Online
               </a>
             </div>
           </div>
 
           <p style="text-align: center; color: #9ca3af; font-size: 12px; margin: 0 0 16px;">
-            Direct link: <a href="${signingUrl}" style="color: #2563eb; word-break: break-all;">${signingUrl}</a>
+            Direct link: <a href="${signingUrl}" style="color: #2c4a35; word-break: break-all;">${signingUrl}</a>
           </p>
 
           <!-- Trust signals -->
@@ -432,7 +432,7 @@ export class EmailService {
         <!-- Footer -->
         <div style="background: #f9fafb; padding: 12px 24px; border: 1px solid #e5e7eb; border-top: none; border-radius: 0 0 12px 12px; text-align: center;">
           <p style="margin: 0; color: #9ca3af; font-size: 11px;">
-            Powered by Lapen &mdash; AI-powered e-signatures &middot; Secure &middot; Legally Binding
+            Powered by La Pen<span style="color: #2c4a35;">.</span> &mdash; a quieter way to get things signed &middot; Secure &middot; Legally Binding
           </p>
         </div>
       </div>
@@ -447,7 +447,7 @@ export class EmailService {
     return this.sendEmail({
       to,
       subject: `${senderName} (${senderEmail}) requested your signature: ${fileName}`,
-      text: `${greeting}\n\n${senderName} (${senderEmail}) has sent you a document to sign.\n\nDocument: ${fileName} (attached)\n${coverPlain ? `\nMessage: ${coverPlain}\n` : ''}\nReview and sign online: ${signingUrl}\n\nClick the link to review and sign the document digitally. You can place your signature, add text, dates, and checkboxes anywhere on the document.\n\nThis is a legitimate signature request. Electronic signatures are legally binding under the ESIGN Act and eIDAS regulation. If you weren't expecting this, you can safely ignore this email.\n\nPowered by Lapen - AI-powered e-signatures`,
+      text: `${greeting}\n\n${senderName} (${senderEmail}) has sent you a document to sign.\n\nDocument: ${fileName} (attached)\n${coverPlain ? `\nMessage: ${coverPlain}\n` : ''}\nReview and sign online: ${signingUrl}\n\nClick the link to review and sign the document digitally. You can place your signature, add text, dates, and checkboxes anywhere on the document.\n\nThis is a legitimate signature request. Electronic signatures are legally binding under the ESIGN Act and eIDAS regulation. If you weren't expecting this, you can safely ignore this email.\n\nPowered by La Pen. — a quieter way to get things signed`,
       html,
       attachments,
     });
@@ -463,7 +463,7 @@ export class EmailService {
     const creditFooter = senderCredits
       ? this.renderCreditBalanceHtml(senderCredits.credits, senderCredits.purchaseUrl)
       : `<div style="background: #f9fafb; padding: 12px 24px; border: 1px solid #e5e7eb; border-top: none; border-radius: 0 0 12px 12px; text-align: center;">
-          <p style="margin: 0; color: #9ca3af; font-size: 11px;">Powered by Lapen &mdash; AI-powered e-signatures</p>
+          <p style="margin: 0; color: #9ca3af; font-size: 11px;">Powered by La Pen<span style="color: #2c4a35;">.</span> &mdash; a quieter way to get things signed</p>
         </div>`;
     const creditText = senderCredits ? `\n\n${this.renderCreditBalanceText(senderCredits.credits)}` : '';
 
@@ -514,7 +514,7 @@ export class EmailService {
           </p>
           <div style="background: white; border: 2px dashed #f59e0b; border-radius: 8px; padding: 12px; text-align: center;">
             <span style="font-size: 11px; color: #9ca3af; text-transform: uppercase; letter-spacing: 1px;">Your referral code</span><br/>
-            <span style="font-size: 24px; font-weight: 800; color: #1e40af; letter-spacing: 3px; font-family: monospace;">${referralCode}</span>
+            <span style="font-size: 24px; font-weight: 800; color: #1d3624; letter-spacing: 3px; font-family: monospace;">${referralCode}</span>
           </div>
         </div>
     ` : '';
@@ -522,7 +522,7 @@ export class EmailService {
     const html = `
       <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 0;">
         <!-- Header -->
-        <div style="background: linear-gradient(135deg, #2563eb 0%, #7c3aed 100%); padding: 32px 24px; border-radius: 12px 12px 0 0; text-align: center;">
+        <div style="background: linear-gradient(135deg, #2c4a35 0%, #7c3aed 100%); padding: 32px 24px; border-radius: 12px 12px 0 0; text-align: center;">
           <h1 style="color: white; margin: 0; font-size: 22px; font-weight: 700;">You're almost there!</h1>
           <p style="color: rgba(255,255,255,0.85); margin: 8px 0 0; font-size: 14px;">Your document is ready to send</p>
         </div>
@@ -541,20 +541,20 @@ export class EmailService {
               <tr>
                 <td style="background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px 16px;">
                   <strong style="color: #374151;">10 credits</strong>
-                  <span style="float: right; color: #2563eb; font-weight: 700;">$15</span>
+                  <span style="float: right; color: #2c4a35; font-weight: 700;">$15</span>
                 </td>
               </tr>
               <tr>
-                <td style="background: #eff6ff; border: 2px solid #2563eb; border-radius: 8px; padding: 12px 16px; position: relative;">
-                  <strong style="color: #1e40af;">25 credits</strong>
-                  <span style="background: #2563eb; color: white; font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 10px; margin-left: 8px;">BEST VALUE</span>
-                  <span style="float: right; color: #2563eb; font-weight: 700;">$25</span>
+                <td style="background: #eff6ff; border: 2px solid #2c4a35; border-radius: 8px; padding: 12px 16px; position: relative;">
+                  <strong style="color: #1d3624;">25 credits</strong>
+                  <span style="background: #2c4a35; color: white; font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 10px; margin-left: 8px;">BEST VALUE</span>
+                  <span style="float: right; color: #2c4a35; font-weight: 700;">$25</span>
                 </td>
               </tr>
               <tr>
                 <td style="background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px 16px;">
                   <strong style="color: #374151;">100 credits</strong>
-                  <span style="float: right; color: #2563eb; font-weight: 700;">$75</span>
+                  <span style="float: right; color: #2c4a35; font-weight: 700;">$75</span>
                 </td>
               </tr>
             </table>
@@ -562,7 +562,7 @@ export class EmailService {
 
           <!-- CTA Button -->
           <div style="text-align: center; margin: 24px 0 8px;">
-            <a href="${purchaseUrl}" style="display: inline-block; background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%); color: white; padding: 14px 40px; border-radius: 10px; text-decoration: none; font-weight: 700; font-size: 16px; box-shadow: 0 4px 14px rgba(37,99,235,0.35);">
+            <a href="${purchaseUrl}" style="display: inline-block; background: linear-gradient(135deg, #2c4a35 0%, #1d3624 100%); color: white; padding: 14px 40px; border-radius: 10px; text-decoration: none; font-weight: 700; font-size: 16px; box-shadow: 0 4px 14px rgba(44,74,53,0.35);">
               Get Credits Now
             </a>
           </div>
@@ -576,7 +576,7 @@ export class EmailService {
         <!-- Footer -->
         <div style="background: #f9fafb; padding: 16px 24px; border: 1px solid #e5e7eb; border-top: none; border-radius: 0 0 12px 12px; text-align: center;">
           <p style="margin: 0; color: #9ca3af; font-size: 12px;">
-            Lapen &mdash; AI-powered e-signatures &middot; Simple, fast, and secure
+            La Pen<span style="color: #2c4a35;">.</span> &mdash; a quieter way to get things signed
           </p>
         </div>
       </div>
