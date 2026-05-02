@@ -106,6 +106,28 @@ async function main() {
     }
   }
 
+  // Contact form (no DB required)
+  app.post('/api/contact', async (req, res) => {
+    const { name, email, message } = req.body;
+    if (!name || !email || !message) {
+      return res.status(400).json({ error: 'All fields are required' });
+    }
+    try {
+      const { EmailService } = await import('./services/EmailService.js');
+      const emailService = new EmailService();
+      await emailService.sendEmail({
+        to: 'sign@lapen.ai',
+        subject: `Contact form: ${name}`,
+        text: `Name: ${name}\nEmail: ${email}\n\n${message}`,
+        html: `<p><strong>Name:</strong> ${name}</p><p><strong>Email:</strong> ${email}</p><p>${message.replace(/\n/g, '<br>')}</p>`,
+      });
+      res.json({ ok: true });
+    } catch (err) {
+      logger.error({ err }, 'Contact form failed');
+      res.status(500).json({ error: 'Failed to send message' });
+    }
+  });
+
   // Error handling
   app.use(errorHandler);
 

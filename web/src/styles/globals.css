@@ -215,6 +215,7 @@ body {
   border: 1px solid var(--terracotta);
 }
 .lp-btn-outline:hover { background: var(--ink); color: var(--cream); border-color: var(--ink); }
+.lp-btn-sm { padding: 8px 16px; font-size: 0.8rem; margin-top: 12px; }
 .lp-btn-lg { padding: 18px 38px; font-size: 1.05rem; }
 
 /* Stats */
@@ -503,6 +504,63 @@ body {
   font-size: 0.6rem;
   padding: 3px 10px;
   top: -10px;
+}
+
+/* Contact form */
+.lp-contact-inner {
+  max-width: 540px;
+}
+.lp-contact-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.lp-contact-form input,
+.lp-contact-form textarea {
+  font-family: var(--font-sans);
+  font-size: 0.95rem;
+  padding: 14px 16px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  background: var(--cream);
+  color: var(--ink);
+  outline: none;
+  transition: border-color 0.2s;
+}
+.lp-contact-form input:focus,
+.lp-contact-form textarea:focus {
+  border-color: var(--forest);
+}
+.lp-contact-form textarea {
+  resize: vertical;
+  min-height: 100px;
+}
+.lp-contact-form .lp-btn {
+  align-self: flex-start;
+  margin-top: 4px;
+}
+.lp-contact-form .lp-btn:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+.lp-contact-success {
+  text-align: center;
+  padding: 32px;
+  background: var(--cream);
+  border-radius: var(--radius);
+  border: 1px solid var(--forest);
+}
+.lp-contact-success p {
+  font-family: var(--font-serif);
+  font-weight: 300;
+  font-size: 1.1rem;
+  color: var(--forest);
+  margin: 0;
+}
+.lp-contact-error {
+  color: var(--danger);
+  font-size: 0.875rem;
+  margin: 0;
 }
 
 /* CTA */

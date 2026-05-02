@@ -1,5 +1,11 @@
 import type { Metadata } from 'next';
 import { ScrollLink } from '../components/ScrollLink';
+import { ContactForm } from '../components/ContactForm';
+
+const SET_MAILTO_BODY = encodeURIComponent(
+  '[INSTRUCTIONS - delete before sending]\n\n- Add signer emails to the TO field\n- Attach your PDF\n- Hit send — you will receive a link to place signature fields on the PDF before it goes to signers\n\n---\n\nHi,\n\nThe attached PDF is for your signature. You will receive a follow-up email from Lapen shortly with a secure signing link.\n\nThank you'
+);
+const SET_MAILTO = `mailto:?cc=set@lapen.ai&subject=${encodeURIComponent('Document for signature (place fields)')}&body=${SET_MAILTO_BODY}`;
 
 export const metadata: Metadata = {
   title: 'La Pen. — A quieter way to get things signed',
@@ -21,7 +27,7 @@ export default function Home() {
           <div className="lp-nav-links">
             <ScrollLink href="#how">How it works</ScrollLink>
             <ScrollLink href="#features">Features</ScrollLink>
-            <ScrollLink href="#credits">Credits</ScrollLink>
+            <ScrollLink href="#pricing">Pricing</ScrollLink>
           </div>
           <a href={SIGN_MAILTO} className="lp-nav-cta">Try it</a>
         </div>
@@ -178,6 +184,7 @@ export default function Home() {
               </div>
               <h3>Free-form or placed fields</h3>
               <p>Let signers place fields freely, or use <strong>set@lapen.ai</strong> to visually assign signature, text, and date fields per signer before sending.</p>
+              <a href={SET_MAILTO} className="lp-btn lp-btn-outline lp-btn-sm">Place fields first</a>
             </div>
             <div className="lp-feature">
               <div className="lp-feature-icon">
@@ -218,10 +225,10 @@ export default function Home() {
         </div>
       </section>
 
-      {/* Credits & Pricing */}
-      <section className="lp-section lp-section-alt lp-panel" id="credits" style={{ zIndex: 4 }}>
+      {/* Pricing */}
+      <section className="lp-section lp-section-alt lp-panel" id="pricing" style={{ zIndex: 4 }}>
         <div className="lp-section-inner">
-          <div className="lp-section-label">CREDITS</div>
+          <div className="lp-section-label">PRICING</div>
           <h2 className="lp-section-h2">Signatures for <em>everyone</em></h2>
           <p className="lp-section-sub">
             No subscriptions. No per-seat pricing. Just credits that work when you need them.
@@ -247,7 +254,7 @@ export default function Home() {
             Every account starts with <strong>5 free credits</strong> &mdash; no card required.
           </p>
 
-          <h3 className="lp-pricing-title" id="pricing">Need more? Grab a credit pack.</h3>
+          <h3 className="lp-pricing-title">Need more? Grab a credit pack.</h3>
           <div className="lp-pricing lp-pricing-compact">
             <div className="lp-price-card">
               <h3>Free</h3>
@@ -321,6 +328,18 @@ export default function Home() {
         </div>
       </section>
 
+      {/* Contact */}
+      <section className="lp-section" id="contact" style={{ zIndex: 6 }}>
+        <div className="lp-section-inner lp-contact-inner">
+          <div className="lp-section-label">CONTACT</div>
+          <h2 className="lp-section-h2">Get in touch</h2>
+          <p className="lp-section-sub">
+            Questions, feedback, or just want to say hello? We&apos;d love to hear from you.
+          </p>
+          <ContactForm />
+        </div>
+      </section>
+
       {/* Footer */}
       <footer className="lp-footer" style={{ zIndex: 6 }}>
         <div className="lp-footer-inner">
@@ -332,8 +351,8 @@ export default function Home() {
           <div className="lp-footer-links">
             <ScrollLink href="#how">How it works</ScrollLink>
             <ScrollLink href="#features">Features</ScrollLink>
-            <ScrollLink href="#credits">Credits</ScrollLink>
-            <a href={SIGN_MAILTO}>Contact</a>
+            <ScrollLink href="#pricing">Pricing</ScrollLink>
+            <ScrollLink href="#contact">Contact</ScrollLink>
           </div>
         </div>
         <div className="lp-footer-bottom">
