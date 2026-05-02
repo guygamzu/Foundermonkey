@@ -58,6 +58,14 @@ body {
   line-height: 1.55;
 }
 
+html {
+  scroll-behavior: smooth;
+}
+
+#how, #features, #credits, #pricing {
+  scroll-margin-top: 72px;
+}
+
 /* ==========================================
    La Pen. wordmark — "La" roman + "Pen" italic + forest period
    Use anywhere the brand wordmark should appear.
@@ -101,6 +109,7 @@ body {
 .lp-nav-links a {
   color: var(--ink-soft); text-decoration: none; font-size: 0.875rem;
   font-weight: 500; transition: color 0.2s;
+  padding: 8px 4px;
 }
 .lp-nav-links a:hover { color: var(--ink); }
 .lp-nav-cta {

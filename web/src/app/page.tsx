@@ -6,7 +6,7 @@ export const metadata: Metadata = {
 };
 
 const MAILTO_BODY = encodeURIComponent(
-  'Hi,\n\nThe attached PDF is for your signature. You will receive a follow-up email from Lapen shortly with a secure signing link — no need to sign the attachment directly.\n\nThank you'
+  '--- INSTRUCTIONS (delete before sending) ---\n\n• Add signer email addresses to the TO field\n• Attach your PDF\n• Hit send — Lapen handles the rest\n\n————————————————\n\nHi,\n\nThe attached PDF is for your signature. You will receive a follow-up email from Lapen shortly with a secure signing link — no need to sign the attachment directly.\n\nThank you'
 );
 const SIGN_MAILTO = `mailto:?cc=sign@lapen.ai&body=${MAILTO_BODY}`;
 
