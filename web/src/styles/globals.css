@@ -23,9 +23,9 @@
   --terracotta: #a8512f;   /* secondary CTA outline */
 
   /* --- Semantic tokens (mapped onto Gebbia) -------------------------- */
-  --primary:      var(--forest);
-  --primary-dark: #1d3624;
-  --seal:         var(--forest); /* La Pen. period color */
+  --primary:      var(--terracotta);
+  --primary-dark: #8a3f22;
+  --seal:         var(--terracotta); /* La Pen. period color */
   --success:      #16a34a;
   --danger:       #b03826;
   --warning:      #c4882a;
@@ -146,7 +146,7 @@ body {
   display: inline-block;
   font-family: var(--font-hand);
   font-size: 1.6rem;
-  color: var(--forest);
+  color: var(--terracotta);
   background: transparent;
   border: none;
   letter-spacing: 0;
@@ -177,7 +177,7 @@ body {
   left: -4px; right: -4px;
   bottom: 4px;
   height: 14px;
-  background: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 14' preserveAspectRatio='none'><path d='M2 8 C 80 2, 160 14, 240 6 S 380 4, 398 9' stroke='%232c4a35' stroke-width='3' fill='none' stroke-linecap='round'/></svg>") no-repeat center / 100% 100%;
+  background: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 14' preserveAspectRatio='none'><path d='M2 8 C 80 2, 160 14, 240 6 S 380 4, 398 9' stroke='%23a8512f' stroke-width='3' fill='none' stroke-linecap='round'/></svg>") no-repeat center / 100% 100%;
 }
 .lp-seal {
   color: var(--seal);
@@ -242,7 +242,7 @@ body {
   font-size: 1.4rem;
   font-weight: 500;
   letter-spacing: 0;
-  color: var(--forest);
+  color: var(--terracotta);
   margin-bottom: 8px; text-align: center;
   transform: rotate(-1deg);
   display: block;
@@ -273,10 +273,10 @@ body {
   box-shadow: var(--shadow);
   transition: border-color 0.3s, box-shadow 0.3s;
 }
-.lp-step:hover { border-color: var(--forest); box-shadow: 0 4px 20px rgba(44, 74, 53, 0.10); }
+.lp-step:hover { border-color: var(--terracotta); box-shadow: 0 4px 20px rgba(168, 81, 47, 0.10); }
 .lp-step-num {
   font-family: var(--font-hand);
-  font-size: 1.6rem; font-weight: 500; color: var(--forest);
+  font-size: 1.6rem; font-weight: 500; color: var(--terracotta);
   margin-bottom: 14px;
 }
 .lp-step h3 {
@@ -301,8 +301,8 @@ body {
   transition: border-color 0.3s, box-shadow 0.3s;
 }
 .lp-feature:hover {
-  border-color: var(--forest);
-  box-shadow: 0 4px 20px rgba(44, 74, 53, 0.10);
+  border-color: var(--terracotta);
+  box-shadow: 0 4px 20px rgba(168, 81, 47, 0.10);
 }
 .lp-feature-icon { margin-bottom: 12px; line-height: 1; }
 .lp-feature h3 {
@@ -346,16 +346,16 @@ body {
   border-top: 1px solid var(--rule);
 }
 .lp-price-card ul li::before {
-  content: '\2713 '; color: var(--forest); font-weight: 700; margin-right: 8px;
+  content: '\2713 '; color: var(--terracotta); font-weight: 700; margin-right: 8px;
 }
 .lp-price-featured {
-  border: 2px solid var(--forest);
+  border: 2px solid var(--terracotta);
   background: var(--paper);
-  box-shadow: 0 4px 20px rgba(44, 74, 53, 0.10);
+  box-shadow: 0 4px 20px rgba(168, 81, 47, 0.10);
 }
 .lp-price-tag {
   position: absolute; top: -11px; left: 50%; transform: translateX(-50%);
-  background: var(--forest);
+  background: var(--terracotta);
   color: var(--cream); font-size: 0.65rem; font-weight: 700;
   padding: 4px 14px; border-radius: 100px;
   letter-spacing: 1px; text-transform: uppercase;
@@ -368,7 +368,7 @@ body {
   text-align: center; color: var(--ink-soft); font-size: 0.95rem; margin-top: 32px;
   font-family: var(--font-serif); font-weight: 300;
 }
-.lp-referral strong { color: var(--forest); font-weight: 500; }
+.lp-referral strong { color: var(--terracotta); font-weight: 500; }
 
 /* Flow illustration */
 .lp-flow {
@@ -388,16 +388,16 @@ body {
   height: 80px;
   border-radius: 50%;
   background: var(--cream);
-  border: 2px solid var(--forest);
+  border: 2px solid var(--terracotta);
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--forest);
+  color: var(--terracotta);
 }
 .lp-flow-text {
   font-family: var(--font-hand);
   font-size: 1.3rem;
-  color: var(--forest);
+  color: var(--terracotta);
 }
 .lp-flow-connector {
   flex: 0 0 64px;
@@ -405,7 +405,7 @@ body {
   margin-top: 40px;
   background-image: repeating-linear-gradient(
     90deg,
-    var(--forest) 0 8px,
+    var(--terracotta) 0 8px,
     transparent 8px 16px
   );
   background-size: 16px 2px;
@@ -462,7 +462,7 @@ body {
   font-family: var(--font-serif);
   font-size: 2.5rem;
   font-weight: 400;
-  color: var(--forest);
+  color: var(--terracotta);
   margin-bottom: 12px;
   letter-spacing: -0.02em;
 }
@@ -488,7 +488,7 @@ body {
   margin-bottom: 56px;
 }
 .lp-credit-start strong {
-  color: var(--forest);
+  color: var(--terracotta);
   font-weight: 500;
 }
 
@@ -554,7 +554,7 @@ body {
 }
 .lp-contact-form input:focus,
 .lp-contact-form textarea:focus {
-  border-color: var(--forest);
+  border-color: var(--terracotta);
 }
 .lp-contact-form textarea {
   resize: vertical;
@@ -573,13 +573,13 @@ body {
   padding: 32px;
   background: var(--cream);
   border-radius: var(--radius);
-  border: 1px solid var(--forest);
+  border: 1px solid var(--terracotta);
 }
 .lp-contact-success p {
   font-family: var(--font-serif);
   font-weight: 300;
   font-size: 1.1rem;
-  color: var(--forest);
+  color: var(--terracotta);
   margin: 0;
 }
 .lp-contact-error {
@@ -608,7 +608,7 @@ body {
 }
 .lp-cta-email {
   display: block; margin-top: 16px; font-size: 1rem;
-  color: var(--forest); font-family: var(--font-hand);
+  color: var(--terracotta); font-family: var(--font-hand);
   font-size: 1.4rem;
 }
 
@@ -660,7 +660,7 @@ body {
   .lp-flow-connector {
     flex: 0 0 32px; width: 2px; height: 32px;
     margin-top: 0;
-    background-image: repeating-linear-gradient(180deg, var(--forest) 0 8px, transparent 8px 16px);
+    background-image: repeating-linear-gradient(180deg, var(--terracotta) 0 8px, transparent 8px 16px);
     background-size: 2px 16px;
     animation: flowDashV 0.6s linear infinite;
   }
@@ -741,8 +741,8 @@ body {
 /* Signature Fields */
 .field-overlay {
   position: absolute;
-  border: 2px solid var(--forest);
-  background: rgba(44, 74, 53, 0.12);
+  border: 2px solid var(--terracotta);
+  background: rgba(168, 81, 47, 0.12);
   cursor: pointer;
   border-radius: 4px;
   display: flex;
@@ -751,16 +751,16 @@ body {
   transition: all 0.2s;
   animation: fieldPulse 2s ease-in-out infinite;
   z-index: 11;
-  box-shadow: 0 0 8px rgba(44, 74, 53, 0.3);
+  box-shadow: 0 0 8px rgba(168, 81, 47, 0.3);
 }
 
 @keyframes fieldPulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(44, 74, 53, 0.3); }
-  50% { box-shadow: 0 0 0 6px rgba(44, 74, 53, 0); }
+  0%, 100% { box-shadow: 0 0 0 0 rgba(168, 81, 47, 0.3); }
+  50% { box-shadow: 0 0 0 6px rgba(168, 81, 47, 0); }
 }
 
 .field-overlay:hover {
-  background: rgba(44, 74, 53, 0.18);
+  background: rgba(168, 81, 47, 0.18);
   border-color: var(--primary-dark);
 }
 
@@ -771,15 +771,15 @@ body {
 }
 
 .field-overlay.active {
-  border-color: var(--forest);
-  background: rgba(44, 74, 53, 0.18);
-  box-shadow: 0 0 0 4px rgba(44, 74, 53, 0.22);
+  border-color: var(--terracotta);
+  background: rgba(168, 81, 47, 0.18);
+  box-shadow: 0 0 0 4px rgba(168, 81, 47, 0.22);
   animation: none;
 }
 
 .field-label {
   font-size: 11px;
-  color: var(--forest);
+  color: var(--terracotta);
   font-weight: 500;
   pointer-events: none;
 }
