@@ -67,8 +67,7 @@ export default function Home() {
       </section>
 
       {/* How it works */}
-      <div id="how" />
-      <section className="lp-section lp-panel" style={{ zIndex: 2 }}>
+      <section className="lp-section lp-panel" id="how" style={{ zIndex: 2 }}>
         <div className="lp-section-inner">
           <div className="lp-section-label">HOW IT WORKS</div>
           <h2 className="lp-section-h2">One email. That&apos;s it.</h2>
@@ -144,8 +143,7 @@ export default function Home() {
       </section>
 
       {/* Features */}
-      <div id="features" />
-      <section className="lp-section lp-section-alt lp-panel" style={{ zIndex: 3 }}>
+      <section className="lp-section lp-section-alt lp-panel" id="features" style={{ zIndex: 3 }}>
         <div className="lp-section-inner">
           <div className="lp-section-label">CAPABILITIES</div>
           <h2 className="lp-section-h2">Everything you need, nothing you don&apos;t</h2>
@@ -221,8 +219,7 @@ export default function Home() {
       </section>
 
       {/* Credits & Pricing */}
-      <div id="credits" />
-      <section className="lp-section lp-section-alt lp-panel" style={{ zIndex: 4 }}>
+      <section className="lp-section lp-section-alt lp-panel" id="credits" style={{ zIndex: 4 }}>
         <div className="lp-section-inner">
           <div className="lp-section-label">CREDITS</div>
           <h2 className="lp-section-h2">Signatures for <em>everyone</em></h2>

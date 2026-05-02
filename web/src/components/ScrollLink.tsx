@@ -21,12 +21,14 @@ export function ScrollLink({
     if (!el) return;
     e.preventDefault();
 
-    let top = 0;
-    let node: HTMLElement | null = el;
-    while (node) {
-      top += node.offsetTop;
-      node = node.offsetParent as HTMLElement | null;
-    }
+    // Temporarily unstick all panels so getBoundingClientRect returns
+    // the natural document-flow position, not the stuck position.
+    const panels = document.querySelectorAll<HTMLElement>('.lp-panel');
+    panels.forEach(p => { p.style.position = 'relative'; });
+
+    const top = el.getBoundingClientRect().top + window.scrollY;
+
+    panels.forEach(p => { p.style.position = ''; });
 
     window.scrollTo({ top: Math.max(0, top - 72), behavior: 'smooth' });
   };
