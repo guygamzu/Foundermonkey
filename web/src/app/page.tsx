@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { ScrollLink } from '../components/ScrollLink';
 import { ContactForm } from '../components/ContactForm';
+import { AnimatedSection } from '../components/AnimatedSection';
 
 const SET_MAILTO_BODY = encodeURIComponent(
   '[INSTRUCTIONS - delete before sending]\n\n- Add signer emails to the TO field\n- Attach your PDF\n- Hit send\n- Lapen will email you a link to place signature fields on the PDF\n- Once you place the fields and confirm, your signers receive their signing links\n\n---\n\nHi,\n\nThe attached PDF will need your signature. You will receive a follow-up email from Lapen with a secure signing link once the document is ready.\n\nThank you'
@@ -79,62 +80,64 @@ export default function Home() {
           <h2 className="lp-section-h2">One email. That&apos;s it.</h2>
           <p className="lp-section-sub">Get your first document signed in under a minute.</p>
 
-          <div className="lp-flow">
-            <div className="lp-flow-node">
-              <div className="lp-flow-circle">
-                <svg width="32" height="32" viewBox="0 0 32 32" fill="none" stroke="currentColor" strokeWidth="1.5">
-                  <rect x="3" y="7" width="26" height="18" rx="2" />
-                  <path d="M3 9l13 9 13-9" />
-                </svg>
+          <AnimatedSection className="lp-how-animated">
+            <div className="lp-flow">
+              <div className="lp-flow-node">
+                <div className="lp-flow-circle">
+                  <svg width="32" height="32" viewBox="0 0 32 32" fill="none" stroke="currentColor" strokeWidth="1.5">
+                    <rect x="3" y="7" width="26" height="18" rx="2" />
+                    <path d="M3 9l13 9 13-9" />
+                  </svg>
+                </div>
+                <span className="lp-flow-text">You send</span>
               </div>
-              <span className="lp-flow-text">You send</span>
-            </div>
-            <div className="lp-flow-connector" />
-            <div className="lp-flow-node">
-              <div className="lp-flow-circle">
-                <svg width="32" height="32" viewBox="0 0 32 32" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-                  <path d="M16 4v24M4 16h24M8 8l16 16M24 8L8 24" />
-                </svg>
+              <div className="lp-flow-connector" />
+              <div className="lp-flow-node">
+                <div className="lp-flow-circle">
+                  <svg width="32" height="32" viewBox="0 0 32 32" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+                    <path d="M16 4v24M4 16h24M8 8l16 16M24 8L8 24" />
+                  </svg>
+                </div>
+                <span className="lp-flow-text">We handle it</span>
               </div>
-              <span className="lp-flow-text">We handle it</span>
-            </div>
-            <div className="lp-flow-connector" />
-            <div className="lp-flow-node">
-              <div className="lp-flow-circle">
-                <svg width="32" height="32" viewBox="0 0 32 32" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M8 16l5 5 11-11" />
-                </svg>
+              <div className="lp-flow-connector" />
+              <div className="lp-flow-node">
+                <div className="lp-flow-circle">
+                  <svg width="32" height="32" viewBox="0 0 32 32" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M8 16l5 5 11-11" />
+                  </svg>
+                </div>
+                <span className="lp-flow-text">They sign</span>
               </div>
-              <span className="lp-flow-text">They sign</span>
             </div>
-          </div>
 
-          <div className="lp-steps">
-            <div className="lp-step">
-              <div className="lp-step-num">01</div>
-              <h3>Email your PDF + signers</h3>
-              <p>
-                Add your signers to TO, CC <strong>sign@lapen.ai</strong>.
-                Attach the PDF. Hit send.
-              </p>
+            <div className="lp-steps">
+              <div className="lp-step">
+                <div className="lp-step-num">01</div>
+                <h3>Email your PDF + signers</h3>
+                <p>
+                  Add your signers to TO, CC <strong>sign@lapen.ai</strong>.
+                  Attach the PDF. Hit send.
+                </p>
+              </div>
+              <div className="lp-step">
+                <div className="lp-step-num">02</div>
+                <h3>Signers get instant links</h3>
+                <p>
+                  Lapen sends each signer a personalized signing link with an AI summary
+                  and an assistant to answer questions about the document.
+                </p>
+              </div>
+              <div className="lp-step">
+                <div className="lp-step-num">03</div>
+                <h3>Done. Everyone signs.</h3>
+                <p>
+                  Signers place signatures, text, dates, and checkboxes anywhere
+                  on the document. You get notified when it&apos;s complete.
+                </p>
+              </div>
             </div>
-            <div className="lp-step">
-              <div className="lp-step-num">02</div>
-              <h3>Signers get instant links</h3>
-              <p>
-                Lapen sends each signer a personalized signing link with an AI summary
-                and an assistant to answer questions about the document.
-              </p>
-            </div>
-            <div className="lp-step">
-              <div className="lp-step-num">03</div>
-              <h3>Done. Everyone signs.</h3>
-              <p>
-                Signers place signatures, text, dates, and checkboxes anywhere
-                on the document. You get notified when it&apos;s complete.
-              </p>
-            </div>
-          </div>
+          </AnimatedSection>
 
           <div style={{ textAlign: 'center', marginTop: 40, padding: '24px', background: 'var(--gray-50)', borderRadius: 12, border: '1px solid var(--gray-200)' }}>
             <p style={{ fontSize: '0.95rem', color: 'var(--gray-700)', margin: '0 0 4px', fontWeight: 600 }}>

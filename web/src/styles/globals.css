@@ -235,7 +235,7 @@ body {
 }
 
 /* Sections */
-.lp-section { padding: 80px 24px; background: var(--sand); }
+.lp-section { position: relative; padding: 80px 24px; background: var(--sand); }
 .lp-section-inner { max-width: 1100px; margin: 0 auto; }
 .lp-section-label {
   font-family: var(--font-hand);
@@ -418,6 +418,31 @@ body {
   to { background-position: 0 16px; }
 }
 
+/* How-it-works reveal animation */
+.lp-how-animated .lp-flow-node,
+.lp-how-animated .lp-flow-connector,
+.lp-how-animated .lp-step {
+  opacity: 0;
+  transform: translateY(24px);
+  transition: opacity 0.55s ease, transform 0.55s ease;
+}
+.lp-how-animated.is-visible .lp-flow-node,
+.lp-how-animated.is-visible .lp-flow-connector,
+.lp-how-animated.is-visible .lp-step {
+  opacity: 1;
+  transform: translateY(0);
+}
+.lp-how-animated.is-visible .lp-flow-node:nth-child(1) { transition-delay: 0s; }
+.lp-how-animated.is-visible .lp-flow-connector:nth-child(2) { transition-delay: 0.15s; }
+.lp-how-animated.is-visible .lp-flow-node:nth-child(3) { transition-delay: 0.3s; }
+.lp-how-animated.is-visible .lp-flow-connector:nth-child(4) { transition-delay: 0.45s; }
+.lp-how-animated.is-visible .lp-flow-node:nth-child(5) { transition-delay: 0.6s; }
+.lp-how-animated.is-visible .lp-step:nth-child(1) { transition-delay: 0.5s; }
+.lp-how-animated.is-visible .lp-step:nth-child(2) { transition-delay: 0.65s; }
+.lp-how-animated.is-visible .lp-step:nth-child(3) { transition-delay: 0.8s; }
+.lp-how-animated .lp-flow-connector { animation: none; }
+.lp-how-animated.is-visible .lp-flow-connector { animation: flowDash 0.6s linear infinite; }
+
 /* Credit cards */
 .lp-credit-cards {
   display: grid;
@@ -565,6 +590,7 @@ body {
 
 /* CTA */
 .lp-cta {
+  position: relative;
   padding: 80px 24px; text-align: center;
   background: var(--cream);
   min-height: auto;
@@ -587,7 +613,7 @@ body {
 }
 
 /* Footer */
-.lp-footer { background: var(--sand); min-height: auto; position: relative; border-top: 1px solid var(--rule); }
+.lp-footer { position: relative; background: var(--sand); min-height: auto; border-top: 1px solid var(--rule); }
 .lp-footer-inner {
   max-width: 1100px; margin: 0 auto; padding: 48px 24px 32px;
   display: flex; justify-content: space-between; align-items: flex-start;
@@ -638,6 +664,8 @@ body {
     background-size: 2px 16px;
     animation: flowDashV 0.6s linear infinite;
   }
+  .lp-how-animated .lp-flow-connector { animation: none; }
+  .lp-how-animated.is-visible .lp-flow-connector { animation: flowDashV 0.6s linear infinite; }
   .lp-panel { position: relative; min-height: auto; border-radius: 0; box-shadow: none; }
 }
 
