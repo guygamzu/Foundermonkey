@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import { ScrollLink } from '../components/ScrollLink';
-import { ContactForm } from '../components/ContactForm';
+
 import { AnimatedSection } from '../components/AnimatedSection';
 
 const SET_MAILTO_BODY = encodeURIComponent(
@@ -331,18 +331,6 @@ export default function Home() {
         </div>
       </section>
 
-      {/* Contact */}
-      <section className="lp-section" id="contact" style={{ zIndex: 6 }}>
-        <div className="lp-section-inner lp-contact-inner">
-          <div className="lp-section-label">CONTACT</div>
-          <h2 className="lp-section-h2">Get in touch</h2>
-          <p className="lp-section-sub">
-            Questions, feedback, or just want to say hello? We&apos;d love to hear from you.
-          </p>
-          <ContactForm />
-        </div>
-      </section>
-
       {/* Footer */}
       <footer className="lp-footer" style={{ zIndex: 6 }}>
         <div className="lp-footer-inner">
@@ -355,7 +343,7 @@ export default function Home() {
             <ScrollLink href="#how">How it works</ScrollLink>
             <ScrollLink href="#features">Features</ScrollLink>
             <ScrollLink href="#pricing">Pricing</ScrollLink>
-            <ScrollLink href="#contact">Contact</ScrollLink>
+            <a href="mailto:support@lapen.ai">Contact</a>
           </div>
         </div>
         <div className="lp-footer-bottom">
