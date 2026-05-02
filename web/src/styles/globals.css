@@ -58,9 +58,6 @@ body {
   line-height: 1.55;
 }
 
-#how, #features, #credits, #pricing {
-  scroll-margin-top: 72px;
-}
 
 /* ==========================================
    La Pen. wordmark — "La" roman + "Pen" italic + forest period
@@ -110,14 +107,15 @@ body {
 }
 .lp-nav-links a:hover { color: var(--ink); }
 .lp-nav-cta {
-  background: var(--cream); color: var(--ink);
-  padding: 10px 20px;
+  background: var(--ink); color: var(--cream);
+  padding: 10px 24px;
   border-radius: 999px;
-  border: 1px solid var(--terracotta);
-  font-size: 0.875rem; font-weight: 500;
+  border: 1px solid var(--ink);
+  font-size: 0.875rem; font-weight: 600;
   text-decoration: none; transition: all 0.2s;
+  box-shadow: 0 2px 8px rgba(31, 26, 20, 0.18);
 }
-.lp-nav-cta:hover { background: var(--ink); color: var(--cream); border-color: var(--ink); }
+.lp-nav-cta:hover { background: var(--ink-soft); color: var(--cream); border-color: var(--ink-soft); transform: translateY(-1px); }
 
 /* Stacking panels — each section slides up over the previous */
 .lp-panel {
