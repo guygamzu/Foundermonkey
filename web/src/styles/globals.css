@@ -58,10 +58,6 @@ body {
   line-height: 1.55;
 }
 
-html {
-  scroll-behavior: smooth;
-}
-
 #how, #features, #credits, #pricing {
   scroll-margin-top: 72px;
 }

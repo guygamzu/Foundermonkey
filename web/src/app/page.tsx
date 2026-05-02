@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { ScrollLink } from '../components/ScrollLink';
 
 export const metadata: Metadata = {
   title: 'La Pen. — A quieter way to get things signed',
@@ -6,9 +7,9 @@ export const metadata: Metadata = {
 };
 
 const MAILTO_BODY = encodeURIComponent(
-  '--- INSTRUCTIONS (delete before sending) ---\n\n• Add signer email addresses to the TO field\n• Attach your PDF\n• Hit send — Lapen handles the rest\n\n————————————————\n\nHi,\n\nThe attached PDF is for your signature. You will receive a follow-up email from Lapen shortly with a secure signing link — no need to sign the attachment directly.\n\nThank you'
+  '[INSTRUCTIONS - delete before sending]\n\n- Add signer emails to the TO field\n- Attach your PDF\n- Hit send\n\n---\n\nHi,\n\nThe attached PDF is for your signature. You will receive a follow-up email from Lapen shortly with a secure signing link.\n\nThank you'
 );
-const SIGN_MAILTO = `mailto:?cc=sign@lapen.ai&body=${MAILTO_BODY}`;
+const SIGN_MAILTO = `mailto:?cc=sign@lapen.ai&subject=${encodeURIComponent('Document for signature')}&body=${MAILTO_BODY}`;
 
 export default function Home() {
   return (
@@ -16,11 +17,11 @@ export default function Home() {
       {/* Nav */}
       <nav className="lp-nav">
         <div className="lp-nav-inner">
-          <a href="#" className="lp-logo lapen-mark">La <span className="pen">Pen</span><span className="seal">.</span></a>
+          <ScrollLink href="#" className="lp-logo lapen-mark">La <span className="pen">Pen</span><span className="seal">.</span></ScrollLink>
           <div className="lp-nav-links">
-            <a href="#how">How it works</a>
-            <a href="#features">Features</a>
-            <a href="#credits">Credits</a>
+            <ScrollLink href="#how">How it works</ScrollLink>
+            <ScrollLink href="#features">Features</ScrollLink>
+            <ScrollLink href="#credits">Credits</ScrollLink>
           </div>
           <a href={SIGN_MAILTO} className="lp-nav-cta">Try it</a>
         </div>
@@ -43,9 +44,9 @@ export default function Home() {
           <a href={SIGN_MAILTO} className="lp-btn lp-btn-primary">
             Send your first document
           </a>
-          <a href="#how" className="lp-btn lp-btn-ghost">
+          <ScrollLink href="#how" className="lp-btn lp-btn-ghost">
             See how it works
-          </a>
+          </ScrollLink>
         </div>
         <div className="lp-hero-stats">
           <div className="lp-stat">
@@ -324,14 +325,14 @@ export default function Home() {
       <footer className="lp-footer" style={{ zIndex: 6 }}>
         <div className="lp-footer-inner">
           <div className="lp-footer-brand">
-            <a href="#" className="lp-logo lapen-mark">La <span className="pen">Pen</span><span className="seal">.</span></a>
+            <ScrollLink href="#" className="lp-logo lapen-mark">La <span className="pen">Pen</span><span className="seal">.</span></ScrollLink>
             <p>A quieter way to get things signed.</p>
             <span className="lp-footer-hand">&mdash; a quieter pen.</span>
           </div>
           <div className="lp-footer-links">
-            <a href="#how">How it works</a>
-            <a href="#features">Features</a>
-            <a href="#credits">Credits</a>
+            <ScrollLink href="#how">How it works</ScrollLink>
+            <ScrollLink href="#features">Features</ScrollLink>
+            <ScrollLink href="#credits">Credits</ScrollLink>
             <a href={SIGN_MAILTO}>Contact</a>
           </div>
         </div>
