@@ -309,7 +309,7 @@ html {
   border-color: var(--forest);
   box-shadow: 0 4px 20px rgba(44, 74, 53, 0.10);
 }
-.lp-feature-icon { font-size: 1.75rem; margin-bottom: 12px; }
+.lp-feature-icon { margin-bottom: 12px; line-height: 1; }
 .lp-feature h3 {
   font-family: var(--font-serif);
   font-size: 1.2rem; font-weight: 400; color: var(--ink);

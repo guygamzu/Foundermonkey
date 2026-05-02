@@ -148,32 +148,68 @@ export default function Home() {
           <h2 className="lp-section-h2">Everything you need, nothing you don&apos;t</h2>
           <div className="lp-features">
             <div className="lp-feature">
-              <div className="lp-feature-icon">&#x2728;</div>
+              <div className="lp-feature-icon">
+                <svg width="28" height="28" viewBox="0 0 28 28" fill="none" stroke="var(--forest)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M14 3v22M3 14h22M7 7l14 14M21 7L7 21" />
+                  <circle cx="14" cy="14" r="4" />
+                </svg>
+              </div>
               <h3>AI document analysis</h3>
               <p>Instant summary, smart field detection, and an AI assistant that answers questions about the document.</p>
             </div>
             <div className="lp-feature">
-              <div className="lp-feature-icon">&#x2709;&#xFE0F;</div>
+              <div className="lp-feature-icon">
+                <svg width="28" height="28" viewBox="0 0 28 28" fill="none" stroke="var(--forest)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="2" y="6" width="24" height="16" rx="2" />
+                  <path d="M2 8l12 8 12-8" />
+                </svg>
+              </div>
               <h3>Email-first workflow</h3>
               <p>No app to download, no account to create. One email to <strong>sign@lapen.ai</strong> with your signers &mdash; that&apos;s the entire flow.</p>
             </div>
             <div className="lp-feature">
-              <div className="lp-feature-icon">&#x270D;&#xFE0F;</div>
+              <div className="lp-feature-icon">
+                <svg width="28" height="28" viewBox="0 0 28 28" fill="none" stroke="var(--forest)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M16 3l-2 6h-4l3.5 3-1.5 5 4-3 4 3-1.5-5L22 9h-4L16 3z" />
+                  <rect x="3" y="4" width="8" height="21" rx="1" />
+                  <path d="M5 8h4M5 11h4M5 14h3" />
+                </svg>
+              </div>
               <h3>Free-form or placed fields</h3>
               <p>Let signers place fields freely, or use <strong>set@lapen.ai</strong> to visually assign signature, text, and date fields per signer before sending.</p>
             </div>
             <div className="lp-feature">
-              <div className="lp-feature-icon">&#x1F512;</div>
+              <div className="lp-feature-icon">
+                <svg width="28" height="28" viewBox="0 0 28 28" fill="none" stroke="var(--forest)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="5" y="11" width="18" height="14" rx="2" />
+                  <path d="M9 11V7a5 5 0 0 1 10 0v4" />
+                  <circle cx="14" cy="18" r="2" />
+                  <path d="M14 20v2" />
+                </svg>
+              </div>
               <h3>Legally binding</h3>
               <p>Compliant with ESIGN Act and eIDAS. Full audit trail and certificate of completion for every document.</p>
             </div>
             <div className="lp-feature">
-              <div className="lp-feature-icon">&#x1F4F1;</div>
+              <div className="lp-feature-icon">
+                <svg width="28" height="28" viewBox="0 0 28 28" fill="none" stroke="var(--forest)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="7" y="2" width="14" height="24" rx="3" />
+                  <path d="M12 22h4" />
+                  <path d="M11 6h6" />
+                </svg>
+              </div>
               <h3>Any device</h3>
               <p>Signers review and sign from their phone, tablet, or computer. Responsive design, zero friction.</p>
             </div>
             <div className="lp-feature">
-              <div className="lp-feature-icon">&#x26A1;</div>
+              <div className="lp-feature-icon">
+                <svg width="28" height="28" viewBox="0 0 28 28" fill="none" stroke="var(--forest)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M14 2v8l4-3" />
+                  <path d="M14 10l-4-3" />
+                  <circle cx="14" cy="20" r="6" />
+                  <path d="M14 17v4l2 1" />
+                </svg>
+              </div>
               <h3>Instant delivery</h3>
               <p>Signing links are sent immediately. Real-time notifications when each person signs.</p>
             </div>
