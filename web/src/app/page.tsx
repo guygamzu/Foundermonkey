@@ -8,7 +8,7 @@ export const metadata: Metadata = {
 const MAILTO_BODY = encodeURIComponent(
   'Hi,\n\nThe attached PDF is for your signature. You will receive a follow-up email from Lapen shortly with a secure signing link — no need to sign the attachment directly.\n\nThank you'
 );
-const SIGN_MAILTO = `mailto:sign@lapen.ai?body=${MAILTO_BODY}`;
+const SIGN_MAILTO = `mailto:?cc=sign@lapen.ai&body=${MAILTO_BODY}`;
 
 export default function Home() {
   return (
@@ -20,7 +20,7 @@ export default function Home() {
           <div className="lp-nav-links">
             <a href="#how">How it works</a>
             <a href="#features">Features</a>
-            <a href="#pricing">Pricing</a>
+            <a href="#credits">Credits</a>
           </div>
           <a href={SIGN_MAILTO} className="lp-nav-cta">Try it</a>
         </div>
@@ -36,8 +36,8 @@ export default function Home() {
         </h1>
         <p className="lp-hero-p">
           An e-signature service for freelancers and small studios.
-          No dashboard. No app. Just a note to <strong style={{ fontWeight: 500 }}>sign@lapen.ai</strong> and a small,
-          careful hand to take it the rest of the way.
+          No dashboard. No app. Just email your PDF, CC <strong style={{ fontWeight: 500 }}>sign@lapen.ai</strong>,
+          and a small, careful hand takes it the rest of the way.
         </p>
         <div className="lp-hero-actions">
           <a href={SIGN_MAILTO} className="lp-btn lp-btn-primary">
@@ -71,12 +71,43 @@ export default function Home() {
           <div className="lp-section-label">HOW IT WORKS</div>
           <h2 className="lp-section-h2">One email. That&apos;s it.</h2>
           <p className="lp-section-sub">Get your first document signed in under a minute.</p>
+
+          <div className="lp-flow">
+            <div className="lp-flow-node">
+              <div className="lp-flow-circle">
+                <svg width="32" height="32" viewBox="0 0 32 32" fill="none" stroke="currentColor" strokeWidth="1.5">
+                  <rect x="3" y="7" width="26" height="18" rx="2" />
+                  <path d="M3 9l13 9 13-9" />
+                </svg>
+              </div>
+              <span className="lp-flow-text">You send</span>
+            </div>
+            <div className="lp-flow-connector" />
+            <div className="lp-flow-node">
+              <div className="lp-flow-circle">
+                <svg width="32" height="32" viewBox="0 0 32 32" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+                  <path d="M16 4v24M4 16h24M8 8l16 16M24 8L8 24" />
+                </svg>
+              </div>
+              <span className="lp-flow-text">We handle it</span>
+            </div>
+            <div className="lp-flow-connector" />
+            <div className="lp-flow-node">
+              <div className="lp-flow-circle">
+                <svg width="32" height="32" viewBox="0 0 32 32" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M8 16l5 5 11-11" />
+                </svg>
+              </div>
+              <span className="lp-flow-text">They sign</span>
+            </div>
+          </div>
+
           <div className="lp-steps">
             <div className="lp-step">
               <div className="lp-step-num">01</div>
               <h3>Email your PDF + signers</h3>
               <p>
-                Put <strong>sign@lapen.ai</strong> and your signers all in the TO field.
+                Add your signers to TO, CC <strong>sign@lapen.ai</strong>.
                 Attach the PDF. Hit send.
               </p>
             </div>
@@ -150,15 +181,37 @@ export default function Home() {
         </div>
       </section>
 
-      {/* Pricing */}
-      <section className="lp-section lp-panel" id="pricing" style={{ zIndex: 4 }}>
+      {/* Credits & Pricing */}
+      <section className="lp-section lp-section-alt lp-panel" id="credits" style={{ zIndex: 4 }}>
         <div className="lp-section-inner">
-          <div className="lp-section-label">PRICING</div>
-          <h2 className="lp-section-h2">Simple, transparent pricing</h2>
+          <div className="lp-section-label">CREDITS</div>
+          <h2 className="lp-section-h2">Signatures for <em>everyone</em></h2>
           <p className="lp-section-sub">
-            Start free. Each signature request uses 1 credit per signee.
+            No subscriptions. No per-seat pricing. Just credits that work when you need them.
           </p>
-          <div className="lp-pricing">
+          <div className="lp-credit-cards">
+            <div className="lp-credit-card">
+              <span className="lp-credit-num">1</span>
+              <h3>1 credit = 1 signature</h3>
+              <p>Each request uses 1 credit per signer. Simple, transparent, predictable.</p>
+            </div>
+            <div className="lp-credit-card">
+              <span className="lp-credit-num">&infin;</span>
+              <h3>Credits never expire</h3>
+              <p>Buy when you need them, use when you&apos;re ready. No monthly pressure.</p>
+            </div>
+            <div className="lp-credit-card">
+              <span className="lp-credit-num">+3</span>
+              <h3>Share and earn</h3>
+              <p>When your signers start sending documents, you earn 3 free credits.</p>
+            </div>
+          </div>
+          <p className="lp-credit-start">
+            Every account starts with <strong>5 free credits</strong> &mdash; no card required.
+          </p>
+
+          <h3 className="lp-pricing-title" id="pricing">Need more? Grab a credit pack.</h3>
+          <div className="lp-pricing lp-pricing-compact">
             <div className="lp-price-card">
               <h3>Free</h3>
               <div className="lp-price-amount">$0</div>
@@ -216,9 +269,6 @@ export default function Home() {
               <a href={SIGN_MAILTO} className="lp-btn lp-btn-outline">Buy credits</a>
             </div>
           </div>
-          <p className="lp-referral">
-            When your signers start using Lapen, you earn <strong>3 free credits</strong>
-          </p>
         </div>
       </section>
 
@@ -245,7 +295,7 @@ export default function Home() {
           <div className="lp-footer-links">
             <a href="#how">How it works</a>
             <a href="#features">Features</a>
-            <a href="#pricing">Pricing</a>
+            <a href="#credits">Credits</a>
             <a href={SIGN_MAILTO}>Contact</a>
           </div>
         </div>

@@ -365,6 +365,142 @@ body {
 }
 .lp-referral strong { color: var(--forest); font-weight: 500; }
 
+/* Flow illustration */
+.lp-flow {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  margin-bottom: 48px;
+}
+.lp-flow-node {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+.lp-flow-circle {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  background: var(--cream);
+  border: 2px solid var(--forest);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--forest);
+}
+.lp-flow-text {
+  font-family: var(--font-hand);
+  font-size: 1.3rem;
+  color: var(--forest);
+}
+.lp-flow-connector {
+  flex: 0 0 64px;
+  height: 2px;
+  margin-top: 40px;
+  background-image: repeating-linear-gradient(
+    90deg,
+    var(--forest) 0 8px,
+    transparent 8px 16px
+  );
+  background-size: 16px 2px;
+  animation: flowDash 0.6s linear infinite;
+}
+@keyframes flowDash {
+  to { background-position: 16px 0; }
+}
+@keyframes flowDashV {
+  to { background-position: 0 16px; }
+}
+
+/* Credit cards */
+.lp-credit-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 20px;
+  margin-bottom: 32px;
+}
+.lp-credit-card {
+  background: var(--sand);
+  border: 1px solid var(--rule);
+  border-radius: 18px;
+  padding: 28px 24px;
+  text-align: center;
+}
+.lp-credit-num {
+  display: block;
+  font-family: var(--font-serif);
+  font-size: 2.5rem;
+  font-weight: 400;
+  color: var(--forest);
+  margin-bottom: 12px;
+  letter-spacing: -0.02em;
+}
+.lp-credit-card h3 {
+  font-family: var(--font-serif);
+  font-size: 1.2rem;
+  font-weight: 400;
+  color: var(--ink);
+  margin: 0 0 8px;
+}
+.lp-credit-card p {
+  font-size: 0.95rem;
+  color: var(--ink-soft);
+  line-height: 1.6;
+  margin: 0;
+}
+.lp-credit-start {
+  text-align: center;
+  font-family: var(--font-serif);
+  font-weight: 300;
+  font-size: 1.1rem;
+  color: var(--ink-soft);
+  margin-bottom: 56px;
+}
+.lp-credit-start strong {
+  color: var(--forest);
+  font-weight: 500;
+}
+
+/* Compact pricing */
+.lp-pricing-title {
+  font-family: var(--font-serif);
+  font-size: 1.4rem;
+  font-weight: 400;
+  text-align: center;
+  color: var(--ink);
+  margin: 0 0 24px;
+  letter-spacing: -0.01em;
+}
+.lp-pricing-compact .lp-price-card {
+  padding: 20px 16px;
+}
+.lp-pricing-compact .lp-price-amount {
+  font-size: 2rem;
+  margin-bottom: 2px;
+}
+.lp-pricing-compact .lp-price-desc {
+  font-size: 0.875rem;
+  margin: 0 0 16px;
+}
+.lp-pricing-compact .lp-price-card h3 {
+  font-size: 0.7rem;
+  margin: 0 0 8px;
+}
+.lp-pricing-compact .lp-price-card ul li {
+  font-size: 0.85rem;
+  padding: 6px 0;
+}
+.lp-pricing-compact .lp-btn {
+  padding: 10px 20px;
+  font-size: 0.85rem;
+}
+.lp-pricing-compact .lp-price-tag {
+  font-size: 0.6rem;
+  padding: 3px 10px;
+  top: -10px;
+}
+
 /* CTA */
 .lp-cta {
   padding: 80px 24px; text-align: center;
@@ -432,6 +568,14 @@ body {
   .lp-cta h2 { font-size: 1.8rem; }
   .lp-footer-inner { flex-direction: column; gap: 24px; }
   .lp-footer-links { flex-wrap: wrap; }
+  .lp-flow { flex-direction: column; align-items: center; gap: 0; }
+  .lp-flow-connector {
+    flex: 0 0 32px; width: 2px; height: 32px;
+    margin-top: 0;
+    background-image: repeating-linear-gradient(180deg, var(--forest) 0 8px, transparent 8px 16px);
+    background-size: 2px 16px;
+    animation: flowDashV 0.6s linear infinite;
+  }
   .lp-panel { position: relative; min-height: auto; border-radius: 0; box-shadow: none; }
 }
 
