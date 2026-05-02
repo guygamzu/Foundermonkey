@@ -104,6 +104,7 @@ html {
   font-weight: 400;
   color: var(--ink);
   letter-spacing: -0.01em;
+  text-decoration: none;
 }
 .lp-nav-links { display: flex; gap: 32px; }
 .lp-nav-links a {

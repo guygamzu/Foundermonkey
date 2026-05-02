@@ -16,7 +16,7 @@ export default function Home() {
       {/* Nav */}
       <nav className="lp-nav">
         <div className="lp-nav-inner">
-          <span className="lp-logo lapen-mark">La <span className="pen">Pen</span><span className="seal">.</span></span>
+          <a href="#" className="lp-logo lapen-mark">La <span className="pen">Pen</span><span className="seal">.</span></a>
           <div className="lp-nav-links">
             <a href="#how">How it works</a>
             <a href="#features">Features</a>
@@ -288,7 +288,7 @@ export default function Home() {
       <footer className="lp-footer" style={{ zIndex: 6 }}>
         <div className="lp-footer-inner">
           <div className="lp-footer-brand">
-            <span className="lp-logo lapen-mark">La <span className="pen">Pen</span><span className="seal">.</span></span>
+            <a href="#" className="lp-logo lapen-mark">La <span className="pen">Pen</span><span className="seal">.</span></a>
             <p>A quieter way to get things signed.</p>
             <span className="lp-footer-hand">&mdash; a quieter pen.</span>
           </div>
