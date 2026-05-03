@@ -199,6 +199,7 @@ export default function SigningPage() {
 
   // Click-to-fill: handle clicking on a pre-placed field
   const handleFieldClick = useCallback(async (item: PlacedItem) => {
+    if (!consent) return;
     // Allow toggling checkbox and option even when completed
     if (item.completed && item.type !== 'checkbox' && item.type !== 'option') return;
 
@@ -248,7 +249,7 @@ export default function SigningPage() {
       setEditingFieldId(item.id);
       setInlineTextValue('');
     }
-  }, [token]);
+  }, [token, consent]);
 
   // Submit inline text for click-to-fill
   const handleInlineTextSubmit = useCallback(async () => {
@@ -283,7 +284,7 @@ export default function SigningPage() {
 
   // Handle clicking on the PDF to place a tool
   const handlePdfClick = useCallback((pageIndex: number, relativeX: number, relativeY: number) => {
-    if (!activeTool) return;
+    if (!activeTool || !consent) return;
 
     const toolType = activeTool;
 
@@ -334,7 +335,7 @@ export default function SigningPage() {
       setShowTextInput(true);
       setActiveTool(null);
     }
-  }, [activeTool, token]);
+  }, [activeTool, token, consent]);
 
   const placeAndSaveField = useCallback(async (
     type: string, page: number, relativeX: number, relativeY: number, value: string,
@@ -675,16 +676,38 @@ export default function SigningPage() {
         </button>
       </div>
 
-      {/* Toolbar — hidden in click-to-fill mode */}
+      {/* Consent + Toolbar — free-form mode (no pre-placed fields) */}
       {!hasPreplacedFields && (
         <>
-          <div className="signing-toolbar">
+          {/* Consent checkbox — must be checked before tools are enabled */}
+          <div className="consent-checkbox" style={{
+            padding: '12px 16px',
+            background: 'white',
+            borderBottom: '1px solid var(--gray-200)',
+            maxWidth: 832,
+            margin: '0 auto',
+            width: '100%',
+          }}>
+            <input
+              type="checkbox"
+              id="consent-direct"
+              checked={consent}
+              onChange={(e) => setConsent(e.target.checked)}
+            />
+            <label htmlFor="consent-direct">
+              I agree to sign this document electronically. I understand that my electronic signature
+              has the same legal effect as a handwritten signature.
+            </label>
+          </div>
+
+          <div className="signing-toolbar" style={!consent ? { opacity: 0.4, pointerEvents: 'none' } : undefined}>
             <span style={{ fontSize: '0.75rem', color: 'var(--gray-500)', marginRight: 8 }}>Place on document:</span>
             {(['signature', 'text', 'date', 'checkbox'] as ToolType[]).map(tool => (
               <button
                 key={tool!}
                 className={`toolbar-btn ${activeTool === tool ? 'active' : ''}`}
                 onClick={() => setActiveTool(activeTool === tool ? null : tool)}
+                disabled={!consent}
               >
                 <span className="toolbar-icon">
                   {tool === 'signature' && '✍'}
@@ -711,27 +734,6 @@ export default function SigningPage() {
               Click anywhere on the document to place {activeTool === 'signature' ? 'your signature' : `a ${activeTool} field`}
             </div>
           )}
-
-          {/* Consent checkbox — under toolbar, always visible (matches guided/individual flow wording) */}
-          <div className="consent-checkbox" style={{
-            padding: '12px 16px',
-            background: 'white',
-            borderBottom: '1px solid var(--gray-200)',
-            maxWidth: 832,
-            margin: '0 auto',
-            width: '100%',
-          }}>
-            <input
-              type="checkbox"
-              id="consent-direct"
-              checked={consent}
-              onChange={(e) => setConsent(e.target.checked)}
-            />
-            <label htmlFor="consent-direct">
-              I agree to sign this document electronically. I understand that my electronic signature
-              has the same legal effect as a handwritten signature.
-            </label>
-          </div>
         </>
       )}
 
@@ -967,7 +969,7 @@ export default function SigningPage() {
                         key={item.id}
                         data-field-id={item.id}
                         className={`placed-item ${item.completed ? 'completed' : 'pending'} type-${item.type}${
-                          hasPreplacedFields && !item.completed ? ' field-clickable' : ''
+                          hasPreplacedFields && consent && !item.completed ? ' field-clickable' : ''
                         }${item.completed ? ' field-filled' : ''}${
                           currentStepIndex >= 0 && currentStepIndex < fieldSteps.length && fieldSteps[currentStepIndex].items.some(i => i.id === item.id) ? ' field-active' : ''
                         }`}
@@ -976,7 +978,7 @@ export default function SigningPage() {
                           top: `${item.y * 100}%`,
                           width: `${item.width * 100}%`,
                           height: `${item.height * 100}%`,
-                          cursor: hasPreplacedFields && (!item.completed || item.type === 'checkbox' || item.type === 'option') ? 'pointer' : item.completed ? 'grab' : undefined,
+                          cursor: hasPreplacedFields && consent && (!item.completed || item.type === 'checkbox' || item.type === 'option') ? 'pointer' : !hasPreplacedFields && item.completed ? 'grab' : undefined,
                         }}
                         onClick={() => hasPreplacedFields && (
                           !item.completed || item.type === 'checkbox' || item.type === 'option'
