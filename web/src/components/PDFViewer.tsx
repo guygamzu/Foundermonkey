@@ -9,13 +9,14 @@ pdfjs.GlobalWorkerOptions.workerSrc = `/pdf.worker.min.mjs`;
 
 interface PDFViewerProps {
   url: string;
+  fallbackUrl?: string;
   pageCount: number;
   renderOverlay: (pageIndex: number, dimensions: { width: number; height: number }) => React.ReactNode;
   onPageClick?: (pageIndex: number, relativeX: number, relativeY: number) => void;
   onError?: () => void;
 }
 
-export default function PDFViewer({ url, pageCount, renderOverlay, onPageClick, onError }: PDFViewerProps) {
+export default function PDFViewer({ url, fallbackUrl, pageCount, renderOverlay, onPageClick, onError }: PDFViewerProps) {
   const [pdfData, setPdfData] = useState<ArrayBuffer | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [numPages, setNumPages] = useState<number | null>(null);
@@ -24,25 +25,54 @@ export default function PDFViewer({ url, pageCount, renderOverlay, onPageClick, 
 
   useEffect(() => {
     let cancelled = false;
+
+    async function tryFetch(fetchUrl: string): Promise<ArrayBuffer | null> {
+      const res = await fetch(fetchUrl);
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        console.error(`[PDFViewer] Fetch failed (${res.status}): ${text.slice(0, 200)}`);
+        return null;
+      }
+      return res.arrayBuffer();
+    }
+
     async function fetchPdf() {
       try {
-        const res = await fetch(url);
-        if (!res.ok) {
-          const text = await res.text().catch(() => '');
-          console.error(`[PDFViewer] Fetch failed: ${res.status} ${text}`);
-          if (!cancelled) { setLoadError(true); onError?.(); }
-          return;
+        let buffer = await tryFetch(url);
+        if (!buffer && fallbackUrl) {
+          console.log('[PDFViewer] Primary URL failed, trying fallback...');
+          buffer = await tryFetch(fallbackUrl);
         }
-        const buffer = await res.arrayBuffer();
-        if (!cancelled) setPdfData(buffer);
+        if (cancelled) return;
+        if (buffer) {
+          setPdfData(buffer);
+        } else {
+          setLoadError(true);
+          onError?.();
+        }
       } catch (err) {
-        console.error('[PDFViewer] Fetch error:', err);
+        if (cancelled) return;
+        if (fallbackUrl) {
+          console.log('[PDFViewer] Primary fetch error, trying fallback...', err);
+          try {
+            const buffer = await tryFetch(fallbackUrl);
+            if (cancelled) return;
+            if (buffer) {
+              setPdfData(buffer);
+              return;
+            }
+          } catch (fallbackErr) {
+            console.error('[PDFViewer] Fallback also failed:', fallbackErr);
+          }
+        } else {
+          console.error('[PDFViewer] Fetch error:', err);
+        }
         if (!cancelled) { setLoadError(true); onError?.(); }
       }
     }
     fetchPdf();
     return () => { cancelled = true; };
-  }, [url]);
+  }, [url, fallbackUrl]);
 
   useEffect(() => {
     const el = containerRef.current;

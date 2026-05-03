@@ -909,7 +909,8 @@ export default function SigningPage() {
             }
           >
             <PDFViewer
-              url={getDocumentProxyUrl(token)}
+              url={session.document.documentUrl || getDocumentProxyUrl(token)}
+              fallbackUrl={session.document.documentUrl ? getDocumentProxyUrl(token) : undefined}
               pageCount={session.document.pageCount}
               onPageClick={activeTool ? handlePdfClick : undefined}
               renderOverlay={(pageIndex) => (

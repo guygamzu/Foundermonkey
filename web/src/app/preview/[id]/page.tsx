@@ -251,7 +251,8 @@ export default function PreviewPage() {
               }
             >
               <PDFViewer
-                url={getPreviewDocumentProxyUrl(documentId)}
+                url={preview.documentUrl || getPreviewDocumentProxyUrl(documentId)}
+                fallbackUrl={preview.documentUrl ? getPreviewDocumentProxyUrl(documentId) : undefined}
                 pageCount={preview.pageCount}
                 renderOverlay={(pageIndex) => (
                   <>
