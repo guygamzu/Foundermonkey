@@ -790,13 +790,7 @@ export default function SigningPage() {
       <div className="signing-header">
         <span className="logo">La <span className="pen">Pen</span><span className="seal">.</span></span>
         <h1>{session.document.fileName}</h1>
-        <button
-          className="btn btn-danger"
-          style={{ padding: '6px 12px', fontSize: '0.75rem', minHeight: 'auto' }}
-          onClick={() => setShowDeclineModal(true)}
-        >
-          Decline
-        </button>
+        <div />
       </div>
 
       {/* Toolbar — free-form mode (no pre-placed fields) */}
@@ -1225,39 +1219,7 @@ export default function SigningPage() {
         </div>
       )}
 
-      {/* Decline Modal */}
-      {showDeclineModal && (
-        <div className="modal-overlay" onClick={() => setShowDeclineModal(false)}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2>Decline to Sign</h2>
-              <button className="modal-close" onClick={() => setShowDeclineModal(false)}>&times;</button>
-            </div>
-            <p style={{ marginBottom: 12, color: 'var(--gray-500)' }}>
-              Are you sure? The sender will be notified.
-            </p>
-            <textarea
-              value={declineReason}
-              onChange={(e) => setDeclineReason(e.target.value)}
-              placeholder="Reason (optional)"
-              rows={3}
-              style={{
-                width: '100%', padding: 12,
-                border: '1px solid var(--gray-200)', borderRadius: 'var(--radius)',
-                marginBottom: 12, fontSize: '0.875rem', resize: 'vertical',
-              }}
-            />
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => setShowDeclineModal(false)}>
-                Cancel
-              </button>
-              <button className="btn btn-danger" style={{ flex: 1 }} onClick={handleDecline}>
-                Decline to Sign
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+
 
     </div>
   );
