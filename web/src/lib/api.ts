@@ -80,11 +80,11 @@ export async function getSigningSession(token: string): Promise<SigningSession> 
 }
 
 export function getDocumentProxyUrl(token: string): string {
-  return `${API_URL}/api/signing/session/${token}/document`;
+  return `/api/document-proxy/${token}`;
 }
 
 export function getPreviewDocumentProxyUrl(documentId: string): string {
-  return `${API_URL}/api/documents/preview/${documentId}/document`;
+  return `/api/preview-proxy/${documentId}`;
 }
 
 export async function submitFieldValue(token: string, fieldId: string, value: string): Promise<void> {
@@ -197,7 +197,7 @@ export async function getSetupDocument(id: string): Promise<SetupDocument> {
 }
 
 export function getSetupDocumentProxyUrl(id: string): string {
-  return `${API_URL}/api/setup/${id}/document`;
+  return `/api/setup-proxy/${id}`;
 }
 
 export async function createSetupField(
