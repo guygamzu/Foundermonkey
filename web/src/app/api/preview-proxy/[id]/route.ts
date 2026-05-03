@@ -21,14 +21,16 @@ export async function GET(
       );
     }
 
-    const headers = new Headers();
-    headers.set('Content-Type', upstream.headers.get('Content-Type') || 'application/pdf');
-    if (upstream.headers.get('Content-Length')) {
-      headers.set('Content-Length', upstream.headers.get('Content-Length')!);
-    }
-    headers.set('Cache-Control', 'private, max-age=300');
+    const buffer = await upstream.arrayBuffer();
 
-    return new NextResponse(upstream.body, { status: 200, headers });
+    return new NextResponse(Buffer.from(buffer), {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/pdf',
+        'Content-Length': buffer.byteLength.toString(),
+        'Cache-Control': 'private, max-age=300',
+      },
+    });
   } catch (err) {
     console.error('[preview-proxy]', err);
     return NextResponse.json({ error: 'Failed to fetch document' }, { status: 502 });

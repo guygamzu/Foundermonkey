@@ -17,7 +17,7 @@ interface PDFViewerProps {
 }
 
 export default function PDFViewer({ url, fallbackUrl, pageCount, renderOverlay, onPageClick, onError }: PDFViewerProps) {
-  const [pdfData, setPdfData] = useState<ArrayBuffer | null>(null);
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [numPages, setNumPages] = useState<number | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -25,6 +25,7 @@ export default function PDFViewer({ url, fallbackUrl, pageCount, renderOverlay, 
 
   useEffect(() => {
     let cancelled = false;
+    let objectUrl: string | null = null;
 
     async function tryFetch(fetchUrl: string): Promise<ArrayBuffer | null> {
       const res = await fetch(fetchUrl);
@@ -45,7 +46,8 @@ export default function PDFViewer({ url, fallbackUrl, pageCount, renderOverlay, 
         }
         if (cancelled) return;
         if (buffer) {
-          setPdfData(buffer);
+          objectUrl = URL.createObjectURL(new Blob([buffer], { type: 'application/pdf' }));
+          setBlobUrl(objectUrl);
         } else {
           setLoadError(true);
           onError?.();
@@ -58,7 +60,8 @@ export default function PDFViewer({ url, fallbackUrl, pageCount, renderOverlay, 
             const buffer = await tryFetch(fallbackUrl);
             if (cancelled) return;
             if (buffer) {
-              setPdfData(buffer);
+              objectUrl = URL.createObjectURL(new Blob([buffer], { type: 'application/pdf' }));
+              setBlobUrl(objectUrl);
               return;
             }
           } catch (fallbackErr) {
@@ -71,7 +74,10 @@ export default function PDFViewer({ url, fallbackUrl, pageCount, renderOverlay, 
       }
     }
     fetchPdf();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
   }, [url, fallbackUrl]);
 
   useEffect(() => {
@@ -100,9 +106,9 @@ export default function PDFViewer({ url, fallbackUrl, pageCount, renderOverlay, 
 
   return (
     <div ref={containerRef}>
-      {containerWidth > 0 && pdfData && (
+      {containerWidth > 0 && blobUrl && (
         <Document
-          file={{ data: pdfData }}
+          file={blobUrl}
           onLoadSuccess={onDocumentLoadSuccess}
           onLoadError={(err) => { console.error('[PDFViewer] PDF parse error:', err); setLoadError(true); onError?.(); }}
           loading={
@@ -128,7 +134,7 @@ export default function PDFViewer({ url, fallbackUrl, pageCount, renderOverlay, 
           ))}
         </Document>
       )}
-      {containerWidth > 0 && !pdfData && !loadError && (
+      {containerWidth > 0 && !blobUrl && !loadError && (
         <div style={{ width: '100%', maxWidth: 800, margin: '0 auto' }}>
           {Array.from({ length: Math.min(pageCount, 2) }, (_, i) => (
             <div key={i} style={{

@@ -10,11 +10,11 @@ export async function GET(
   const download = request.nextUrl.searchParams.get('download');
 
   try {
-    const url = download
+    const upstreamUrl = download
       ? `${API_URL}/api/setup/${id}/document?download=true`
       : `${API_URL}/api/setup/${id}/document`;
 
-    const upstream = await fetch(url, {
+    const upstream = await fetch(upstreamUrl, {
       signal: AbortSignal.timeout(30_000),
     });
 
@@ -25,17 +25,16 @@ export async function GET(
       );
     }
 
-    const headers = new Headers();
-    headers.set('Content-Type', upstream.headers.get('Content-Type') || 'application/pdf');
-    if (upstream.headers.get('Content-Length')) {
-      headers.set('Content-Length', upstream.headers.get('Content-Length')!);
-    }
-    if (upstream.headers.get('Content-Disposition')) {
-      headers.set('Content-Disposition', upstream.headers.get('Content-Disposition')!);
-    }
-    headers.set('Cache-Control', 'private, max-age=300');
+    const buffer = await upstream.arrayBuffer();
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/pdf',
+      'Content-Length': buffer.byteLength.toString(),
+      'Cache-Control': 'private, max-age=300',
+    };
+    const disposition = upstream.headers.get('Content-Disposition');
+    if (disposition) headers['Content-Disposition'] = disposition;
 
-    return new NextResponse(upstream.body, { status: 200, headers });
+    return new NextResponse(Buffer.from(buffer), { status: 200, headers });
   } catch (err) {
     console.error('[setup-proxy]', err);
     return NextResponse.json({ error: 'Failed to fetch document' }, { status: 502 });
