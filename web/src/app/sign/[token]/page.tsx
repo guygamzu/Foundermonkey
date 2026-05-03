@@ -567,7 +567,7 @@ export default function SigningPage() {
     return (
       <div className="message-page">
         <div className="message-card">
-          <h2 style={{ color: 'var(--success)' }}>Already Signed</h2>
+          <h2 style={{ color: 'var(--forest)' }}>Already Signed</h2>
           <p>You&apos;ve already signed this document. A copy has been sent to your email.</p>
           <hr style={{ border: 'none', borderTop: '1px solid var(--gray-200)', margin: '20px 0' }} />
           <h3 style={{ fontSize: '1rem', marginBottom: 8 }}>Need documents signed?</h3>
@@ -616,7 +616,7 @@ export default function SigningPage() {
     return (
       <div className="message-page">
         <div className="message-card">
-          <h2 style={{ color: 'var(--success)' }}>Document Signed!</h2>
+          <h2 style={{ color: 'var(--forest)' }}>Document Signed!</h2>
           <p>Thank you for signing. A completed copy will be sent to your email shortly.</p>
           <hr style={{ border: 'none', borderTop: '1px solid var(--gray-200)', margin: '20px 0' }} />
           <h3 style={{ fontSize: '1rem', marginBottom: 8 }}>Need to send something for signature yourself?</h3>
