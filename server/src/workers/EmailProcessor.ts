@@ -637,7 +637,7 @@ export class EmailProcessor {
       text: `Done! I've sent "${pendingDoc.file_name}" for signature to:\n\n${sentList}${failedList ? '\n' + failedList : ''}\n\nI'll notify you as each person signs.${failedNote}\n\nTrack status: ${statusUrl}\n\nWant to reconfigure fields? ${setupUrl}\nNote: this will void any signatures already collected.\n\n${creditText}`,
       html: `
 <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; color: #111827;">
-  <div style="background: #16a34a; color: white; padding: 20px 24px; border-radius: 8px 8px 0 0;">
+  <div style="background: #2c4a35; color: white; padding: 20px 24px; border-radius: 8px 8px 0 0;">
     <h1 style="margin: 0; font-size: 20px;">✓ Document Sent</h1>
   </div>
   <div style="background: white; padding: 24px; border: 1px solid #e5e7eb; border-top: none;">
@@ -1065,7 +1065,7 @@ export class EmailProcessor {
       text: `Done! Your pre-configured document "${templateDoc.file_name}" has been sent for signature to:\n\n${sentList}\n\nEach recipient received a personalized signing link with your pre-configured fields.\n\nI'll notify you as each person signs.\n\nTrack status: ${statusUrl}\n\n${creditText}`,
       html: `
 <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; color: #111827;">
-  <div style="background: #16a34a; color: white; padding: 20px 24px; border-radius: 8px 8px 0 0;">
+  <div style="background: #2c4a35; color: white; padding: 20px 24px; border-radius: 8px 8px 0 0;">
     <h1 style="margin: 0; font-size: 20px;">✓ Document Sent (Pre-configured)</h1>
   </div>
   <div style="background: white; padding: 24px; border: 1px solid #e5e7eb; border-top: none;">

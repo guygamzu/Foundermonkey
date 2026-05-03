@@ -487,7 +487,7 @@ export function createSetupRouter(): Router {
             subject: `Your document "${doc.file_name}" is ready`,
             html: `
 <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; color: #111827;">
-  <div style="background: #16a34a; color: white; padding: 20px 24px; border-radius: 8px 8px 0 0;">
+  <div style="background: #2c4a35; color: white; padding: 20px 24px; border-radius: 8px 8px 0 0;">
     <h1 style="margin: 0; font-size: 20px;">✓ Document Ready</h1>
   </div>
   <div style="background: white; padding: 24px; border: 1px solid #e5e7eb; border-top: none;">

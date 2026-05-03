@@ -177,14 +177,14 @@ export class EmailService {
       : '';
 
     const isLow = newBalance < 5;
-    const balanceColor = isLow ? '#dc2626' : '#16a34a';
+    const balanceColor = isLow ? '#dc2626' : '#2c4a35';
     const lowWarning = isLow
       ? `<p style="margin: 12px 0 0; color: #dc2626; font-size: 13px;">Your balance is getting low. <a href="${purchaseUrl}" style="color: #2c4a35; text-decoration: underline;">Top up</a> to keep sending without interruption.</p>`
       : '';
 
     const html = `
       <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; color: #111827;">
-        <div style="background: linear-gradient(135deg, #16a34a 0%, #15803d 100%); padding: 24px; border-radius: 12px 12px 0 0; text-align: center;">
+        <div style="background: linear-gradient(135deg, #2c4a35 0%, #1d3624 100%); padding: 24px; border-radius: 12px 12px 0 0; text-align: center;">
           <h1 style="margin: 0; color: white; font-size: 20px; font-weight: 700;">Credits Added!</h1>
         </div>
         <div style="background: white; padding: 24px; border: 1px solid #e5e7eb; border-top: none;">
@@ -236,7 +236,7 @@ export class EmailService {
 
     const html = `
       <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; color: #111827;">
-        <div style="background: linear-gradient(135deg, #16a34a 0%, #15803d 100%); padding: 28px 24px; border-radius: 12px 12px 0 0; text-align: center;">
+        <div style="background: linear-gradient(135deg, #2c4a35 0%, #1d3624 100%); padding: 28px 24px; border-radius: 12px 12px 0 0; text-align: center;">
           <p style="margin: 0 0 6px; color: rgba(255,255,255,0.85); font-size: 13px; font-weight: 600; letter-spacing: 0.5px; text-transform: uppercase;">Bonus credits earned</p>
           <h1 style="margin: 0; color: white; font-size: 32px; font-weight: 800;">+${bonusAmount} credit${plural}</h1>
         </div>
@@ -442,7 +442,7 @@ export class EmailService {
 
     const html = `
       <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; color: #111827;">
-        <div style="background: linear-gradient(135deg, #16a34a 0%, #15803d 100%); padding: 24px; border-radius: 12px 12px 0 0; text-align: center;">
+        <div style="background: linear-gradient(135deg, #2c4a35 0%, #1d3624 100%); padding: 24px; border-radius: 12px 12px 0 0; text-align: center;">
           <h1 style="margin: 0; color: white; font-size: 20px; font-weight: 700;">Document Signed Successfully</h1>
         </div>
         <div style="background: white; padding: 24px; border: 1px solid #e5e7eb; border-top: none;">
