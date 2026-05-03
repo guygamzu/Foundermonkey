@@ -35,10 +35,19 @@ export class StorageService {
   }
 
   async getDocument(key: string): Promise<Buffer> {
-    const response = await this.s3.send(new GetObjectCommand({
-      Bucket: this.bucket,
-      Key: key,
-    }));
+    let response;
+    try {
+      response = await this.s3.send(new GetObjectCommand({
+        Bucket: this.bucket,
+        Key: key,
+      }));
+    } catch (err: any) {
+      const code = err?.name || err?.Code;
+      if (code === 'NoSuchKey' || code === 'NotFound' || err?.$metadata?.httpStatusCode === 404) {
+        throw new Error('Document file not available');
+      }
+      throw err;
+    }
     const stream = response.Body;
     if (!stream) throw new Error('Empty response from S3');
 

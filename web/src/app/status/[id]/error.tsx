@@ -1,5 +1,7 @@
 'use client';
 
+import { useEffect } from 'react';
+
 export default function StatusError({
   error,
   reset,
@@ -7,6 +9,35 @@ export default function StatusError({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
+  useEffect(() => {
+    console.error('[StatusError]', error);
+  }, [error]);
+
+  const isMissingDocument =
+    error.message.toLowerCase().includes('object can not be found') ||
+    error.message.toLowerCase().includes('not available');
+
+  if (isMissingDocument) {
+    return (
+      <div className="message-page">
+        <div className="message-card">
+          <h2>Document not available</h2>
+          <p>This document is no longer available.</p>
+          <a
+            href="/"
+            style={{
+              display: 'inline-block', padding: '10px 24px', background: 'var(--primary)',
+              color: 'white', borderRadius: 999, textDecoration: 'none', fontWeight: 600,
+              fontSize: '0.875rem', marginTop: 12,
+            }}
+          >
+            Back to home
+          </a>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="message-page">
       <div className="message-card">
