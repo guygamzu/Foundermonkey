@@ -83,6 +83,12 @@ export function createSetupRouter(): Router {
 
   // Proxy endpoint to stream PDF content for setup page
   router.get('/:id/document', async (req: Request<{ id: string }>, res: Response) => {
+    const origin = req.headers.origin;
+    if (origin) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Access-Control-Allow-Credentials', 'true');
+    }
+
     try {
       const doc = await documentRepo.findById(req.params.id);
       if (!doc) {

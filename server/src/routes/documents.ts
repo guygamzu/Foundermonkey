@@ -178,6 +178,12 @@ export function createDocumentsRouter(): Router {
 
   // Proxy endpoint to stream PDF content (avoids S3 CORS issues)
   router.get('/preview/:documentId/document', async (req: Request<{ documentId: string }>, res: Response) => {
+    const origin = req.headers.origin;
+    if (origin) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Access-Control-Allow-Credentials', 'true');
+    }
+
     try {
       const doc = await documentRepo.findById(req.params.documentId);
       if (!doc) {

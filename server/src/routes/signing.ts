@@ -140,6 +140,13 @@ export function createSigningRouter(): Router {
 
   // Proxy endpoint to stream PDF content (avoids S3 CORS issues)
   router.get('/session/:token/document', async (req: Request<{ token: string }>, res: Response) => {
+    // Explicit CORS — belt-and-suspenders alongside the global cors middleware
+    const origin = req.headers.origin;
+    if (origin) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Access-Control-Allow-Credentials', 'true');
+    }
+
     try {
       const signer = await documentRepo.findSignerByToken(req.params.token);
       if (!signer) {
