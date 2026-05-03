@@ -415,6 +415,72 @@ export class EmailService {
     });
   }
 
+  async sendSigningReminder(
+    to: string,
+    signerName: string | undefined,
+    senderName: string,
+    senderEmail: string,
+    fileName: string,
+    signingUrl: string,
+    reminderNumber: number,
+  ): Promise<string> {
+    const greeting = signerName ? `Hi ${signerName},` : 'Hi there,';
+    const urgency = reminderNumber >= 3
+      ? 'This is a final reminder.'
+      : 'This is a friendly reminder.';
+
+    const html = `
+      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; color: #111827;">
+        <div style="background: linear-gradient(135deg, #2c4a35 0%, #1d3624 100%); padding: 24px; border-radius: 12px 12px 0 0; text-align: center;">
+          <h1 style="margin: 0; color: white; font-size: 18px; font-weight: 700;">Reminder: Document awaiting your signature</h1>
+        </div>
+
+        <div style="background: white; padding: 24px; border: 1px solid #e5e7eb; border-top: none;">
+          <p style="margin: 0 0 16px; font-size: 15px; line-height: 1.5;">${greeting}</p>
+
+          <p style="margin: 0 0 16px; font-size: 15px; line-height: 1.5;">
+            ${urgency} <strong>${senderName}</strong> (<a href="mailto:${senderEmail}" style="color: #2c4a35;">${senderEmail}</a>)
+            is still waiting for your signature on:
+          </p>
+
+          <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 16px 20px; margin: 0 0 20px;">
+            <p style="margin: 0; font-size: 15px; font-weight: 700; color: #1e293b;">${fileName}</p>
+          </div>
+
+          <div style="text-align: center; margin: 0 0 20px;">
+            <a href="${signingUrl}" style="display: inline-block; background: linear-gradient(135deg, #2c4a35 0%, #1d3624 100%); color: white; padding: 12px 32px; border-radius: 10px; text-decoration: none; font-weight: 700; font-size: 15px; box-shadow: 0 4px 14px rgba(44,74,53,0.35);">
+              Review & Sign Now
+            </a>
+          </div>
+
+          <p style="text-align: center; color: #9ca3af; font-size: 12px; margin: 0 0 16px;">
+            Direct link: <a href="${signingUrl}" style="color: #2c4a35; word-break: break-all;">${signingUrl}</a>
+          </p>
+
+          <div style="border-top: 1px solid #e5e7eb; padding-top: 16px; margin-top: 8px;">
+            <p style="margin: 0; font-size: 12px; color: #9ca3af; text-align: center; line-height: 1.6;">
+              This is a legitimate signature request sent by <strong>${senderName}</strong> (${senderEmail})
+              via Lapen. If you weren't expecting this, you can safely ignore this email.
+            </p>
+          </div>
+        </div>
+
+        <div style="background: #f9fafb; padding: 12px 24px; border: 1px solid #e5e7eb; border-top: none; border-radius: 0 0 12px 12px; text-align: center;">
+          <p style="margin: 0; color: #9ca3af; font-size: 11px;">
+            Powered by La Pen<span style="color: #2c4a35;">.</span> &mdash; a quieter way to get things signed
+          </p>
+        </div>
+      </div>
+    `;
+
+    return this.sendEmail({
+      to,
+      subject: `Reminder: ${senderName} is waiting for your signature on ${fileName}`,
+      text: `${greeting}\n\n${urgency} ${senderName} (${senderEmail}) is still waiting for your signature on ${fileName}.\n\nReview and sign: ${signingUrl}\n\nPowered by La Pen. — a quieter way to get things signed`,
+      html,
+    });
+  }
+
   async sendCompletionNotification(
     to: string,
     fileName: string,

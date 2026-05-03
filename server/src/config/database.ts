@@ -316,4 +316,20 @@ async function runIncrementalMigrations(database: Knex): Promise<void> {
   } catch (err) {
     // Columns may already exist
   }
+
+  // --- Reminder tracking on signers (20260503000001) ---
+  try {
+    const hasReminderCount = await database.raw(`
+      SELECT 1 FROM information_schema.columns
+      WHERE table_name = 'signers' AND column_name = 'reminder_count'
+    `);
+    if (hasReminderCount.rows.length === 0) {
+      await database.schema.alterTable('signers', (table) => {
+        table.integer('reminder_count').notNullable().defaultTo(0);
+        table.timestamp('last_reminder_at');
+      });
+    }
+  } catch (err) {
+    // Columns may already exist
+  }
 }

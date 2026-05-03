@@ -163,6 +163,16 @@ async function main() {
     logger.warn('IMAP not configured, email processor not started');
   }
 
+  // Start reminder worker (requires DB + email, no Redis needed)
+  if (process.env.DATABASE_URL && (process.env.RESEND_API_KEY || process.env.SMTP_HOST)) {
+    try {
+      const { startReminderWorker } = await import('./workers/ReminderWorker.js');
+      startReminderWorker();
+    } catch (err) {
+      logger.error({ err }, 'Failed to start reminder worker');
+    }
+  }
+
   // Configure S3 bucket CORS (fire-and-forget — never blocks server)
   if (process.env.AWS_ACCESS_KEY_ID) {
     import('./services/StorageService.js')
