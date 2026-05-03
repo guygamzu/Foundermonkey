@@ -41,7 +41,10 @@ async function main() {
   }
 
   // Middleware
-  app.use(helmet());
+  app.use(helmet({
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
+    contentSecurityPolicy: false,
+  }));
   const allowedOrigins = [
     process.env.APP_URL,
     'http://localhost:3000',

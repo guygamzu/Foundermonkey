@@ -5,7 +5,6 @@ import { Document, Page, pdfjs } from 'react-pdf';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
 
-// Configure PDF.js worker (self-hosted for faster loading)
 pdfjs.GlobalWorkerOptions.workerSrc = `/pdf.worker.min.mjs`;
 
 interface PDFViewerProps {
@@ -17,10 +16,33 @@ interface PDFViewerProps {
 }
 
 export default function PDFViewer({ url, pageCount, renderOverlay, onPageClick, onError }: PDFViewerProps) {
+  const [pdfData, setPdfData] = useState<ArrayBuffer | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [numPages, setNumPages] = useState<number | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function fetchPdf() {
+      try {
+        const res = await fetch(url);
+        if (!res.ok) {
+          const text = await res.text().catch(() => '');
+          console.error(`[PDFViewer] Fetch failed: ${res.status} ${text}`);
+          if (!cancelled) { setLoadError(true); onError?.(); }
+          return;
+        }
+        const buffer = await res.arrayBuffer();
+        if (!cancelled) setPdfData(buffer);
+      } catch (err) {
+        console.error('[PDFViewer] Fetch error:', err);
+        if (!cancelled) { setLoadError(true); onError?.(); }
+      }
+    }
+    fetchPdf();
+    return () => { cancelled = true; };
+  }, [url]);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -48,11 +70,11 @@ export default function PDFViewer({ url, pageCount, renderOverlay, onPageClick, 
 
   return (
     <div ref={containerRef}>
-      {containerWidth > 0 && (
+      {containerWidth > 0 && pdfData && (
         <Document
-          file={url}
+          file={{ data: pdfData }}
           onLoadSuccess={onDocumentLoadSuccess}
-          onLoadError={() => { setLoadError(true); onError?.(); }}
+          onLoadError={(err) => { console.error('[PDFViewer] PDF parse error:', err); setLoadError(true); onError?.(); }}
           loading={
             <div style={{ width: '100%', maxWidth: 800, margin: '0 auto' }}>
               {Array.from({ length: Math.min(pageCount, 2) }, (_, i) => (
@@ -75,6 +97,17 @@ export default function PDFViewer({ url, pageCount, renderOverlay, onPageClick, 
             />
           ))}
         </Document>
+      )}
+      {containerWidth > 0 && !pdfData && !loadError && (
+        <div style={{ width: '100%', maxWidth: 800, margin: '0 auto' }}>
+          {Array.from({ length: Math.min(pageCount, 2) }, (_, i) => (
+            <div key={i} style={{
+              width: '100%', aspectRatio: '8.5/11', background: '#f3f4f6',
+              borderRadius: 4, marginBottom: 8,
+              animation: 'pulse 1.5s ease-in-out infinite',
+            }} />
+          ))}
+        </div>
       )}
     </div>
   );
