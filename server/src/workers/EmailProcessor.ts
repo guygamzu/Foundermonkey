@@ -648,10 +648,10 @@ export class EmailProcessor {
     <p>I'll notify you as each person signs.</p>
     ${failedNoteHtml}
     <div style="text-align: center; margin: 20px 0 0;">
-      <a href="${statusUrl}" style="display: inline-block; background: #2563eb; color: white; padding: 12px 28px; border-radius: 8px; text-decoration: none; font-weight: 600;">Track Signing Status</a>
+      <a href="${statusUrl}" style="display: inline-block; background: #2c4a35; color: white; padding: 12px 28px; border-radius: 8px; text-decoration: none; font-weight: 600;">Track Signing Status</a>
     </div>
     <p style="margin: 16px 0 0; font-size: 13px; color: #6b7280; text-align: center;">
-      Want to reconfigure fields? <a href="${setupUrl}" style="color: #2563eb;">Customize fields</a>
+      Want to reconfigure fields? <a href="${setupUrl}" style="color: #2c4a35;">Customize fields</a>
       <br><span style="font-size: 12px;">(Note: this will void any signatures already collected)</span>
     </p>
   </div>
@@ -849,18 +849,18 @@ export class EmailProcessor {
       text: `Hi ${user.name || senderEmail.split('@')[0]},\n\nGot your document "${fileName}".\n\n${summary}\n\nSet up your fields and configure the signing experience:\n${setupUrl}\n\nOnce you're done, you'll be able to send the PDF to your recipients with Lapen handling the signing.\n\n${creditText}`,
       html: `
 <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; color: #111827;">
-  <div style="background: #2563eb; color: white; padding: 20px 24px; border-radius: 8px 8px 0 0;">
+  <div style="background: #2c4a35; color: white; padding: 20px 24px; border-radius: 8px 8px 0 0;">
     <h1 style="margin: 0; font-size: 20px; font-weight: 700;">Lapen</h1>
   </div>
   <div style="background: white; padding: 24px; border: 1px solid #e5e7eb; border-top: none;">
     <p>Hi ${user.name || senderEmail.split('@')[0]},</p>
     <p>Got your document <strong>${fileName}</strong>:</p>
-    <div style="background: #f9fafb; border-left: 4px solid #2563eb; padding: 12px 16px; margin: 0 0 16px; border-radius: 0 4px 4px 0;">
+    <div style="background: #f9fafb; border-left: 4px solid #2c4a35; padding: 12px 16px; margin: 0 0 16px; border-radius: 0 4px 4px 0;">
       <p style="margin: 0; font-size: 14px; color: #374151;">${summary}</p>
     </div>
     <p>Set up your fields and configure the signing experience. Once done, you can send the PDF to your recipients and Lapen will handle the rest.</p>
     <div style="text-align: center; margin: 20px 0 0;">
-      <a href="${setupUrl}" style="display: inline-block; background: #2563eb; color: white; padding: 12px 28px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 14px;">Set Up Document</a>
+      <a href="${setupUrl}" style="display: inline-block; background: #2c4a35; color: white; padding: 12px 28px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 14px;">Set Up Document</a>
     </div>
   </div>
   ${creditFooter}
@@ -1075,10 +1075,10 @@ export class EmailProcessor {
     </ul>
     <p>Each recipient received a personalized signing link with your pre-configured fields. I'll notify you as each person signs.</p>
     <div style="text-align: center; margin: 20px 0 0;">
-      <a href="${statusUrl}" style="display: inline-block; background: #2563eb; color: white; padding: 12px 28px; border-radius: 8px; text-decoration: none; font-weight: 600;">Track Signing Status</a>
+      <a href="${statusUrl}" style="display: inline-block; background: #2c4a35; color: white; padding: 12px 28px; border-radius: 8px; text-decoration: none; font-weight: 600;">Track Signing Status</a>
     </div>
     <p style="margin: 16px 0 0; font-size: 13px; color: #6b7280; text-align: center;">
-      Want to reconfigure fields? <a href="${setupUrl}" style="color: #2563eb;">Customize fields</a>
+      Want to reconfigure fields? <a href="${setupUrl}" style="color: #2c4a35;">Customize fields</a>
       <br><span style="font-size: 12px;">(Note: this will void any signatures already collected)</span>
     </p>
   </div>
