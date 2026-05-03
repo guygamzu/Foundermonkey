@@ -6,22 +6,6 @@ const nextConfig = {
   env: {
     NEXT_PUBLIC_API_URL: API_URL,
   },
-  async rewrites() {
-    return [
-      {
-        source: '/api/document-proxy/:token',
-        destination: `${API_URL}/api/signing/session/:token/document`,
-      },
-      {
-        source: '/api/preview-proxy/:id',
-        destination: `${API_URL}/api/documents/preview/:id/document`,
-      },
-      {
-        source: '/api/setup-proxy/:id',
-        destination: `${API_URL}/api/setup/:id/document`,
-      },
-    ];
-  },
 };
 
 export default nextConfig;
