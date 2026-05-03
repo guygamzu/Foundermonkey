@@ -578,7 +578,7 @@ export default function SigningPage() {
           <a
             href="/"
             style={{
-              display: 'inline-block', padding: '10px 24px', background: 'var(--primary)',
+              display: 'inline-block', padding: '10px 24px', background: 'var(--forest)',
               color: 'white', borderRadius: 8, textDecoration: 'none', fontWeight: 600,
               fontSize: '0.875rem',
             }}
@@ -636,7 +636,7 @@ export default function SigningPage() {
           <a
             href="mailto:sign@lapen.ai"
             style={{
-              display: 'inline-block', padding: '10px 24px', background: 'var(--primary)',
+              display: 'inline-block', padding: '10px 24px', background: 'var(--forest)',
               color: 'white', borderRadius: 8, textDecoration: 'none', fontWeight: 600,
               fontSize: '0.875rem',
             }}
