@@ -661,6 +661,129 @@ export default function SigningPage() {
 
   if (!session) return null;
 
+  // Consent gate — show only the agreement screen until user agrees
+  if (!consent) {
+    return (
+      <div className="signing-page">
+        <div className="signing-header">
+          <span className="logo">La <span className="pen">Pen</span><span className="seal">.</span></span>
+          <h1>{session.document.fileName}</h1>
+          <div />
+        </div>
+
+        <div style={{
+          flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
+          padding: '40px 16px', minHeight: 'calc(100vh - 56px)',
+        }}>
+          <div style={{
+            maxWidth: 480, width: '100%', textAlign: 'center',
+            background: 'white', borderRadius: 12, padding: '40px 32px',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+            border: '1px solid var(--gray-200)',
+          }}>
+            <div style={{
+              width: 56, height: 56, borderRadius: '50%', margin: '0 auto 20px',
+              background: 'var(--cream)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              border: '2px solid var(--olive)',
+            }}>
+              <span style={{ fontSize: 28 }}>&#9998;</span>
+            </div>
+
+            <h2 style={{
+              fontSize: '1.25rem', fontWeight: 700, color: 'var(--ink)',
+              marginBottom: 8,
+            }}>
+              You&apos;ve been asked to sign
+            </h2>
+            <p style={{
+              fontSize: '0.9375rem', color: 'var(--ink-soft)', marginBottom: 24,
+              lineHeight: 1.5,
+            }}>
+              <strong style={{ color: 'var(--ink)' }}>{session.document.fileName}</strong>
+            </p>
+
+            <div style={{
+              background: 'var(--cream)', borderRadius: 8, padding: '16px 20px',
+              fontSize: '0.8125rem', color: 'var(--ink-soft)', lineHeight: 1.6,
+              textAlign: 'left', marginBottom: 28,
+              border: '1px solid var(--gray-200)',
+            }}>
+              By proceeding, I agree to sign this document electronically.
+              I understand that my electronic signature has the same legal
+              effect as a handwritten signature.
+            </div>
+
+            <button
+              onClick={() => setConsent(true)}
+              style={{
+                width: '100%', padding: '14px 24px',
+                background: 'var(--forest)', color: 'white',
+                border: 'none', borderRadius: 8,
+                fontSize: '1rem', fontWeight: 700,
+                cursor: 'pointer', marginBottom: 12,
+                transition: 'background 0.15s',
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.background = '#1d3624')}
+              onMouseLeave={(e) => (e.currentTarget.style.background = 'var(--forest)')}
+            >
+              Agree &amp; Continue
+            </button>
+
+            <button
+              onClick={() => setShowDeclineModal(true)}
+              style={{
+                width: '100%', padding: '8px 16px',
+                background: 'transparent', color: 'var(--ink-mute)',
+                border: 'none', borderRadius: 8,
+                fontSize: '0.8125rem', fontWeight: 500,
+                cursor: 'pointer',
+                transition: 'color 0.15s',
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--danger)')}
+              onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--ink-mute)')}
+            >
+              Decline to Sign
+            </button>
+          </div>
+        </div>
+
+        {/* Decline Modal — available from consent screen */}
+        {showDeclineModal && (
+          <div className="modal-overlay" onClick={() => setShowDeclineModal(false)}>
+            <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-header">
+                <h2>Decline to Sign</h2>
+                <button className="modal-close" onClick={() => setShowDeclineModal(false)}>&times;</button>
+              </div>
+              <p style={{ marginBottom: 12, color: 'var(--gray-500)' }}>
+                Are you sure? The sender will be notified.
+              </p>
+              <textarea
+                value={declineReason}
+                onChange={(e) => setDeclineReason(e.target.value)}
+                placeholder="Reason (optional)"
+                rows={3}
+                style={{
+                  width: '100%', padding: 12,
+                  border: '1px solid var(--gray-200)', borderRadius: 'var(--radius)',
+                  marginBottom: 12, fontSize: '0.875rem', resize: 'vertical',
+                }}
+              />
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => setShowDeclineModal(false)}>
+                  Cancel
+                </button>
+                <button className="btn btn-danger" style={{ flex: 1 }} onClick={handleDecline}>
+                  Decline to Sign
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="signing-page">
       {/* Header */}
@@ -676,38 +799,16 @@ export default function SigningPage() {
         </button>
       </div>
 
-      {/* Consent + Toolbar — free-form mode (no pre-placed fields) */}
+      {/* Toolbar — free-form mode (no pre-placed fields) */}
       {!hasPreplacedFields && (
         <>
-          {/* Consent checkbox — must be checked before tools are enabled */}
-          <div className="consent-checkbox" style={{
-            padding: '12px 16px',
-            background: 'white',
-            borderBottom: '1px solid var(--gray-200)',
-            maxWidth: 832,
-            margin: '0 auto',
-            width: '100%',
-          }}>
-            <input
-              type="checkbox"
-              id="consent-direct"
-              checked={consent}
-              onChange={(e) => setConsent(e.target.checked)}
-            />
-            <label htmlFor="consent-direct">
-              I agree to sign this document electronically. I understand that my electronic signature
-              has the same legal effect as a handwritten signature.
-            </label>
-          </div>
-
-          <div className="signing-toolbar" style={!consent ? { opacity: 0.4, pointerEvents: 'none' } : undefined}>
+          <div className="signing-toolbar">
             <span style={{ fontSize: '0.75rem', color: 'var(--gray-500)', marginRight: 8 }}>Place on document:</span>
             {(['signature', 'text', 'date', 'checkbox'] as ToolType[]).map(tool => (
               <button
                 key={tool!}
                 className={`toolbar-btn ${activeTool === tool ? 'active' : ''}`}
                 onClick={() => setActiveTool(activeTool === tool ? null : tool)}
-                disabled={!consent}
               >
                 <span className="toolbar-icon">
                   {tool === 'signature' && '✍'}
@@ -745,7 +846,7 @@ export default function SigningPage() {
             <div style={{ flex: 1, background: '#e5e7eb', borderRadius: 4, height: 6 }}>
               <div style={{
                 width: `${totalFields > 0 ? (completedCount / totalFields) * 100 : 0}%`,
-                background: allRequiredFilled ? '#16a34a' : '#2563eb',
+                background: allRequiredFilled ? 'var(--forest)' : 'var(--olive)',
                 height: '100%', borderRadius: 4, transition: 'width 0.3s ease',
               }} />
             </div>
@@ -759,28 +860,12 @@ export default function SigningPage() {
         {hasPreplacedFields && (
           <div className="guided-action-bar">
             {currentStepIndex === -1 ? (
-              /* Not started — consent checkbox + Start button */
-              <>
-                <div className="consent-checkbox" style={{ marginBottom: 8 }}>
-                  <input
-                    type="checkbox"
-                    id="consent-top"
-                    checked={consent}
-                    onChange={(e) => setConsent(e.target.checked)}
-                  />
-                  <label htmlFor="consent-top">
-                    I agree to sign this document electronically. I understand that my electronic signature
-                    has the same legal effect as a handwritten signature.
-                  </label>
-                </div>
-                <button
-                  className="btn btn-primary btn-block"
-                  disabled={!consent}
-                  onClick={() => setCurrentStepIndex(0)}
-                >
-                  Start
-                </button>
-              </>
+              <button
+                className="btn btn-primary btn-block"
+                onClick={() => setCurrentStepIndex(0)}
+              >
+                Start Signing
+              </button>
             ) : currentStepIndex < fieldSteps.length ? (
               /* In progress — step info + Next/Finish */
               <>
@@ -829,16 +914,16 @@ export default function SigningPage() {
 
         {/* AI Summary + Chat Panel */}
         <div style={{
-          background: '#eff6ff', border: '1px solid #bfdbfe', padding: '16px', borderRadius: 8,
+          background: 'var(--cream)', border: '1px solid var(--gray-200)', padding: '16px', borderRadius: 8,
           fontSize: '0.875rem', position: 'relative', maxHeight: '50vh', display: 'flex', flexDirection: 'column',
           maxWidth: 800, margin: '0 auto 16px', width: '100%',
         }}>
           <div style={{ marginBottom: 12 }}>
-            <strong style={{ color: '#1e40af' }}>AI Document Assistant</strong>
+            <strong style={{ color: 'var(--forest)' }}>AI Document Assistant</strong>
           </div>
 
           {aiSummaryLoading ? (
-            <div style={{ padding: 16, textAlign: 'center', color: '#6b7280' }}>
+            <div style={{ padding: 16, textAlign: 'center', color: 'var(--ink-mute)' }}>
               <div className="spinner" style={{ width: 20, height: 20, margin: '0 auto 8px' }} />
               Analyzing document...
             </div>
@@ -852,20 +937,20 @@ export default function SigningPage() {
                       padding: '8px 12px',
                       margin: '4px 0',
                       borderRadius: 8,
-                      background: msg.role === 'user' ? '#dbeafe' : 'white',
-                      borderLeft: msg.role === 'assistant' ? '3px solid #2563eb' : 'none',
+                      background: msg.role === 'user' ? 'rgba(112,130,56,0.1)' : 'white',
+                      borderLeft: msg.role === 'assistant' ? '3px solid var(--forest)' : 'none',
                       fontSize: '0.8125rem',
                       lineHeight: 1.5,
-                      color: '#374151',
+                      color: 'var(--ink-soft)',
                       whiteSpace: 'pre-wrap',
                     }}
                   >
-                    {msg.role === 'user' && <strong style={{ color: '#2563eb' }}>You: </strong>}
+                    {msg.role === 'user' && <strong style={{ color: 'var(--forest)' }}>You: </strong>}
                     {msg.content}
                   </div>
                 ))}
                 {chatLoading && (
-                  <div style={{ padding: '8px 12px', color: '#6b7280', fontSize: '0.8125rem' }}>Thinking...</div>
+                  <div style={{ padding: '8px 12px', color: 'var(--ink-mute)', fontSize: '0.8125rem' }}>Thinking...</div>
                 )}
                 <div ref={chatEndRef} />
               </div>
@@ -877,7 +962,7 @@ export default function SigningPage() {
                   onChange={(e) => setChatInput(e.target.value)}
                   placeholder="Ask a question about this document..."
                   style={{
-                    flex: 1, padding: '8px 12px', border: '1px solid #bfdbfe', borderRadius: 8,
+                    flex: 1, padding: '8px 12px', border: '1px solid var(--gray-200)', borderRadius: 8,
                     fontSize: '0.8125rem', outline: 'none', background: 'white',
                   }}
                 />
@@ -885,7 +970,7 @@ export default function SigningPage() {
                   type="submit"
                   disabled={!chatInput.trim() || chatLoading}
                   style={{
-                    padding: '8px 14px', background: '#2563eb', color: 'white', border: 'none',
+                    padding: '8px 14px', background: 'var(--forest)', color: 'white', border: 'none',
                     borderRadius: 8, cursor: chatInput.trim() && !chatLoading ? 'pointer' : 'not-allowed',
                     opacity: chatInput.trim() && !chatLoading ? 1 : 0.5, fontSize: '0.8125rem', fontWeight: 600,
                   }}
@@ -1007,7 +1092,7 @@ export default function SigningPage() {
                             width: '60%', height: '60%', borderRadius: 2,
                             border: '2px solid #111', display: 'inline-flex',
                             alignItems: 'center', justifyContent: 'center',
-                            background: item.value === '✓' ? '#2563eb' : 'transparent',
+                            background: item.value === '✓' ? 'var(--forest)' : 'transparent',
                             color: 'white', fontSize: '10px', fontWeight: 'bold',
                           }}>
                             {item.value === '✓' && '✓'}
@@ -1018,7 +1103,7 @@ export default function SigningPage() {
                           <span style={{
                             width: '60%', height: '60%', borderRadius: '50%',
                             border: '2px solid #111', display: 'inline-block',
-                            background: item.value === '●' ? '#2563eb' : 'transparent',
+                            background: item.value === '●' ? 'var(--forest)' : 'transparent',
                             boxShadow: item.value === '●' ? 'inset 0 0 0 2px white' : 'none',
                           }} />
                         )}
@@ -1076,15 +1161,15 @@ export default function SigningPage() {
         </div>
       </div>
 
-      {/* Free-form mode: show Finish button once a signature is placed (consent lives under the toolbar) */}
+      {/* Free-form mode: show Finish button once a signature is placed */}
       {!hasPreplacedFields && hasSignature && (
         <div className="consent-banner">
           <button
             className="btn btn-primary btn-block"
             onClick={handleComplete}
-            disabled={!consent || isSubmitting}
+            disabled={isSubmitting}
           >
-            {isSubmitting ? 'Completing...' : !consent ? 'Check the agreement above to finish' : 'Finish & Agree'}
+            {isSubmitting ? 'Completing...' : 'Finish & Submit'}
           </button>
         </div>
       )}
