@@ -3,6 +3,8 @@ import {
   PutObjectCommand,
   GetObjectCommand,
   DeleteObjectCommand,
+  PutBucketCorsCommand,
+  GetBucketCorsCommand,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { logger } from '../config/logger.js';
@@ -20,6 +22,30 @@ export class StorageService {
       },
     });
     this.bucket = process.env.S3_BUCKET || 'lapen-documents';
+  }
+
+  async ensureBucketCors(): Promise<void> {
+    try {
+      await this.s3.send(new GetBucketCorsCommand({ Bucket: this.bucket }));
+      logger.info('S3 bucket CORS already configured');
+    } catch {
+      try {
+        await this.s3.send(new PutBucketCorsCommand({
+          Bucket: this.bucket,
+          CORSConfiguration: {
+            CORSRules: [{
+              AllowedOrigins: ['*'],
+              AllowedMethods: ['GET', 'HEAD'],
+              AllowedHeaders: ['*'],
+              MaxAgeSeconds: 3600,
+            }],
+          },
+        }));
+        logger.info('S3 bucket CORS configured successfully');
+      } catch (err) {
+        logger.warn({ err }, 'Could not set S3 bucket CORS — pre-signed URLs may fail in browser');
+      }
+    }
   }
 
   async uploadDocument(key: string, content: Buffer, contentType: string): Promise<string> {

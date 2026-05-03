@@ -67,6 +67,17 @@ async function main() {
   // Rate limiting
   app.use('/api/', rateLimiter(100, 60 * 1000)); // 100 req/min
 
+  // Configure S3 bucket CORS so browsers can fetch pre-signed URLs directly
+  if (process.env.AWS_ACCESS_KEY_ID) {
+    try {
+      const { StorageService } = await import('./services/StorageService.js');
+      const storageService = new StorageService();
+      await storageService.ensureBucketCors();
+    } catch (err) {
+      logger.warn({ err }, 'Could not configure S3 bucket CORS');
+    }
+  }
+
   // Routes — each wrapped in try/catch so one failure doesn't block others
   if (process.env.DATABASE_URL) {
     try {
