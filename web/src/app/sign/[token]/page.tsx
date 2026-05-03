@@ -793,6 +793,76 @@ export default function SigningPage() {
         <div />
       </div>
 
+      {/* AI Summary + Chat Panel */}
+      <div style={{
+        background: 'var(--cream)', borderBottom: '1px solid var(--gray-200)', padding: '16px',
+        fontSize: '0.875rem', position: 'relative', maxHeight: '50vh', display: 'flex', flexDirection: 'column',
+        maxWidth: 832, margin: '0 auto', width: '100%',
+      }}>
+        <div style={{ marginBottom: 12 }}>
+          <strong style={{ color: 'var(--forest)' }}>AI Document Assistant</strong>
+        </div>
+
+        {aiSummaryLoading ? (
+          <div style={{ padding: 16, textAlign: 'center', color: 'var(--ink-mute)' }}>
+            <div className="spinner" style={{ width: 20, height: 20, margin: '0 auto 8px' }} />
+            Analyzing document...
+          </div>
+        ) : (
+          <>
+            <div style={{ flex: 1, overflowY: 'auto', marginBottom: 12, maxHeight: '35vh' }}>
+              {chatMessages.map((msg, i) => (
+                <div
+                  key={i}
+                  style={{
+                    padding: '8px 12px',
+                    margin: '4px 0',
+                    borderRadius: 8,
+                    background: msg.role === 'user' ? 'rgba(112,130,56,0.1)' : 'white',
+                    borderLeft: msg.role === 'assistant' ? '3px solid var(--forest)' : 'none',
+                    fontSize: '0.8125rem',
+                    lineHeight: 1.5,
+                    color: 'var(--ink-soft)',
+                    whiteSpace: 'pre-wrap',
+                  }}
+                >
+                  {msg.role === 'user' && <strong style={{ color: 'var(--forest)' }}>You: </strong>}
+                  {msg.content}
+                </div>
+              ))}
+              {chatLoading && (
+                <div style={{ padding: '8px 12px', color: 'var(--ink-mute)', fontSize: '0.8125rem' }}>Thinking...</div>
+              )}
+              <div ref={chatEndRef} />
+            </div>
+
+            <form onSubmit={handleChatSubmit} style={{ display: 'flex', gap: 8 }}>
+              <input
+                type="text"
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)}
+                placeholder="Ask a question about this document..."
+                style={{
+                  flex: 1, padding: '8px 12px', border: '1px solid var(--gray-200)', borderRadius: 8,
+                  fontSize: '0.8125rem', outline: 'none', background: 'white',
+                }}
+              />
+              <button
+                type="submit"
+                disabled={!chatInput.trim() || chatLoading}
+                style={{
+                  padding: '8px 14px', background: 'var(--forest)', color: 'white', border: 'none',
+                  borderRadius: 8, cursor: chatInput.trim() && !chatLoading ? 'pointer' : 'not-allowed',
+                  opacity: chatInput.trim() && !chatLoading ? 1 : 0.5, fontSize: '0.8125rem', fontWeight: 600,
+                }}
+              >
+                Ask
+              </button>
+            </form>
+          </>
+        )}
+      </div>
+
       {/* Toolbar — free-form mode (no pre-placed fields) */}
       {!hasPreplacedFields && (
         <>
@@ -905,76 +975,6 @@ export default function SigningPage() {
             )}
           </div>
         )}
-
-        {/* AI Summary + Chat Panel */}
-        <div style={{
-          background: 'var(--cream)', border: '1px solid var(--gray-200)', padding: '16px', borderRadius: 8,
-          fontSize: '0.875rem', position: 'relative', maxHeight: '50vh', display: 'flex', flexDirection: 'column',
-          maxWidth: 800, margin: '0 auto 16px', width: '100%',
-        }}>
-          <div style={{ marginBottom: 12 }}>
-            <strong style={{ color: 'var(--forest)' }}>AI Document Assistant</strong>
-          </div>
-
-          {aiSummaryLoading ? (
-            <div style={{ padding: 16, textAlign: 'center', color: 'var(--ink-mute)' }}>
-              <div className="spinner" style={{ width: 20, height: 20, margin: '0 auto 8px' }} />
-              Analyzing document...
-            </div>
-          ) : (
-            <>
-              <div style={{ flex: 1, overflowY: 'auto', marginBottom: 12, maxHeight: '35vh' }}>
-                {chatMessages.map((msg, i) => (
-                  <div
-                    key={i}
-                    style={{
-                      padding: '8px 12px',
-                      margin: '4px 0',
-                      borderRadius: 8,
-                      background: msg.role === 'user' ? 'rgba(112,130,56,0.1)' : 'white',
-                      borderLeft: msg.role === 'assistant' ? '3px solid var(--forest)' : 'none',
-                      fontSize: '0.8125rem',
-                      lineHeight: 1.5,
-                      color: 'var(--ink-soft)',
-                      whiteSpace: 'pre-wrap',
-                    }}
-                  >
-                    {msg.role === 'user' && <strong style={{ color: 'var(--forest)' }}>You: </strong>}
-                    {msg.content}
-                  </div>
-                ))}
-                {chatLoading && (
-                  <div style={{ padding: '8px 12px', color: 'var(--ink-mute)', fontSize: '0.8125rem' }}>Thinking...</div>
-                )}
-                <div ref={chatEndRef} />
-              </div>
-
-              <form onSubmit={handleChatSubmit} style={{ display: 'flex', gap: 8 }}>
-                <input
-                  type="text"
-                  value={chatInput}
-                  onChange={(e) => setChatInput(e.target.value)}
-                  placeholder="Ask a question about this document..."
-                  style={{
-                    flex: 1, padding: '8px 12px', border: '1px solid var(--gray-200)', borderRadius: 8,
-                    fontSize: '0.8125rem', outline: 'none', background: 'white',
-                  }}
-                />
-                <button
-                  type="submit"
-                  disabled={!chatInput.trim() || chatLoading}
-                  style={{
-                    padding: '8px 14px', background: 'var(--forest)', color: 'white', border: 'none',
-                    borderRadius: 8, cursor: chatInput.trim() && !chatLoading ? 'pointer' : 'not-allowed',
-                    opacity: chatInput.trim() && !chatLoading ? 1 : 0.5, fontSize: '0.8125rem', fontWeight: 600,
-                  }}
-                >
-                  Ask
-                </button>
-              </form>
-            </>
-          )}
-        </div>
 
         <div className="document-container">
           {pdfLoadFailed ? (
