@@ -159,7 +159,7 @@ export default function Home() {
           <div className="lp-features">
             <div className="lp-feature">
               <div className="lp-feature-icon">
-                <svg width="28" height="28" viewBox="0 0 28 28" fill="none" stroke="var(--terracotta)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <svg width="28" height="28" viewBox="0 0 28 28" fill="none" stroke="var(--olive)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M14 3v22M3 14h22M7 7l14 14M21 7L7 21" />
                   <circle cx="14" cy="14" r="4" />
                 </svg>
@@ -169,7 +169,7 @@ export default function Home() {
             </div>
             <div className="lp-feature">
               <div className="lp-feature-icon">
-                <svg width="28" height="28" viewBox="0 0 28 28" fill="none" stroke="var(--terracotta)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <svg width="28" height="28" viewBox="0 0 28 28" fill="none" stroke="var(--olive)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                   <rect x="2" y="6" width="24" height="16" rx="2" />
                   <path d="M2 8l12 8 12-8" />
                 </svg>
@@ -179,7 +179,7 @@ export default function Home() {
             </div>
             <div className="lp-feature">
               <div className="lp-feature-icon">
-                <svg width="28" height="28" viewBox="0 0 28 28" fill="none" stroke="var(--terracotta)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <svg width="28" height="28" viewBox="0 0 28 28" fill="none" stroke="var(--olive)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M16 3l-2 6h-4l3.5 3-1.5 5 4-3 4 3-1.5-5L22 9h-4L16 3z" />
                   <rect x="3" y="4" width="8" height="21" rx="1" />
                   <path d="M5 8h4M5 11h4M5 14h3" />
@@ -191,7 +191,7 @@ export default function Home() {
             </div>
             <div className="lp-feature">
               <div className="lp-feature-icon">
-                <svg width="28" height="28" viewBox="0 0 28 28" fill="none" stroke="var(--terracotta)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <svg width="28" height="28" viewBox="0 0 28 28" fill="none" stroke="var(--olive)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                   <rect x="5" y="11" width="18" height="14" rx="2" />
                   <path d="M9 11V7a5 5 0 0 1 10 0v4" />
                   <circle cx="14" cy="18" r="2" />
@@ -203,7 +203,7 @@ export default function Home() {
             </div>
             <div className="lp-feature">
               <div className="lp-feature-icon">
-                <svg width="28" height="28" viewBox="0 0 28 28" fill="none" stroke="var(--terracotta)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <svg width="28" height="28" viewBox="0 0 28 28" fill="none" stroke="var(--olive)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                   <rect x="7" y="2" width="14" height="24" rx="3" />
                   <path d="M12 22h4" />
                   <path d="M11 6h6" />
@@ -214,7 +214,7 @@ export default function Home() {
             </div>
             <div className="lp-feature">
               <div className="lp-feature-icon">
-                <svg width="28" height="28" viewBox="0 0 28 28" fill="none" stroke="var(--terracotta)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <svg width="28" height="28" viewBox="0 0 28 28" fill="none" stroke="var(--olive)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M14 2v8l4-3" />
                   <path d="M14 10l-4-3" />
                   <circle cx="14" cy="20" r="6" />
