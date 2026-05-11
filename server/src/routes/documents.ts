@@ -201,8 +201,10 @@ export function createDocumentsRouter(): Router {
         const storageService = new StorageService();
         const pdfBuffer = await storageService.getDocument(doc.s3_key);
 
+        const safeName = doc.file_name.replace(/[^\x20-\x7e]/g, '_');
+        const encodedName = encodeURIComponent(doc.file_name);
         res.setHeader('Content-Type', 'application/pdf');
-        res.setHeader('Content-Disposition', `inline; filename="${doc.file_name}"`);
+        res.setHeader('Content-Disposition', `inline; filename="${safeName}"; filename*=UTF-8''${encodedName}`);
         res.setHeader('Content-Length', pdfBuffer.length);
         res.send(pdfBuffer);
       } catch (s3Err) {

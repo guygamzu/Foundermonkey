@@ -712,7 +712,8 @@ export class EmailProcessor {
     try {
       const { StorageService } = await import('../services/StorageService.js');
       const storageService = new StorageService();
-      s3Key = `documents/${user.id}/${crypto.randomUUID()}/${fileName}`;
+      const safeFileName = fileName.replace(/[^\x20-\x7e]/g, '_');
+      s3Key = `documents/${user.id}/${crypto.randomUUID()}/${safeFileName}`;
       await storageService.uploadDocument(s3Key, content, 'application/pdf');
       const doc = await this.documentRepo.create({
         sender_id: user.id,
@@ -811,7 +812,8 @@ export class EmailProcessor {
     try {
       const { StorageService } = await import('../services/StorageService.js');
       const storageService = new StorageService();
-      const s3Key = `documents/${user.id}/${crypto.randomUUID()}/${fileName}`;
+      const safeFileName = fileName.replace(/[^\x20-\x7e]/g, '_');
+      const s3Key = `documents/${user.id}/${crypto.randomUUID()}/${safeFileName}`;
       await storageService.uploadDocument(s3Key, content, 'application/pdf');
       const doc = await this.documentRepo.create({
         sender_id: user.id,

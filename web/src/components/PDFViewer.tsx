@@ -19,6 +19,7 @@ interface PDFViewerProps {
 export default function PDFViewer({ url, fallbackUrl, pageCount, renderOverlay, onPageClick, onError }: PDFViewerProps) {
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const [loadError, setLoadError] = useState(false);
+  const [errorDetail, setErrorDetail] = useState('');
   const [numPages, setNumPages] = useState<number | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(0);
@@ -29,53 +30,52 @@ export default function PDFViewer({ url, fallbackUrl, pageCount, renderOverlay, 
   const fetchPdf = useCallback(async (signal: AbortSignal) => {
     setBlobUrl(null);
     setLoadError(false);
+    setErrorDetail('');
 
-    async function tryFetch(fetchUrl: string): Promise<ArrayBuffer | null> {
-      const res = await fetch(fetchUrl, { signal });
-      if (!res.ok) {
-        const text = await res.text().catch(() => '');
-        console.error(`[PDFViewer] Fetch failed (${res.status}): ${text.slice(0, 200)}`);
+    const errors: string[] = [];
+
+    async function tryFetch(fetchUrl: string, label: string): Promise<ArrayBuffer | null> {
+      try {
+        const res = await fetch(fetchUrl, { signal });
+        if (!res.ok) {
+          const text = await res.text().catch(() => '');
+          const detail = `${label}: ${res.status} ${text.slice(0, 100)}`;
+          console.error(`[PDFViewer] ${detail}`);
+          errors.push(detail);
+          return null;
+        }
+        const ct = res.headers.get('content-type') || '';
+        if (!ct.includes('pdf') && !ct.includes('octet-stream')) {
+          const detail = `${label}: unexpected content-type "${ct}"`;
+          console.error(`[PDFViewer] ${detail}`);
+          errors.push(detail);
+          return null;
+        }
+        return res.arrayBuffer();
+      } catch (err) {
+        if (signal.aborted) return null;
+        const msg = err instanceof Error ? err.message : String(err);
+        const detail = `${label}: ${msg}`;
+        console.error(`[PDFViewer] ${detail}`);
+        errors.push(detail);
         return null;
       }
-      return res.arrayBuffer();
     }
 
-    try {
-      let buffer = await tryFetch(url);
-      if (!buffer && fallbackUrl) {
-        console.log('[PDFViewer] Primary URL failed, trying fallback...');
-        buffer = await tryFetch(fallbackUrl);
-      }
-      if (signal.aborted) return;
-      if (buffer) {
-        if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
-        const newUrl = URL.createObjectURL(new Blob([buffer], { type: 'application/pdf' }));
-        objectUrlRef.current = newUrl;
-        setBlobUrl(newUrl);
-        return;
-      }
-    } catch (err) {
-      if (signal.aborted) return;
-      if (fallbackUrl) {
-        console.log('[PDFViewer] Primary fetch error, trying fallback...', err);
-        try {
-          const buffer = await tryFetch(fallbackUrl);
-          if (signal.aborted) return;
-          if (buffer) {
-            if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
-            const newUrl = URL.createObjectURL(new Blob([buffer], { type: 'application/pdf' }));
-            objectUrlRef.current = newUrl;
-            setBlobUrl(newUrl);
-            return;
-          }
-        } catch (fallbackErr) {
-          console.error('[PDFViewer] Fallback also failed:', fallbackErr);
-        }
-      } else {
-        console.error('[PDFViewer] Fetch error:', err);
-      }
+    let buffer = await tryFetch(url, 'primary');
+    if (!buffer && fallbackUrl && !signal.aborted) {
+      buffer = await tryFetch(fallbackUrl, 'fallback');
     }
-    if (!signal.aborted) {
+
+    if (signal.aborted) return;
+
+    if (buffer) {
+      if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
+      const newUrl = URL.createObjectURL(new Blob([buffer], { type: 'application/pdf' }));
+      objectUrlRef.current = newUrl;
+      setBlobUrl(newUrl);
+    } else {
+      setErrorDetail(errors.join(' | '));
       setLoadError(true);
       onError?.();
     }
@@ -136,9 +136,14 @@ export default function PDFViewer({ url, fallbackUrl, pageCount, renderOverlay, 
         width: '100%', maxWidth: 800, margin: '40px auto', padding: 32,
         textAlign: 'center', background: '#f9fafb', borderRadius: 8, border: '1px solid #e5e7eb',
       }}>
-        <p style={{ color: '#374151', marginBottom: 16, fontSize: 15 }}>
-          Document preview unavailable. The file may still be processing.
+        <p style={{ color: '#374151', marginBottom: 8, fontSize: 15 }}>
+          Document preview unavailable.
         </p>
+        {errorDetail && (
+          <p style={{ color: '#9ca3af', marginBottom: 16, fontSize: 12, wordBreak: 'break-word' }}>
+            {errorDetail}
+          </p>
+        )}
         <button
           onClick={handleManualRetry}
           style={{

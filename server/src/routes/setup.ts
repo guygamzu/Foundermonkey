@@ -108,7 +108,9 @@ export function createSetupRouter(): Router {
 
         res.setHeader('Content-Type', 'application/pdf');
         const disposition = req.query.download === 'true' ? 'attachment' : 'inline';
-        res.setHeader('Content-Disposition', `${disposition}; filename="${doc.file_name}"`);
+        const safeName = doc.file_name.replace(/[^\x20-\x7e]/g, '_');
+        const encodedName = encodeURIComponent(doc.file_name);
+        res.setHeader('Content-Disposition', `${disposition}; filename="${safeName}"; filename*=UTF-8''${encodedName}`);
         res.setHeader('Content-Length', pdfBuffer.length);
         res.send(pdfBuffer);
       } catch (s3Err) {

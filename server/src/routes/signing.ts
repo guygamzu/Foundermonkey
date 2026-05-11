@@ -161,22 +161,28 @@ export function createSigningRouter(): Router {
       }
 
       if (!process.env.AWS_ACCESS_KEY_ID || !doc.s3_key || doc.s3_key.startsWith('pending/')) {
-        res.status(404).json({ error: 'Document file not available' });
+        logger.warn({ docId: doc.id, s3Key: doc.s3_key, hasAws: !!process.env.AWS_ACCESS_KEY_ID }, 'Document file not available');
+        res.status(404).json({ error: 'Document file not available', reason: !process.env.AWS_ACCESS_KEY_ID ? 'aws_not_configured' : doc.s3_key?.startsWith('pending/') ? 'pending_upload' : 'no_s3_key' });
         return;
       }
 
       try {
         const { StorageService } = await import('../services/StorageService.js');
         const storageService = new StorageService();
+        logger.info({ s3Key: doc.s3_key, docId: doc.id }, 'Fetching document from S3');
         const pdfBuffer = await storageService.getDocument(doc.s3_key);
+        logger.info({ s3Key: doc.s3_key, size: pdfBuffer.length }, 'Document fetched from S3');
 
+        const safeName = doc.file_name.replace(/[^\x20-\x7e]/g, '_');
+        const encodedName = encodeURIComponent(doc.file_name);
         res.setHeader('Content-Type', 'application/pdf');
-        res.setHeader('Content-Disposition', `inline; filename="${doc.file_name}"`);
+        res.setHeader('Content-Disposition', `inline; filename="${safeName}"; filename*=UTF-8''${encodedName}`);
         res.setHeader('Content-Length', pdfBuffer.length);
         res.send(pdfBuffer);
       } catch (s3Err) {
-        logger.error({ err: s3Err, s3Key: doc.s3_key }, 'Error fetching document from S3');
-        res.status(502).json({ error: 'Could not retrieve document' });
+        const errMsg = s3Err instanceof Error ? s3Err.message : String(s3Err);
+        logger.error({ err: errMsg, s3Key: doc.s3_key, docId: doc.id }, 'Error fetching document from S3');
+        res.status(502).json({ error: 'Could not retrieve document', detail: errMsg });
       }
     } catch (err) {
       logger.error({ err, token: req.params.token }, 'Error in document proxy');
