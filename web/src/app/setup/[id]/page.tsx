@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, lazy, Suspense, useRef } from 'react'
 import { useParams, useRouter } from 'next/navigation';
 import {
   getSetupDocument,
+  getSetupDocumentDirectUrl,
   getSetupDocumentProxyUrl,
   createSetupField,
   deleteSetupField,
@@ -614,7 +615,8 @@ export default function SetupPage() {
             }
           >
             <PDFViewer
-              url={getSetupDocumentProxyUrl(id)}
+              url={getSetupDocumentDirectUrl(id)}
+              fallbackUrl={getSetupDocumentProxyUrl(id)}
               pageCount={doc.pageCount}
               onPageClick={activeTool ? handlePdfClick : undefined}
               renderOverlay={(pageIndex) => (

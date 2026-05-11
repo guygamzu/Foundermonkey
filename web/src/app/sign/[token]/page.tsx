@@ -9,6 +9,7 @@ import {
   createField,
   completeSigning,
   declineSigning,
+  getDocumentDirectUrl,
   getDocumentProxyUrl,
   askDocumentQuestion,
   type SigningSession,
@@ -985,8 +986,8 @@ export default function SigningPage() {
             }
           >
             <PDFViewer
-              url={getDocumentProxyUrl(token)}
-              fallbackUrl={session.document.documentUrl || undefined}
+              url={getDocumentDirectUrl(token)}
+              fallbackUrl={getDocumentProxyUrl(token)}
               pageCount={session.document.pageCount}
               onPageClick={activeTool ? handlePdfClick : undefined}
               renderOverlay={(pageIndex) => (

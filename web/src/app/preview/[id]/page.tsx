@@ -2,7 +2,7 @@
 
 import { useState, useEffect, lazy, Suspense, useRef } from 'react';
 import { useParams } from 'next/navigation';
-import { getPreviewDocumentProxyUrl, askPreviewQuestion } from '@/lib/api';
+import { getPreviewDocumentDirectUrl, getPreviewDocumentProxyUrl, askPreviewQuestion } from '@/lib/api';
 
 const PDFViewer = lazy(() => import('@/components/PDFViewer'));
 
@@ -42,7 +42,7 @@ export default function PreviewPage() {
   const [preview, setPreview] = useState<DocumentPreview | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [pdfFailed] = useState(false);
+
 
   // AI Summary & Chat — always visible on preview
   const [aiSummary, setAiSummary] = useState<string | null>(null);
@@ -125,7 +125,7 @@ export default function PreviewPage() {
     );
   }
 
-  const showPdf = preview.documentUrl && !pdfFailed;
+  const showPdf = true;
 
   return (
     <div className="signing-page">
@@ -251,8 +251,8 @@ export default function PreviewPage() {
               }
             >
               <PDFViewer
-                url={getPreviewDocumentProxyUrl(documentId)}
-                fallbackUrl={preview.documentUrl || undefined}
+                url={getPreviewDocumentDirectUrl(documentId)}
+                fallbackUrl={getPreviewDocumentProxyUrl(documentId)}
                 pageCount={preview.pageCount}
                 renderOverlay={(pageIndex) => (
                   <>

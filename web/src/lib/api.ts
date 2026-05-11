@@ -79,8 +79,16 @@ export async function getSigningSession(token: string): Promise<SigningSession> 
   return apiFetch(`/api/signing/session/${token}`);
 }
 
+export function getDocumentDirectUrl(token: string): string {
+  return `${API_URL}/api/signing/session/${token}/document`;
+}
+
 export function getDocumentProxyUrl(token: string): string {
   return `/api/document-proxy/${token}`;
+}
+
+export function getPreviewDocumentDirectUrl(documentId: string): string {
+  return `${API_URL}/api/documents/preview/${documentId}/document`;
 }
 
 export function getPreviewDocumentProxyUrl(documentId: string): string {
@@ -194,6 +202,10 @@ export interface SetupDocument {
 
 export async function getSetupDocument(id: string): Promise<SetupDocument> {
   return apiFetch(`/api/setup/${id}`);
+}
+
+export function getSetupDocumentDirectUrl(id: string): string {
+  return `${API_URL}/api/setup/${id}/document`;
 }
 
 export function getSetupDocumentProxyUrl(id: string): string {
