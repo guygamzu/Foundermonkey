@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
-import { useParams } from 'next/navigation';
-import { getDocumentStatus, type DocumentStatus, type DocumentSigner } from '@/lib/api';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { useParams, useSearchParams } from 'next/navigation';
+import { getDocumentStatus, sendNudge, type DocumentStatus, type DocumentSigner } from '@/lib/api';
 
 function formatDate(dateStr: string | null): string {
   if (!dateStr) return '--';
@@ -94,11 +94,15 @@ function getProgressSteps(doc: DocumentStatus): Array<{ label: string; done: boo
 
 export default function StatusPage() {
   const params = useParams();
+  const searchParams = useSearchParams();
   const documentId = params.id as string;
 
   const [doc, setDoc] = useState<DocumentStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [nudgeLoading, setNudgeLoading] = useState(false);
+  const [nudgeResult, setNudgeResult] = useState<{ success: boolean; message: string } | null>(null);
+  const autoNudgeTriggered = useRef(false);
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -112,11 +116,41 @@ export default function StatusPage() {
     }
   }, [documentId]);
 
+  const handleNudge = useCallback(async () => {
+    setNudgeLoading(true);
+    setNudgeResult(null);
+    try {
+      const result = await sendNudge(documentId);
+      setNudgeResult({
+        success: true,
+        message: `Reminder sent to ${result.remindedCount} signer${result.remindedCount !== 1 ? 's' : ''}.`,
+      });
+    } catch (err) {
+      setNudgeResult({
+        success: false,
+        message: err instanceof Error ? err.message : 'Failed to send reminder',
+      });
+    } finally {
+      setNudgeLoading(false);
+    }
+  }, [documentId]);
+
   useEffect(() => {
     fetchStatus();
     const interval = setInterval(fetchStatus, 30000);
     return () => clearInterval(interval);
   }, [fetchStatus]);
+
+  useEffect(() => {
+    if (searchParams.get('action') === 'nudge' && doc && !autoNudgeTriggered.current) {
+      const hasUnsigned = doc.signers.some((s) => s.status !== 'signed' && s.status !== 'declined');
+      const isActive = doc.status === 'sent' || doc.status === 'partially_signed';
+      if (hasUnsigned && isActive) {
+        autoNudgeTriggered.current = true;
+        handleNudge();
+      }
+    }
+  }, [searchParams, doc, handleNudge]);
 
   if (loading) {
     return (
@@ -233,6 +267,46 @@ export default function StatusPage() {
           ))}
         </div>
       </div>
+
+      {/* Send Reminder button */}
+      {(doc.status === 'sent' || doc.status === 'partially_signed') &&
+        doc.signers.some((s) => s.status !== 'signed' && s.status !== 'declined') && (
+        <div className="status-card" style={{ textAlign: 'center' }}>
+          {nudgeResult && (
+            <div style={{
+              padding: '10px 16px',
+              borderRadius: 8,
+              marginBottom: 12,
+              fontSize: '0.875rem',
+              background: nudgeResult.success ? '#f0fdf4' : '#fef2f2',
+              color: nudgeResult.success ? '#166534' : '#991b1b',
+              border: `1px solid ${nudgeResult.success ? '#bbf7d0' : '#fecaca'}`,
+            }}>
+              {nudgeResult.message}
+            </div>
+          )}
+          <button
+            onClick={handleNudge}
+            disabled={nudgeLoading}
+            style={{
+              background: nudgeLoading ? 'var(--gray-300)' : 'linear-gradient(135deg, #2c4a35 0%, #1d3624 100%)',
+              color: 'white',
+              border: 'none',
+              padding: '10px 28px',
+              borderRadius: 10,
+              fontWeight: 700,
+              fontSize: '0.9375rem',
+              cursor: nudgeLoading ? 'not-allowed' : 'pointer',
+              boxShadow: nudgeLoading ? 'none' : '0 4px 14px rgba(44,74,53,0.35)',
+            }}
+          >
+            {nudgeLoading ? 'Sending...' : 'Send Reminder to Unsigned Signers'}
+          </button>
+          <p style={{ color: 'var(--gray-500)', fontSize: '0.75rem', marginTop: 8 }}>
+            Sends a gentle reminder to signers who haven&apos;t signed yet
+          </p>
+        </div>
+      )}
 
       {/* Auto-refresh note */}
       <p style={{ textAlign: 'center', color: 'var(--gray-500)', fontSize: '0.75rem', marginTop: 8 }}>

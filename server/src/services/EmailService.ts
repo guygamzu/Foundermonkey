@@ -481,6 +481,76 @@ export class EmailService {
     });
   }
 
+  async sendSenderNudgeNotification(
+    to: string,
+    senderName: string,
+    fileName: string,
+    unsignedSigners: Array<{ name?: string; email: string }>,
+    statusUrl: string,
+  ): Promise<string> {
+    const signerListHtml = unsignedSigners
+      .map((s) => `<li style="margin: 4px 0; font-size: 14px; color: #374151;">${s.name ? `<strong>${s.name}</strong> (${s.email})` : `<strong>${s.email}</strong>`}</li>`)
+      .join('');
+    const signerListText = unsignedSigners
+      .map((s) => s.name ? `- ${s.name} (${s.email})` : `- ${s.email}`)
+      .join('\n');
+    const nudgeUrl = `${statusUrl}?action=nudge`;
+
+    const html = `
+      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; color: #111827;">
+        <div style="background: linear-gradient(135deg, #2c4a35 0%, #1d3624 100%); padding: 24px; border-radius: 12px 12px 0 0; text-align: center;">
+          <h1 style="margin: 0; color: white; font-size: 18px; font-weight: 700;">Your document is still awaiting signatures</h1>
+        </div>
+
+        <div style="background: white; padding: 24px; border: 1px solid #e5e7eb; border-top: none;">
+          <p style="margin: 0 0 16px; font-size: 15px; line-height: 1.5;">Hi ${senderName},</p>
+
+          <p style="margin: 0 0 16px; font-size: 15px; line-height: 1.5;">
+            It's been a few days since you sent <strong>${fileName}</strong> for signing. The following recipient${unsignedSigners.length > 1 ? 's haven\'t' : ' hasn\'t'} signed yet:
+          </p>
+
+          <ul style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 12px 20px 12px 36px; margin: 0 0 20px; list-style: disc;">
+            ${signerListHtml}
+          </ul>
+
+          <p style="margin: 0 0 20px; font-size: 15px; line-height: 1.5;">
+            Would you like to send them a gentle reminder?
+          </p>
+
+          <div style="text-align: center; margin: 0 0 12px;">
+            <a href="${nudgeUrl}" style="display: inline-block; background: linear-gradient(135deg, #2c4a35 0%, #1d3624 100%); color: white; padding: 12px 32px; border-radius: 10px; text-decoration: none; font-weight: 700; font-size: 15px; box-shadow: 0 4px 14px rgba(44,74,53,0.35);">
+              Send Reminder
+            </a>
+          </div>
+
+          <div style="text-align: center; margin: 0 0 16px;">
+            <a href="${statusUrl}" style="color: #2c4a35; font-size: 13px; text-decoration: underline;">View document status</a>
+          </div>
+
+          <div style="border-top: 1px solid #e5e7eb; padding-top: 16px; margin-top: 8px;">
+            <p style="margin: 0; font-size: 12px; color: #9ca3af; text-align: center; line-height: 1.6;">
+              You're receiving this because you sent a document for signing via Lapen.
+              No further reminders will be sent automatically.
+            </p>
+          </div>
+        </div>
+
+        <div style="background: #f9fafb; padding: 12px 24px; border: 1px solid #e5e7eb; border-top: none; border-radius: 0 0 12px 12px; text-align: center;">
+          <p style="margin: 0; color: #9ca3af; font-size: 11px;">
+            Powered by La Pen<span style="color: #2c4a35;">.</span> &mdash; a quieter way to get things signed
+          </p>
+        </div>
+      </div>
+    `;
+
+    return this.sendEmail({
+      to,
+      subject: `Awaiting signatures: ${fileName}`,
+      text: `Hi ${senderName},\n\nIt's been a few days since you sent "${fileName}" for signing. The following recipient${unsignedSigners.length > 1 ? 's haven\'t' : ' hasn\'t'} signed yet:\n\n${signerListText}\n\nWould you like to send them a gentle reminder?\nSend reminder: ${nudgeUrl}\nView status: ${statusUrl}\n\nNo further reminders will be sent automatically.\n\nPowered by La Pen. — a quieter way to get things signed`,
+      html,
+    });
+  }
+
   async sendCompletionNotification(
     to: string,
     fileName: string,

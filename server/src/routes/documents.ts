@@ -329,6 +329,93 @@ export function createDocumentsRouter(): Router {
     }
   });
 
+  // Send a nudge reminder to unsigned signers
+  router.post('/nudge/:documentId', async (req: Request<{ documentId: string }>, res: Response) => {
+    try {
+      const doc = await documentRepo.findById(req.params.documentId);
+      if (!doc) {
+        res.status(404).json({ error: 'Document not found' });
+        return;
+      }
+
+      if (doc.status !== 'sent' && doc.status !== 'partially_signed') {
+        res.status(400).json({ error: 'Document is not in a nudgeable state' });
+        return;
+      }
+
+      // Rate limit: one nudge per 24 hours
+      if (doc.last_nudge_sent_at) {
+        const sinceLast = Date.now() - new Date(doc.last_nudge_sent_at).getTime();
+        if (sinceLast < 24 * 60 * 60 * 1000) {
+          res.status(429).json({ error: 'A nudge was already sent in the last 24 hours' });
+          return;
+        }
+      }
+
+      // Find sender
+      const sender = await db('users').where({ id: doc.sender_id }).first();
+      if (!sender) {
+        res.status(404).json({ error: 'Sender not found' });
+        return;
+      }
+      const senderName = sender.name || sender.email.split('@')[0];
+
+      // Find all signers and filter to unsigned
+      const allSigners = await documentRepo.findSignersByDocumentId(doc.id);
+      let eligibleSigners = allSigners.filter(
+        (s) => s.status !== 'signed' && s.status !== 'declined',
+      );
+
+      // For sequential docs, only nudge the next pending signer
+      if (doc.is_sequential) {
+        const nextPending = await documentRepo.getNextPendingSigner(doc.id);
+        if (nextPending) {
+          eligibleSigners = eligibleSigners.filter((s) => s.id === nextPending.id);
+        }
+      }
+
+      const appUrl = process.env.APP_URL || 'https://app.lapen.ai';
+      const { EmailService } = await import('../services/EmailService.js');
+      const emailService = new EmailService();
+
+      let remindedCount = 0;
+      for (const signer of eligibleSigners) {
+        if (!signer.email) continue;
+        const signingUrl = `${appUrl}/sign/${signer.signing_token}`;
+        await emailService.sendSigningReminder(
+          signer.email,
+          signer.name || undefined,
+          senderName,
+          sender.email,
+          doc.file_name,
+          signingUrl,
+          1,
+        );
+        remindedCount++;
+      }
+
+      // Update last_nudge_sent_at
+      await db('document_requests')
+        .where({ id: doc.id })
+        .update({ last_nudge_sent_at: new Date(), updated_at: new Date() });
+
+      // Log audit event
+      await auditRepo.log({
+        document_request_id: doc.id,
+        signer_id: null,
+        action: 'sender_nudge_sent',
+        ip_address: req.ip || 'unknown',
+        user_agent: req.headers['user-agent'] || 'unknown',
+        metadata: { remindedCount },
+      });
+
+      res.json({ success: true, remindedCount });
+    } catch (err) {
+      logger.error({ err }, 'Error sending nudge');
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
   // Admin: re-detect fields for a document (replaces old fields with new detection)
   router.post('/admin/redetect-fields/:documentId', async (req: Request<{ documentId: string }>, res: Response) => {
     try {

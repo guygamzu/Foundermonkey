@@ -332,4 +332,20 @@ async function runIncrementalMigrations(database: Knex): Promise<void> {
   } catch (err) {
     // Columns may already exist
   }
+
+  // --- Sender nudge tracking on document_requests (20260511000001) ---
+  try {
+    const hasSenderNudgeNotifiedAt = await database.raw(`
+      SELECT 1 FROM information_schema.columns
+      WHERE table_name = 'document_requests' AND column_name = 'sender_nudge_notified_at'
+    `);
+    if (hasSenderNudgeNotifiedAt.rows.length === 0) {
+      await database.schema.alterTable('document_requests', (table) => {
+        table.timestamp('sender_nudge_notified_at');
+        table.timestamp('last_nudge_sent_at');
+      });
+    }
+  } catch (err) {
+    // Columns may already exist
+  }
 }

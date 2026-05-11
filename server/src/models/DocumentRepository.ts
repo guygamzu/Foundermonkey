@@ -18,6 +18,8 @@ export interface DocumentRequestRow {
   original_email_message_id: string | null;
   subject: string | null;
   pending_signers_json: string | null;
+  sender_nudge_notified_at: Date | null;
+  last_nudge_sent_at: Date | null;
   expires_at: Date;
   completed_at: Date | null;
   created_at: Date;

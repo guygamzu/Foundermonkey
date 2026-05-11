@@ -268,3 +268,7 @@ export async function finishSetup(id: string): Promise<{ success: boolean }> {
 export async function voidAndReconfigure(id: string): Promise<{ success: boolean }> {
   return apiFetch(`/api/setup/${id}/void-and-reconfigure`, { method: 'POST' });
 }
+
+export async function sendNudge(documentId: string): Promise<{ success: boolean; remindedCount: number }> {
+  return apiFetch(`/api/documents/nudge/${documentId}`, { method: 'POST' });
+}
