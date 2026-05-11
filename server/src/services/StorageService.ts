@@ -49,15 +49,26 @@ export class StorageService {
   }
 
   async uploadDocument(key: string, content: Buffer, contentType: string): Promise<string> {
-    await this.s3.send(new PutObjectCommand({
-      Bucket: this.bucket,
-      Key: key,
-      Body: content,
-      ContentType: contentType,
-      ServerSideEncryption: 'AES256',
-    }));
-    logger.info({ key }, 'Document uploaded to S3');
-    return key;
+    const maxRetries = 3;
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        await this.s3.send(new PutObjectCommand({
+          Bucket: this.bucket,
+          Key: key,
+          Body: content,
+          ContentType: contentType,
+          ServerSideEncryption: 'AES256',
+        }));
+        logger.info({ key, attempt }, 'Document uploaded to S3');
+        return key;
+      } catch (err) {
+        if (attempt === maxRetries) throw err;
+        const delay = 1000 * Math.pow(2, attempt - 1);
+        logger.warn({ key, attempt, maxRetries, err: err instanceof Error ? err.message : String(err) }, `S3 upload failed, retrying in ${delay}ms`);
+        await new Promise(r => setTimeout(r, delay));
+      }
+    }
+    throw new Error('S3 upload failed after all retries');
   }
 
   async getDocument(key: string): Promise<Buffer> {

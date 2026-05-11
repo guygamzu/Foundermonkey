@@ -698,35 +698,49 @@ export class EmailProcessor {
     // Upload to S3 and create document
     let documentId: string;
     let s3Key: string | null = null;
-    if (process.env.AWS_ACCESS_KEY_ID) {
-      try {
-        const { StorageService } = await import('../services/StorageService.js');
-        const storageService = new StorageService();
-        s3Key = `documents/${user.id}/${crypto.randomUUID()}/${fileName}`;
-        await storageService.uploadDocument(s3Key, content, 'application/pdf');
-        const doc = await this.documentRepo.create({
-          sender_id: user.id,
-          status: 'pending_confirmation',
-          file_name: fileName,
-          file_size: attachment.size,
-          page_count: pageCount,
-          mime_type: 'application/pdf',
-          document_hash: crypto.createHash('sha256').update(content).digest('hex'),
-          s3_key: s3Key,
-          is_sequential: false,
-          signing_mode: 'shared',
-          credits_required: signers.length,
-          original_email_message_id: messageId,
-          subject,
-          expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-        });
-        documentId = doc.id;
-      } catch (err) {
-        logger.error(`S3 upload failed: ${err instanceof Error ? err.message : String(err)}`);
-        documentId = await this.createBasicDocument(user.id, { content, filename: fileName, size: attachment.size }, messageId, subject);
-      }
-    } else {
-      documentId = await this.createBasicDocument(user.id, attachment, messageId, subject);
+    if (!process.env.AWS_ACCESS_KEY_ID) {
+      logger.error({ senderEmail, fileName }, 'AWS not configured — cannot store document');
+      const { EmailService } = await import('../services/EmailService.js');
+      await new EmailService().sendEmail({
+        to: senderEmail,
+        subject: `Could not process: ${fileName}`,
+        text: `We couldn't process your document "${fileName}" because file storage is temporarily unavailable. Please try again later.\n\nLapen E-Signature Service`,
+        html: `<p>We couldn't process your document "<strong>${fileName}</strong>" because file storage is temporarily unavailable. Please try again later.</p><p>Lapen E-Signature Service</p>`,
+      });
+      return;
+    }
+    try {
+      const { StorageService } = await import('../services/StorageService.js');
+      const storageService = new StorageService();
+      s3Key = `documents/${user.id}/${crypto.randomUUID()}/${fileName}`;
+      await storageService.uploadDocument(s3Key, content, 'application/pdf');
+      const doc = await this.documentRepo.create({
+        sender_id: user.id,
+        status: 'pending_confirmation',
+        file_name: fileName,
+        file_size: attachment.size,
+        page_count: pageCount,
+        mime_type: 'application/pdf',
+        document_hash: crypto.createHash('sha256').update(content).digest('hex'),
+        s3_key: s3Key,
+        is_sequential: false,
+        signing_mode: 'shared',
+        credits_required: signers.length,
+        original_email_message_id: messageId,
+        subject,
+        expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+      });
+      documentId = doc.id;
+    } catch (err) {
+      logger.error({ err: err instanceof Error ? err.message : String(err), senderEmail, fileName }, 'S3 upload failed after retries');
+      const { EmailService } = await import('../services/EmailService.js');
+      await new EmailService().sendEmail({
+        to: senderEmail,
+        subject: `Could not process: ${fileName}`,
+        text: `We couldn't upload your document "${fileName}" for signing. Please try sending it again.\n\nLapen E-Signature Service`,
+        html: `<p>We couldn't upload your document "<strong>${fileName}</strong>" for signing. Please try sending it again.</p><p>Lapen E-Signature Service</p>`,
+      });
+      return;
     }
 
     // Audit
@@ -783,34 +797,48 @@ export class EmailProcessor {
 
     // Upload to S3 and create document
     let documentId: string;
-    if (process.env.AWS_ACCESS_KEY_ID) {
-      try {
-        const { StorageService } = await import('../services/StorageService.js');
-        const storageService = new StorageService();
-        const s3Key = `documents/${user.id}/${crypto.randomUUID()}/${fileName}`;
-        await storageService.uploadDocument(s3Key, content, 'application/pdf');
-        const doc = await this.documentRepo.create({
-          sender_id: user.id,
-          status: 'pending_setup',
-          file_name: fileName,
-          file_size: attachment.size,
-          page_count: pageCount,
-          mime_type: 'application/pdf',
-          document_hash: crypto.createHash('sha256').update(content).digest('hex'),
-          s3_key: s3Key,
-          is_sequential: false,
-          credits_required: 0,
-          original_email_message_id: messageId,
-          subject,
-          expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-        });
-        documentId = doc.id;
-      } catch (err) {
-        logger.error(`S3 upload failed: ${err instanceof Error ? err.message : String(err)}`);
-        documentId = await this.createBasicDocument(user.id, { content, filename: fileName, size: attachment.size }, messageId, subject);
-      }
-    } else {
-      documentId = await this.createBasicDocument(user.id, attachment, messageId, subject);
+    if (!process.env.AWS_ACCESS_KEY_ID) {
+      logger.error({ senderEmail, fileName }, 'AWS not configured — cannot store document');
+      const { EmailService: ES } = await import('../services/EmailService.js');
+      await new ES().sendEmail({
+        to: senderEmail,
+        subject: `Could not process: ${fileName}`,
+        text: `We couldn't process your document "${fileName}" because file storage is temporarily unavailable. Please try again later.\n\nLapen E-Signature Service`,
+        html: `<p>We couldn't process your document "<strong>${fileName}</strong>" because file storage is temporarily unavailable. Please try again later.</p><p>Lapen E-Signature Service</p>`,
+      });
+      return;
+    }
+    try {
+      const { StorageService } = await import('../services/StorageService.js');
+      const storageService = new StorageService();
+      const s3Key = `documents/${user.id}/${crypto.randomUUID()}/${fileName}`;
+      await storageService.uploadDocument(s3Key, content, 'application/pdf');
+      const doc = await this.documentRepo.create({
+        sender_id: user.id,
+        status: 'pending_setup',
+        file_name: fileName,
+        file_size: attachment.size,
+        page_count: pageCount,
+        mime_type: 'application/pdf',
+        document_hash: crypto.createHash('sha256').update(content).digest('hex'),
+        s3_key: s3Key,
+        is_sequential: false,
+        credits_required: 0,
+        original_email_message_id: messageId,
+        subject,
+        expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+      });
+      documentId = doc.id;
+    } catch (err) {
+      logger.error({ err: err instanceof Error ? err.message : String(err), senderEmail, fileName }, 'S3 upload failed after retries');
+      const { EmailService: ES } = await import('../services/EmailService.js');
+      await new ES().sendEmail({
+        to: senderEmail,
+        subject: `Could not process: ${fileName}`,
+        text: `We couldn't upload your document "${fileName}". Please try sending it again.\n\nLapen E-Signature Service`,
+        html: `<p>We couldn't upload your document "<strong>${fileName}</strong>". Please try sending it again.</p><p>Lapen E-Signature Service</p>`,
+      });
+      return;
     }
 
     // Generate AI summary
