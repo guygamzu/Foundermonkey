@@ -31,7 +31,8 @@ export function startCompletionWorker(): void {
       const signedPdf = await documentService.applySignaturesToDocument(documentRequestId);
       const certificate = await documentService.generateCertificateOfCompletion(documentRequestId);
 
-      const signedKey = storageService.generateSignedKey(documentRequestId, `${doc.file_name.replace('.pdf', '')}-signed.pdf`);
+      const safeDocName = doc.file_name.replace(/[^\x20-\x7e]/g, '_').replace('.pdf', '');
+      const signedKey = storageService.generateSignedKey(documentRequestId, `${safeDocName}-signed.pdf`);
       const certKey = storageService.generateCertificateKey(documentRequestId);
 
       await storageService.uploadDocument(signedKey, signedPdf, 'application/pdf');
@@ -40,8 +41,8 @@ export function startCompletionWorker(): void {
       await documentRepo.markCompleted(documentRequestId, signedKey, certKey);
 
       attachments.push(
-        { filename: `${doc.file_name.replace('.pdf', '')}-signed.pdf`, content: signedPdf, contentType: 'application/pdf' },
-        { filename: `Certificate-of-Completion-${doc.file_name}`, content: certificate, contentType: 'application/pdf' },
+        { filename: `${safeDocName}-signed.pdf`, content: signedPdf, contentType: 'application/pdf' },
+        { filename: `Certificate-of-Completion.pdf`, content: certificate, contentType: 'application/pdf' },
       );
     } catch (pdfErr) {
       logger.error({ error: pdfErr instanceof Error ? pdfErr.message : String(pdfErr), stack: pdfErr instanceof Error ? pdfErr.stack : undefined, documentRequestId }, 'PDF generation failed — sending completion emails without attachments');

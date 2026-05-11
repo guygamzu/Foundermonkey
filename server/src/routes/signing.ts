@@ -353,12 +353,14 @@ export function createSigningRouter(): Router {
 
           // Generate PDF with only this signer's fields
           const signerPdf = await documentService.applySignaturesToDocument(signer.document_request_id, signer.id);
-          const signedKey = `signed/${signer.document_request_id}/${signer.id}/${doc.file_name.replace('.pdf', '')}-signed-${signerName}.pdf`;
+          const safeFileName = doc.file_name.replace(/[^\x20-\x7e]/g, '_').replace('.pdf', '');
+          const safeSigner = (signerName || '').replace(/[^\x20-\x7e]/g, '_');
+          const signedKey = `signed/${signer.document_request_id}/${signer.id}/${safeFileName}-signed-${safeSigner}.pdf`;
           await storageService.uploadDocument(signedKey, signerPdf, 'application/pdf');
 
           // Store per-signer signed key
           await db('signers').where({ id: signer.id }).update({ signed_s3_key: signedKey });
-          pdfAttachment = { filename: `${doc.file_name.replace('.pdf', '')}-signed-${signerName}.pdf`, content: signerPdf, contentType: 'application/pdf' };
+          pdfAttachment = { filename: `${safeFileName}-signed-${safeSigner}.pdf`, content: signerPdf, contentType: 'application/pdf' };
           logger.info({ documentId: doc.id, signerId: signer.id }, 'Individual signer PDF generated');
         } catch (completionErr) {
           logger.error({ error: completionErr instanceof Error ? completionErr.message : String(completionErr), stack: completionErr instanceof Error ? completionErr.stack : undefined }, 'Individual signer PDF generation failed — sending emails without attachment');
@@ -396,14 +398,15 @@ export function createSigningRouter(): Router {
             const combinedPdf = await documentService.applySignaturesToDocument(signer.document_request_id);
             const certificate = await documentService.generateCertificateOfCompletion(signer.document_request_id);
 
-            const signedKey = storageService.generateSignedKey(signer.document_request_id, `${doc!.file_name.replace('.pdf', '')}-signed-all.pdf`);
+            const safeDocName = doc!.file_name.replace(/[^\x20-\x7e]/g, '_').replace('.pdf', '');
+            const signedKey = storageService.generateSignedKey(signer.document_request_id, `${safeDocName}-signed-all.pdf`);
             const certKey = storageService.generateCertificateKey(signer.document_request_id);
             await storageService.uploadDocument(signedKey, combinedPdf, 'application/pdf');
             await storageService.uploadDocument(certKey, certificate, 'application/pdf');
             await documentRepo.markCompleted(signer.document_request_id, signedKey, certKey);
 
             combinedAttachments.push(
-              { filename: `${doc!.file_name.replace('.pdf', '')}-signed-all.pdf`, content: combinedPdf, contentType: 'application/pdf' },
+              { filename: `${safeDocName}-signed-all.pdf`, content: combinedPdf, contentType: 'application/pdf' },
               { filename: `Certificate-of-Completion.pdf`, content: certificate, contentType: 'application/pdf' },
             );
             logger.info({ documentId: doc!.id }, 'Combined PDF generated successfully');
@@ -465,7 +468,8 @@ export function createSigningRouter(): Router {
               const certificate = await documentService.generateCertificateOfCompletion(signer.document_request_id);
 
               // Upload signed docs
-              const signedKey = storageService.generateSignedKey(signer.document_request_id, `${completedDoc.file_name.replace('.pdf', '')}-signed.pdf`);
+              const safeDocName = completedDoc.file_name.replace(/[^\x20-\x7e]/g, '_').replace('.pdf', '');
+              const signedKey = storageService.generateSignedKey(signer.document_request_id, `${safeDocName}-signed.pdf`);
               const certKey = storageService.generateCertificateKey(signer.document_request_id);
               await storageService.uploadDocument(signedKey, signedPdf, 'application/pdf');
               await storageService.uploadDocument(certKey, certificate, 'application/pdf');
@@ -478,7 +482,7 @@ export function createSigningRouter(): Router {
               if (sender?.email) allEmails.add(sender.email);
               for (const s of allSigners) { if (s.email) allEmails.add(s.email); }
 
-              const signedPdfAttachment = { filename: `${completedDoc.file_name.replace('.pdf', '')}-signed.pdf`, content: signedPdf, contentType: 'application/pdf' };
+              const signedPdfAttachment = { filename: `${safeDocName}-signed.pdf`, content: signedPdf, contentType: 'application/pdf' };
               const certificateAttachment = { filename: `Certificate-of-Completion.pdf`, content: certificate, contentType: 'application/pdf' };
               const archiveUrl = `${process.env.APP_URL}/archive/${signer.document_request_id}`;
 
