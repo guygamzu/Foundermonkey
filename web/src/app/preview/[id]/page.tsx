@@ -42,7 +42,7 @@ export default function PreviewPage() {
   const [preview, setPreview] = useState<DocumentPreview | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [pdfFailed, setPdfFailed] = useState(false);
+  const [pdfFailed] = useState(false);
 
   // AI Summary & Chat — always visible on preview
   const [aiSummary, setAiSummary] = useState<string | null>(null);
@@ -277,7 +277,6 @@ export default function PreviewPage() {
                       ))}
                   </>
                 )}
-                onError={() => setPdfFailed(true)}
               />
             </Suspense>
           ) : (

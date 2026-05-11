@@ -42,6 +42,8 @@ export interface SignerRow {
   signed_at: Date | null;
   declined_at: Date | null;
   decline_reason: string | null;
+  reminder_count: number;
+  last_reminder_at: Date | null;
   created_at: Date;
 }
 

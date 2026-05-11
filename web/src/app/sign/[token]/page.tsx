@@ -58,7 +58,7 @@ export default function SigningPage() {
   const [chatInput, setChatInput] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
   const [otherFields, setOtherFields] = useState<OtherField[]>([]);
-  const [pdfLoadFailed, setPdfLoadFailed] = useState(false);
+
   const [editingFieldId, setEditingFieldId] = useState<string | null>(null);
   const [inlineTextValue, setInlineTextValue] = useState('');
   const [currentStepIndex, setCurrentStepIndex] = useState(-1); // -1 = not started (guided flow)
@@ -977,11 +977,6 @@ export default function SigningPage() {
         )}
 
         <div className="document-container">
-          {pdfLoadFailed ? (
-            <div style={{ padding: 40, textAlign: 'center', color: 'var(--gray-400)' }}>
-              Document preview unavailable
-            </div>
-          ) : (
           <Suspense
             fallback={
               <div style={{ padding: 40, textAlign: 'center', color: 'var(--gray-400)' }}>
@@ -1148,10 +1143,8 @@ export default function SigningPage() {
                     ))}
                 </>
               )}
-              onError={() => setPdfLoadFailed(true)}
             />
           </Suspense>
-          )}
         </div>
       </div>
 

@@ -22,13 +22,16 @@ export default function PDFViewer({ url, fallbackUrl, pageCount, renderOverlay, 
   const [numPages, setNumPages] = useState<number | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(0);
+  const [retryCount, setRetryCount] = useState(0);
+  const MAX_AUTO_RETRIES = 4;
+  const objectUrlRef = useRef<string | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    let objectUrl: string | null = null;
+  const fetchPdf = useCallback(async (signal: AbortSignal) => {
+    setBlobUrl(null);
+    setLoadError(false);
 
     async function tryFetch(fetchUrl: string): Promise<ArrayBuffer | null> {
-      const res = await fetch(fetchUrl);
+      const res = await fetch(fetchUrl, { signal });
       if (!res.ok) {
         const text = await res.text().catch(() => '');
         console.error(`[PDFViewer] Fetch failed (${res.status}): ${text.slice(0, 200)}`);
@@ -37,48 +40,77 @@ export default function PDFViewer({ url, fallbackUrl, pageCount, renderOverlay, 
       return res.arrayBuffer();
     }
 
-    async function fetchPdf() {
-      try {
-        let buffer = await tryFetch(url);
-        if (!buffer && fallbackUrl) {
-          console.log('[PDFViewer] Primary URL failed, trying fallback...');
-          buffer = await tryFetch(fallbackUrl);
-        }
-        if (cancelled) return;
-        if (buffer) {
-          objectUrl = URL.createObjectURL(new Blob([buffer], { type: 'application/pdf' }));
-          setBlobUrl(objectUrl);
-        } else {
-          setLoadError(true);
-          onError?.();
-        }
-      } catch (err) {
-        if (cancelled) return;
-        if (fallbackUrl) {
-          console.log('[PDFViewer] Primary fetch error, trying fallback...', err);
-          try {
-            const buffer = await tryFetch(fallbackUrl);
-            if (cancelled) return;
-            if (buffer) {
-              objectUrl = URL.createObjectURL(new Blob([buffer], { type: 'application/pdf' }));
-              setBlobUrl(objectUrl);
-              return;
-            }
-          } catch (fallbackErr) {
-            console.error('[PDFViewer] Fallback also failed:', fallbackErr);
+    try {
+      let buffer = await tryFetch(url);
+      if (!buffer && fallbackUrl) {
+        console.log('[PDFViewer] Primary URL failed, trying fallback...');
+        buffer = await tryFetch(fallbackUrl);
+      }
+      if (signal.aborted) return;
+      if (buffer) {
+        if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
+        const newUrl = URL.createObjectURL(new Blob([buffer], { type: 'application/pdf' }));
+        objectUrlRef.current = newUrl;
+        setBlobUrl(newUrl);
+        return;
+      }
+    } catch (err) {
+      if (signal.aborted) return;
+      if (fallbackUrl) {
+        console.log('[PDFViewer] Primary fetch error, trying fallback...', err);
+        try {
+          const buffer = await tryFetch(fallbackUrl);
+          if (signal.aborted) return;
+          if (buffer) {
+            if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
+            const newUrl = URL.createObjectURL(new Blob([buffer], { type: 'application/pdf' }));
+            objectUrlRef.current = newUrl;
+            setBlobUrl(newUrl);
+            return;
           }
-        } else {
-          console.error('[PDFViewer] Fetch error:', err);
+        } catch (fallbackErr) {
+          console.error('[PDFViewer] Fallback also failed:', fallbackErr);
         }
-        if (!cancelled) { setLoadError(true); onError?.(); }
+      } else {
+        console.error('[PDFViewer] Fetch error:', err);
       }
     }
-    fetchPdf();
+    if (!signal.aborted) {
+      setLoadError(true);
+      onError?.();
+    }
+  }, [url, fallbackUrl, onError]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    if (retryCount === 0) {
+      fetchPdf(controller.signal);
+    } else if (retryCount <= MAX_AUTO_RETRIES) {
+      const delay = Math.min(2000 * Math.pow(2, retryCount - 1), 10000);
+      console.log(`[PDFViewer] Auto-retry ${retryCount}/${MAX_AUTO_RETRIES} in ${delay}ms...`);
+      const timer = setTimeout(() => fetchPdf(controller.signal), delay);
+      return () => { controller.abort(); clearTimeout(timer); };
+    }
+
     return () => {
-      cancelled = true;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      controller.abort();
+      if (objectUrlRef.current) {
+        URL.revokeObjectURL(objectUrlRef.current);
+        objectUrlRef.current = null;
+      }
     };
-  }, [url, fallbackUrl]);
+  }, [url, fallbackUrl, retryCount, fetchPdf]);
+
+  useEffect(() => {
+    if (loadError && retryCount < MAX_AUTO_RETRIES) {
+      setRetryCount((c) => c + 1);
+    }
+  }, [loadError]);
+
+  const handleManualRetry = useCallback(() => {
+    setRetryCount((c) => c + 1);
+  }, []);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -98,8 +130,41 @@ export default function PDFViewer({ url, fallbackUrl, pageCount, renderOverlay, 
     setNumPages(n);
   }, []);
 
-  if (loadError) {
-    return null;
+  if (loadError && retryCount >= MAX_AUTO_RETRIES) {
+    return (
+      <div style={{
+        width: '100%', maxWidth: 800, margin: '40px auto', padding: 32,
+        textAlign: 'center', background: '#f9fafb', borderRadius: 8, border: '1px solid #e5e7eb',
+      }}>
+        <p style={{ color: '#374151', marginBottom: 16, fontSize: 15 }}>
+          Document preview unavailable. The file may still be processing.
+        </p>
+        <button
+          onClick={handleManualRetry}
+          style={{
+            padding: '10px 24px', background: '#2c4a35', color: 'white',
+            border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 14, fontWeight: 500,
+          }}
+        >
+          Retry Loading
+        </button>
+      </div>
+    );
+  }
+
+  if (loadError && retryCount < MAX_AUTO_RETRIES) {
+    return (
+      <div style={{ width: '100%', maxWidth: 800, margin: '40px auto', textAlign: 'center' }}>
+        <div style={{
+          width: '100%', aspectRatio: '8.5/11', background: '#f3f4f6',
+          borderRadius: 4, display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          <p style={{ color: '#6b7280', fontSize: 14 }}>
+            Loading document (attempt {retryCount + 1} of {MAX_AUTO_RETRIES + 1})…
+          </p>
+        </div>
+      </div>
+    );
   }
 
   const totalPages = Math.max(numPages || 0, pageCount || 1);
