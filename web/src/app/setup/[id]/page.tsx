@@ -36,6 +36,18 @@ export default function SetupPage() {
   const [activeTool, setActiveTool] = useState<ToolType>(null);
   const [selectedSignerIdx, setSelectedSignerIdx] = useState(0);
   const [selectedFieldIds, setSelectedFieldIds] = useState<Set<string>>(new Set());
+
+  // Undo history — each entry is a command with enough info to reverse it
+  type UndoCmd =
+    | { type: 'create'; ids: string[] }
+    | { type: 'delete'; fields: SetupField[] }
+    | { type: 'move'; updates: Array<{ id: string; oldX: number; oldY: number }> };
+  const historyRef = useRef<UndoCmd[]>([]);
+  const pushHistory = useCallback((cmd: UndoCmd) => {
+    historyRef.current.push(cmd);
+    // Cap history at 50 entries
+    if (historyRef.current.length > 50) historyRef.current.shift();
+  }, []);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
@@ -120,10 +132,11 @@ export default function SetupPage() {
         height: dim.h,
       });
       setFields(prev => [...prev, field]);
+      pushHistory({ type: 'create', ids: [field.id] });
     } catch (err: any) {
       setError(err.message);
     }
-  }, [activeTool, selectedSigner, id]);
+  }, [activeTool, selectedSigner, id, pushHistory]);
 
   // Done — mark template as ready (no signers needed)
   const handleDone = useCallback(async () => {
@@ -160,6 +173,7 @@ export default function SetupPage() {
 
   // Remove field
   const handleRemoveField = useCallback(async (fieldId: string) => {
+    const removed = fields.find(f => f.id === fieldId);
     try {
       await deleteSetupField(id, fieldId);
       setFields(prev => prev.filter(f => f.id !== fieldId));
@@ -169,10 +183,11 @@ export default function SetupPage() {
         next.delete(fieldId);
         return next;
       });
+      if (removed) pushHistory({ type: 'delete', fields: [removed] });
     } catch (err: any) {
       setError(err.message);
     }
-  }, [id]);
+  }, [id, fields, pushHistory]);
 
   // Selection: click on placed field
   const handleSelectField = useCallback((fieldId: string, shift: boolean) => {
@@ -193,14 +208,67 @@ export default function SetupPage() {
   const handleDeleteSelection = useCallback(async () => {
     if (selectedFieldIds.size === 0) return;
     const ids = Array.from(selectedFieldIds);
+    const removed = fields.filter(f => ids.includes(f.id));
     setSelectedFieldIds(new Set());
     setFields(prev => prev.filter(f => !ids.includes(f.id)));
     await Promise.all(
       ids.map(fid => deleteSetupField(id, fid).catch(() => null)),
     );
-  }, [selectedFieldIds, id]);
+    if (removed.length > 0) pushHistory({ type: 'delete', fields: removed });
+  }, [selectedFieldIds, id, fields, pushHistory]);
 
-  // Escape clears selection; Delete/Backspace removes selected fields
+  // Undo (Cmd/Ctrl+Z) — pops the last command from history and reverses it
+  const [undoBusy, setUndoBusy] = useState(false);
+  const handleUndo = useCallback(async () => {
+    if (undoBusy) return;
+    const cmd = historyRef.current.pop();
+    if (!cmd) return;
+    setUndoBusy(true);
+    try {
+      if (cmd.type === 'create') {
+        setFields(prev => prev.filter(f => !cmd.ids.includes(f.id)));
+        setSelectedFieldIds(prev => {
+          const next = new Set(prev);
+          cmd.ids.forEach(i => next.delete(i));
+          return next;
+        });
+        await Promise.all(cmd.ids.map(fid => deleteSetupField(id, fid).catch(() => null)));
+      } else if (cmd.type === 'delete') {
+        const created: SetupField[] = [];
+        for (const src of cmd.fields) {
+          try {
+            const c = await createSetupField(id, {
+              signerId: src.signerId,
+              type: src.type,
+              page: src.page,
+              x: src.x,
+              y: src.y,
+              width: src.width,
+              height: src.height,
+              optionGroupId: src.optionGroupId ?? null,
+            });
+            created.push(c);
+          } catch {
+            // Individual recreate failed — skip
+          }
+        }
+        if (created.length > 0) setFields(prev => [...prev, ...created]);
+      } else if (cmd.type === 'move') {
+        const posById = new Map(cmd.updates.map(u => [u.id, { x: u.oldX, y: u.oldY }]));
+        setFields(prev => prev.map(f => {
+          const p = posById.get(f.id);
+          return p ? { ...f, x: p.x, y: p.y } : f;
+        }));
+        await Promise.all(
+          cmd.updates.map(u => updateSetupFieldPosition(id, u.id, u.oldX, u.oldY).catch(() => null)),
+        );
+      }
+    } finally {
+      setUndoBusy(false);
+    }
+  }, [id, undoBusy]);
+
+  // Escape clears selection; Delete/Backspace removes selected; Cmd/Ctrl+Z undoes
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
@@ -213,11 +281,14 @@ export default function SetupPage() {
           e.preventDefault();
           handleDeleteSelection();
         }
+      } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z' && !e.shiftKey && !inInput) {
+        e.preventDefault();
+        handleUndo();
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [selectedFieldIds, handleDeleteSelection]);
+  }, [selectedFieldIds, handleDeleteSelection, handleUndo]);
 
   // Persist a batch of field position updates
   const persistPositions = useCallback(async (updates: Array<{ id: string; x: number; y: number }>) => {
@@ -280,10 +351,20 @@ export default function SetupPage() {
       return;
     }
 
+    // Snapshot original positions for undo
+    const originalById = new Map(selected.map(f => [f.id, { x: f.x, y: f.y }]));
+    const moveUndo = updated
+      .filter(u => {
+        const orig = originalById.get(u.id);
+        return orig && (orig.x !== u.x || orig.y !== u.y);
+      })
+      .map(u => ({ id: u.id, oldX: originalById.get(u.id)!.x, oldY: originalById.get(u.id)!.y }));
+
     const updatedMap = new Map(updated.map(u => [u.id, u]));
     setFields(prev => prev.map(f => updatedMap.get(f.id) ?? f));
     persistPositions(updated.map(u => ({ id: u.id, x: u.x, y: u.y })));
-  }, [fields, selectedFieldIds, persistPositions]);
+    if (moveUndo.length > 0) pushHistory({ type: 'move', updates: moveUndo });
+  }, [fields, selectedFieldIds, persistPositions, pushHistory]);
 
   // Duplicate selected fields (offset by small amount, preserving option stacks)
   const handleDuplicateSelection = useCallback(async () => {
@@ -333,8 +414,11 @@ export default function SetupPage() {
         setError(err.message);
       }
     }
-    if (newIds.length > 0) setSelectedFieldIds(new Set(newIds));
-  }, [fields, selectedFieldIds, id]);
+    if (newIds.length > 0) {
+      setSelectedFieldIds(new Set(newIds));
+      pushHistory({ type: 'create', ids: newIds });
+    }
+  }, [fields, selectedFieldIds, id, pushHistory]);
 
   // Cmd/Ctrl+D duplicates current selection
   useEffect(() => {
@@ -549,7 +633,17 @@ export default function SetupPage() {
         .map(i => currentById.get(i.id))
         .filter((f): f is SetupField => !!f)
         .map(f => ({ id: f.id, x: f.x, y: f.y }));
+
+      // Build undo entry using the original positions captured at drag start
+      const undoUpdates = items
+        .filter(i => {
+          const cur = currentById.get(i.id);
+          return cur && (cur.x !== i.origX || cur.y !== i.origY);
+        })
+        .map(i => ({ id: i.id, oldX: i.origX, oldY: i.origY }));
+
       await persistPositions(updates);
+      if (undoUpdates.length > 0) pushHistory({ type: 'move', updates: undoUpdates });
 
       dragRef.current = null;
     };
@@ -565,7 +659,7 @@ export default function SetupPage() {
       document.removeEventListener('touchmove', handleDragMove);
       document.removeEventListener('touchend', handleDragEnd);
     };
-  }, [fields, id]);
+  }, [fields, id, persistPositions, pushHistory]);
 
   // Add signer
   const handleAddSigner = useCallback(async () => {
@@ -894,6 +988,25 @@ export default function SetupPage() {
             </button>
           );
         })}
+        <button
+          onClick={handleUndo}
+          disabled={undoBusy || historyRef.current.length === 0}
+          title="Undo (⌘Z)"
+          style={{
+            marginLeft: 'auto',
+            padding: '6px 12px',
+            background: 'white',
+            border: '1px solid var(--gray-300)',
+            borderRadius: 6,
+            fontSize: '0.8rem',
+            fontWeight: 600,
+            color: 'var(--gray-700)',
+            cursor: undoBusy ? 'not-allowed' : 'pointer',
+            opacity: historyRef.current.length === 0 ? 0.4 : 1,
+          }}
+        >
+          {undoBusy ? '⏳ Undoing…' : '↶ Undo'}
+        </button>
       </div>
 
       {activeTool && (
