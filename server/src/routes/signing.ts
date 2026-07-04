@@ -129,6 +129,7 @@ export function createSigningRouter(): Router {
           value: f.value,
           completed: !!f.completed_at,
           optionValues: safeJsonParse(f.option_values),
+          optionGroupId: f.option_group_id,
         })),
         otherFields: otherCompletedFields,
       });

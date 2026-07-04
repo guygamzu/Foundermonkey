@@ -1018,7 +1018,19 @@ export class EmailProcessor {
 
       // Clone template fields for this signer on the new document
       if (signer && templateFields.length > 0) {
+        // Map each source option_group_id to a new one, so option stacks stay isolated per signer
+        const groupIdMap = new Map<string, string>();
         for (const tf of templateFields) {
+          let newGroupId: string | null = null;
+          if (tf.type === 'option' && tf.option_group_id) {
+            const existing = groupIdMap.get(tf.option_group_id);
+            if (existing) {
+              newGroupId = existing;
+            } else {
+              newGroupId = crypto.randomUUID();
+              groupIdMap.set(tf.option_group_id, newGroupId);
+            }
+          }
           await db('document_fields').insert({
             id: crypto.randomUUID(),
             document_request_id: newDoc.id,
@@ -1031,6 +1043,7 @@ export class EmailProcessor {
             height: tf.height,
             required: tf.required,
             option_values: tf.option_values,
+            option_group_id: newGroupId,
             is_template: false,
           });
         }

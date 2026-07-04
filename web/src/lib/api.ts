@@ -37,6 +37,7 @@ export interface SigningSession {
     required: boolean;
     value: string | null;
     completed: boolean;
+    optionGroupId?: string | null;
   }>;
 }
 
@@ -184,6 +185,7 @@ export interface SetupField {
   width: number;
   height: number;
   required: boolean;
+  optionGroupId?: string | null;
   isTemplate?: boolean;
 }
 
@@ -214,7 +216,7 @@ export function getSetupDocumentProxyUrl(id: string): string {
 
 export async function createSetupField(
   id: string,
-  field: { signerId: string; type: string; page: number; x: number; y: number; width?: number; height?: number },
+  field: { signerId: string; type: string; page: number; x: number; y: number; width?: number; height?: number; optionGroupId?: string | null },
 ): Promise<SetupField> {
   return apiFetch(`/api/setup/${id}/fields`, {
     method: 'POST',

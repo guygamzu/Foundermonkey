@@ -63,6 +63,7 @@ export interface DocumentFieldRow {
   value: string | null;
   completed_at: Date | null;
   option_values: string | null;
+  option_group_id: string | null;
   is_template: boolean;
 }
 

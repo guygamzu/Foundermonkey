@@ -33,6 +33,7 @@ interface PlacedItem {
   completed: boolean;
   required?: boolean;
   isLocal?: boolean; // not yet saved to server
+  optionGroupId?: string | null;
 }
 
 export default function SigningPage() {
@@ -137,13 +138,15 @@ export default function SigningPage() {
   // Detect click-to-fill mode: pre-placed fields exist that haven't been filled yet
   const hasPreplacedFields = placedItems.some(item => item.required && !item.isLocal);
 
-  // Group option fields by page — each group counts as ONE field (mutually exclusive)
+  // Group option fields by option_group_id (falls back to per-page for legacy data).
+  // Each group counts as ONE field (mutually exclusive within the group).
   const optionGroups = useMemo(() => {
-    const groups = new Map<number, PlacedItem[]>();
+    const groups = new Map<string, PlacedItem[]>();
     placedItems.filter(item => item.type === 'option').forEach(item => {
-      const group = groups.get(item.page) || [];
+      const key = item.optionGroupId ?? `page-${item.page}`;
+      const group = groups.get(key) || [];
       group.push(item);
-      groups.set(item.page, group);
+      groups.set(key, group);
     });
     return groups;
   }, [placedItems]);
@@ -166,8 +169,9 @@ export default function SigningPage() {
     placedItems.filter(item => item.type !== 'option').forEach(item => {
       steps.push({ type: 'field', page: item.page, y: item.y, items: [item] });
     });
-    optionGroups.forEach((group, page) => {
+    optionGroups.forEach((group) => {
       const minY = Math.min(...group.map(item => item.y));
+      const page = group[0]?.page ?? 1;
       steps.push({ type: 'option-group', page, y: minY, items: group });
     });
     steps.sort((a, b) => a.page - b.page || a.y - b.y);
@@ -226,12 +230,13 @@ export default function SigningPage() {
         setError(err.message);
       }
     } else if (item.type === 'option') {
-      // Select this option and deselect all other option fields on the same page for the same signer
+      // Select this option and deselect siblings in the same option group (fallback to same page for legacy)
+      const groupKey = item.optionGroupId ?? `page-${item.page}`;
+      const sameGroup = (i: PlacedItem) => (i.optionGroupId ?? `page-${i.page}`) === groupKey;
       try {
         await submitFieldValue(token, item.id, '●');
-        // Clear other options on same page
         const otherOptions = placedItems.filter(
-          i => i.type === 'option' && i.page === item.page && i.id !== item.id,
+          i => i.type === 'option' && sameGroup(i) && i.id !== item.id,
         );
         for (const opt of otherOptions) {
           if (opt.value) {
@@ -240,7 +245,7 @@ export default function SigningPage() {
         }
         setPlacedItems(prev => prev.map(i => {
           if (i.id === item.id) return { ...i, value: '●', completed: true };
-          if (i.type === 'option' && i.page === item.page) return { ...i, value: '', completed: false };
+          if (i.type === 'option' && sameGroup(i)) return { ...i, value: '', completed: false };
           return i;
         }));
       } catch (err: any) {
