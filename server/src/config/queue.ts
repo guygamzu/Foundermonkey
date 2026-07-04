@@ -24,4 +24,5 @@ export const QUEUE_NAMES = {
   NOTIFICATION: 'notification',
   DOCUMENT_COMPLETION: 'document-completion',
   CERTIFICATE_GENERATION: 'certificate-generation',
+  RISK_MONITOR: 'risk-monitor',
 } as const;
