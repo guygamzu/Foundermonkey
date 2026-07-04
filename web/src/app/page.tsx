@@ -4,9 +4,9 @@ import { ScrollLink } from '../components/ScrollLink';
 import { AnimatedSection } from '../components/AnimatedSection';
 
 const SET_MAILTO_BODY = encodeURIComponent(
-  '[INSTRUCTIONS - delete before sending]\n\n- Add signer emails to the TO field\n- Attach your PDF\n- Hit send\n- Lapen will email you a link to place signature fields on the PDF\n- Once you place the fields and confirm, your signers receive their signing links\n\n---\n\nHi,\n\nThe attached PDF will need your signature. You will receive a follow-up email from Lapen with a secure signing link once the document is ready.\n\nThank you'
+  '[INSTRUCTIONS - delete before sending]\n\n- Do NOT add any other recipients\n- Attach your PDF\n- Hit send\n- Lapen will email you back a link to place signature fields on the PDF and pick signers\n- Once you confirm, your signers receive their signing links'
 );
-const SET_MAILTO = `mailto:?cc=set@lapen.ai&subject=${encodeURIComponent('Document for signature')}&body=${SET_MAILTO_BODY}`;
+const SET_MAILTO = `mailto:sign@lapen.ai?subject=${encodeURIComponent('Document setup')}&body=${SET_MAILTO_BODY}`;
 
 export const metadata: Metadata = {
   title: 'La Pen. — A quieter way to get things signed',
@@ -144,8 +144,8 @@ export default function Home() {
               Need to place fields before sending?
             </p>
             <p style={{ fontSize: '0.875rem', color: 'var(--gray-500)', margin: 0 }}>
-              Email <strong style={{ color: 'var(--primary)' }}>set@lapen.ai</strong> instead &mdash;
-              you&apos;ll get a link to visually place signature fields per signer on the PDF before sending.
+              Email <strong style={{ color: 'var(--primary)' }}>sign@lapen.ai</strong> with no other recipients &mdash;
+              you&apos;ll get a link back to visually place signature fields per signer on the PDF before sending.
             </p>
           </div>
         </div>
@@ -186,7 +186,7 @@ export default function Home() {
                 </svg>
               </div>
               <h3>Free-form or placed fields</h3>
-              <p>Let signers place fields freely, or use <strong>set@lapen.ai</strong> to visually assign signature, text, and date fields per signer before sending.</p>
+              <p>Let signers place fields freely, or email <strong>sign@lapen.ai</strong> with just a PDF (no signers) to visually assign signature, text, and date fields per signer before sending.</p>
               <a href={SET_MAILTO} className="lp-btn lp-btn-outline lp-btn-sm">Try placed fields</a>
             </div>
             <div className="lp-feature">
