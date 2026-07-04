@@ -35,6 +35,7 @@ export default function SetupPage() {
   const [fields, setFields] = useState<SetupField[]>([]);
   const [activeTool, setActiveTool] = useState<ToolType>(null);
   const [selectedSignerIdx, setSelectedSignerIdx] = useState(0);
+  const [selectedFieldIds, setSelectedFieldIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
@@ -162,21 +163,117 @@ export default function SetupPage() {
     try {
       await deleteSetupField(id, fieldId);
       setFields(prev => prev.filter(f => f.id !== fieldId));
+      setSelectedFieldIds(prev => {
+        if (!prev.has(fieldId)) return prev;
+        const next = new Set(prev);
+        next.delete(fieldId);
+        return next;
+      });
     } catch (err: any) {
       setError(err.message);
     }
   }, [id]);
 
-  // Drag-to-move fields
+  // Selection: click on placed field
+  const handleSelectField = useCallback((fieldId: string, shift: boolean) => {
+    setSelectedFieldIds(prev => {
+      if (shift) {
+        const next = new Set(prev);
+        if (next.has(fieldId)) next.delete(fieldId);
+        else next.add(fieldId);
+        return next;
+      }
+      // Plain click on already-selected keeps it; plain click on unselected selects only it
+      if (prev.size === 1 && prev.has(fieldId)) return prev;
+      return new Set([fieldId]);
+    });
+  }, []);
+
+  // Clear selection on Escape
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setSelectedFieldIds(new Set());
+        setActiveTool(null);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  // Persist a batch of field position updates
+  const persistPositions = useCallback(async (updates: Array<{ id: string; x: number; y: number }>) => {
+    await Promise.all(
+      updates.map(u => updateSetupFieldPosition(id, u.id, u.x, u.y).catch(() => null)),
+    );
+  }, [id]);
+
+  // Alignment operations — all act on selectedFieldIds
+  const applyAlignment = useCallback((op:
+    | 'left' | 'center-x' | 'right'
+    | 'top' | 'center-y' | 'bottom'
+    | 'distribute-h' | 'distribute-v'
+  ) => {
+    if (selectedFieldIds.size < 2) return;
+    const selected = fields.filter(f => selectedFieldIds.has(f.id));
+    if (selected.length < 2) return;
+
+    let updated: SetupField[] = [];
+
+    if (op === 'left') {
+      const minX = Math.min(...selected.map(f => f.x));
+      updated = selected.map(f => ({ ...f, x: minX }));
+    } else if (op === 'right') {
+      const maxRight = Math.max(...selected.map(f => f.x + f.width));
+      updated = selected.map(f => ({ ...f, x: maxRight - f.width }));
+    } else if (op === 'center-x') {
+      const minX = Math.min(...selected.map(f => f.x));
+      const maxRight = Math.max(...selected.map(f => f.x + f.width));
+      const center = (minX + maxRight) / 2;
+      updated = selected.map(f => ({ ...f, x: center - f.width / 2 }));
+    } else if (op === 'top') {
+      const minY = Math.min(...selected.map(f => f.y));
+      updated = selected.map(f => ({ ...f, y: minY }));
+    } else if (op === 'bottom') {
+      const maxBottom = Math.max(...selected.map(f => f.y + f.height));
+      updated = selected.map(f => ({ ...f, y: maxBottom - f.height }));
+    } else if (op === 'center-y') {
+      const minY = Math.min(...selected.map(f => f.y));
+      const maxBottom = Math.max(...selected.map(f => f.y + f.height));
+      const center = (minY + maxBottom) / 2;
+      updated = selected.map(f => ({ ...f, y: center - f.height / 2 }));
+    } else if (op === 'distribute-h' && selected.length >= 3) {
+      const sorted = [...selected].sort((a, b) => a.x - b.x);
+      const first = sorted[0];
+      const last = sorted[sorted.length - 1];
+      const startCenter = first.x + first.width / 2;
+      const endCenter = last.x + last.width / 2;
+      const step = (endCenter - startCenter) / (sorted.length - 1);
+      updated = sorted.map((f, i) => ({ ...f, x: startCenter + i * step - f.width / 2 }));
+    } else if (op === 'distribute-v' && selected.length >= 3) {
+      const sorted = [...selected].sort((a, b) => a.y - b.y);
+      const first = sorted[0];
+      const last = sorted[sorted.length - 1];
+      const startCenter = first.y + first.height / 2;
+      const endCenter = last.y + last.height / 2;
+      const step = (endCenter - startCenter) / (sorted.length - 1);
+      updated = sorted.map((f, i) => ({ ...f, y: startCenter + i * step - f.height / 2 }));
+    } else {
+      return;
+    }
+
+    const updatedMap = new Map(updated.map(u => [u.id, u]));
+    setFields(prev => prev.map(f => updatedMap.get(f.id) ?? f));
+    persistPositions(updated.map(u => ({ id: u.id, x: u.x, y: u.y })));
+  }, [fields, selectedFieldIds, persistPositions]);
+
+  // Drag-to-move fields (supports group drag when multiple selected)
   const dragRef = useRef<{
-    fieldId: string;
+    primaryId: string;
     startX: number;
     startY: number;
-    origX: number;
-    origY: number;
     containerRect: DOMRect;
-    fieldWidth: number;
-    fieldHeight: number;
+    items: Array<{ id: string; origX: number; origY: number; width: number; height: number }>;
   } | null>(null);
 
   const handleDragStart = useCallback((e: React.MouseEvent | React.TouchEvent, fieldId: string) => {
@@ -191,25 +288,35 @@ export default function SetupPage() {
     if (!container) return;
 
     const containerRect = container.getBoundingClientRect();
-    const field = fields.find(f => f.id === fieldId);
-    if (!field) return;
+    const primary = fields.find(f => f.id === fieldId);
+    if (!primary) return;
 
     e.preventDefault();
     e.stopPropagation();
 
+    // If dragging a selected field with others selected, group-drag them all
+    const dragIds = selectedFieldIds.has(fieldId) && selectedFieldIds.size > 1
+      ? selectedFieldIds
+      : new Set([fieldId]);
+
+    const items = fields
+      .filter(f => dragIds.has(f.id))
+      .map(f => ({ id: f.id, origX: f.x, origY: f.y, width: f.width, height: f.height }));
+
     dragRef.current = {
-      fieldId,
+      primaryId: fieldId,
       startX: clientX,
       startY: clientY,
-      origX: field.x,
-      origY: field.y,
       containerRect,
-      fieldWidth: field.width,
-      fieldHeight: field.height,
+      items,
     };
 
-    itemEl.classList.add('dragging');
-  }, [fields]);
+    document.querySelectorAll('.placed-item').forEach(el => {
+      const el2 = el as HTMLElement;
+      const id = el2.getAttribute('data-field-id');
+      if (id && dragIds.has(id)) el2.classList.add('dragging');
+    });
+  }, [fields, selectedFieldIds]);
 
   useEffect(() => {
     const handleDragMove = (e: MouseEvent | TouchEvent) => {
@@ -219,32 +326,39 @@ export default function SetupPage() {
       const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
       const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
 
-      const { fieldId, startX, startY, origX, origY, containerRect, fieldWidth, fieldHeight } = dragRef.current;
-      const deltaX = (clientX - startX) / containerRect.width;
-      const deltaY = (clientY - startY) / containerRect.height;
+      const { startX, startY, containerRect, items } = dragRef.current;
+      const rawDX = (clientX - startX) / containerRect.width;
+      const rawDY = (clientY - startY) / containerRect.height;
 
-      const newX = Math.max(0, Math.min(1 - fieldWidth, origX + deltaX));
-      const newY = Math.max(0, Math.min(1 - fieldHeight, origY + deltaY));
+      // Clamp movement so no item leaves the page
+      const minDX = Math.max(...items.map(i => -i.origX));
+      const maxDX = Math.min(...items.map(i => 1 - i.width - i.origX));
+      const minDY = Math.max(...items.map(i => -i.origY));
+      const maxDY = Math.min(...items.map(i => 1 - i.height - i.origY));
+      const dX = Math.max(minDX, Math.min(maxDX, rawDX));
+      const dY = Math.max(minDY, Math.min(maxDY, rawDY));
 
+      const updates = new Map(items.map(i => [i.id, { x: i.origX + dX, y: i.origY + dY }]));
       setFields(prev =>
-        prev.map(f => f.id === fieldId ? { ...f, x: newX, y: newY } : f),
+        prev.map(f => {
+          const u = updates.get(f.id);
+          return u ? { ...f, x: u.x, y: u.y } : f;
+        }),
       );
     };
 
     const handleDragEnd = async () => {
       if (!dragRef.current) return;
-      const { fieldId } = dragRef.current;
+      const { items } = dragRef.current;
       document.querySelectorAll('.placed-item.dragging').forEach(el => el.classList.remove('dragging'));
 
-      // Persist position to server
-      const field = fields.find(f => f.id === fieldId);
-      if (field) {
-        try {
-          await updateSetupFieldPosition(id, fieldId, field.x, field.y);
-        } catch {
-          // Position update failed — field still shows in correct local position
-        }
-      }
+      // Persist all moved items
+      const currentById = new Map(fields.map(f => [f.id, f]));
+      const updates = items
+        .map(i => currentById.get(i.id))
+        .filter((f): f is SetupField => !!f)
+        .map(f => ({ id: f.id, x: f.x, y: f.y }));
+      await persistPositions(updates);
 
       dragRef.current = null;
     };
@@ -601,6 +715,50 @@ export default function SetupPage() {
         </div>
       )}
 
+      {selectedFieldIds.size >= 2 && (
+        <div className="align-toolbar" style={{
+          display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap',
+          background: '#f0fdf4', borderBottom: '1px solid #bbf7d0',
+          padding: '8px 12px', maxWidth: 832, margin: '0 auto', width: '100%',
+        }}>
+          <span style={{ fontSize: '0.75rem', color: '#166534', fontWeight: 600, marginRight: 4 }}>
+            {selectedFieldIds.size} selected
+          </span>
+          <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+            <span style={{ fontSize: '0.7rem', color: 'var(--gray-500)', marginRight: 4 }}>Align:</span>
+            <AlignBtn title="Align Left" onClick={() => applyAlignment('left')}>⇤</AlignBtn>
+            <AlignBtn title="Align Center (Horizontal)" onClick={() => applyAlignment('center-x')}>↔</AlignBtn>
+            <AlignBtn title="Align Right" onClick={() => applyAlignment('right')}>⇥</AlignBtn>
+            <span style={{ borderLeft: '1px solid #bbf7d0', height: 20, margin: '0 4px' }} />
+            <AlignBtn title="Align Top" onClick={() => applyAlignment('top')}>⤒</AlignBtn>
+            <AlignBtn title="Align Middle (Vertical)" onClick={() => applyAlignment('center-y')}>↕</AlignBtn>
+            <AlignBtn title="Align Bottom" onClick={() => applyAlignment('bottom')}>⤓</AlignBtn>
+          </div>
+          <div style={{ display: 'flex', gap: 4, alignItems: 'center', marginLeft: 8 }}>
+            <span style={{ fontSize: '0.7rem', color: 'var(--gray-500)', marginRight: 4 }}>Distribute:</span>
+            <AlignBtn
+              title="Distribute Horizontally (needs 3+)"
+              onClick={() => applyAlignment('distribute-h')}
+              disabled={selectedFieldIds.size < 3}
+            >|⇔|</AlignBtn>
+            <AlignBtn
+              title="Distribute Vertically (needs 3+)"
+              onClick={() => applyAlignment('distribute-v')}
+              disabled={selectedFieldIds.size < 3}
+            >|⇕|</AlignBtn>
+          </div>
+          <button
+            onClick={() => setSelectedFieldIds(new Set())}
+            style={{
+              marginLeft: 'auto', background: 'transparent', border: 'none',
+              color: '#166534', fontSize: '0.75rem', cursor: 'pointer', fontWeight: 600,
+            }}
+          >
+            Clear
+          </button>
+        </div>
+      )}
+
       {/* Document Viewer */}
       <div className="document-viewer">
         <div className="document-container">
@@ -626,7 +784,8 @@ export default function SetupPage() {
                       return (
                         <div
                           key={f.id}
-                          className="placed-item completed"
+                          data-field-id={f.id}
+                          className={`placed-item completed${selectedFieldIds.has(f.id) ? ' selected' : ''}`}
                           style={{
                             left: `${f.x * 100}%`,
                             top: `${f.y * 100}%`,
@@ -635,10 +794,15 @@ export default function SetupPage() {
                             borderColor: color,
                             background: `${color}0D`,
                             cursor: 'grab',
+                            outline: selectedFieldIds.has(f.id) ? `2px solid ${color}` : undefined,
+                            outlineOffset: selectedFieldIds.has(f.id) ? 1 : undefined,
                           }}
                           onMouseDown={(e) => handleDragStart(e, f.id)}
                           onTouchStart={(e) => handleDragStart(e, f.id)}
-                          onClick={(e) => e.stopPropagation()}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleSelectField(f.id, e.shiftKey || e.metaKey || e.ctrlKey);
+                          }}
                         >
                           {f.type === 'option' ? (
                             <span style={{
@@ -763,5 +927,40 @@ export default function SetupPage() {
         </div>
       )}
     </div>
+  );
+}
+
+function AlignBtn({
+  children, title, onClick, disabled,
+}: {
+  children: React.ReactNode;
+  title: string;
+  onClick: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      title={title}
+      onClick={onClick}
+      disabled={disabled}
+      style={{
+        minWidth: 30,
+        height: 28,
+        padding: '0 6px',
+        background: disabled ? '#f3f4f6' : 'white',
+        border: '1px solid #bbf7d0',
+        borderRadius: 6,
+        cursor: disabled ? 'not-allowed' : 'pointer',
+        fontSize: '0.85rem',
+        color: disabled ? 'var(--gray-400)' : '#166534',
+        fontWeight: 700,
+        lineHeight: 1,
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}
+    >
+      {children}
+    </button>
   );
 }
