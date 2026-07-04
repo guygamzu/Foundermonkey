@@ -638,6 +638,7 @@ export default function SetupPage() {
                           }}
                           onMouseDown={(e) => handleDragStart(e, f.id)}
                           onTouchStart={(e) => handleDragStart(e, f.id)}
+                          onClick={(e) => e.stopPropagation()}
                         >
                           {f.type === 'option' ? (
                             <span style={{
