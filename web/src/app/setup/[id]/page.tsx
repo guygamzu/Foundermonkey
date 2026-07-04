@@ -189,17 +189,35 @@ export default function SetupPage() {
     });
   }, []);
 
-  // Clear selection on Escape
+  // Delete selected fields
+  const handleDeleteSelection = useCallback(async () => {
+    if (selectedFieldIds.size === 0) return;
+    const ids = Array.from(selectedFieldIds);
+    setSelectedFieldIds(new Set());
+    setFields(prev => prev.filter(f => !ids.includes(f.id)));
+    await Promise.all(
+      ids.map(fid => deleteSetupField(id, fid).catch(() => null)),
+    );
+  }, [selectedFieldIds, id]);
+
+  // Escape clears selection; Delete/Backspace removes selected fields
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      const inInput = !!target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
       if (e.key === 'Escape') {
         setSelectedFieldIds(new Set());
         setActiveTool(null);
+      } else if ((e.key === 'Delete' || e.key === 'Backspace') && !inInput) {
+        if (selectedFieldIds.size > 0) {
+          e.preventDefault();
+          handleDeleteSelection();
+        }
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, []);
+  }, [selectedFieldIds, handleDeleteSelection]);
 
   // Persist a batch of field position updates
   const persistPositions = useCallback(async (updates: Array<{ id: string; x: number; y: number }>) => {
@@ -267,17 +285,37 @@ export default function SetupPage() {
     persistPositions(updated.map(u => ({ id: u.id, x: u.x, y: u.y })));
   }, [fields, selectedFieldIds, persistPositions]);
 
-  // Duplicate selected fields (offset by small amount)
+  // Duplicate selected fields (offset by small amount, preserving option stacks)
   const handleDuplicateSelection = useCallback(async () => {
     if (selectedFieldIds.size === 0) return;
     const selected = fields.filter(f => selectedFieldIds.has(f.id));
     if (selected.length === 0) return;
+
+    // For option fields: each source group_id maps to a NEW group_id in the duplicate.
+    // Option fields without a group_id (legacy) get grouped by page instead.
+    const groupIdMap = new Map<string, string>();
+    const newGroupId = () => (typeof crypto !== 'undefined' && 'randomUUID' in crypto)
+      ? crypto.randomUUID()
+      : `grp-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 
     const OFFSET = 0.02;
     const newIds: string[] = [];
     for (const src of selected) {
       const x = Math.max(0, Math.min(1 - src.width, src.x + OFFSET));
       const y = Math.max(0, Math.min(1 - src.height, src.y + OFFSET));
+
+      let optionGroupId: string | null = null;
+      if (src.type === 'option') {
+        const srcKey = src.optionGroupId ?? `page-${src.page}`;
+        const mapped = groupIdMap.get(srcKey);
+        if (mapped) {
+          optionGroupId = mapped;
+        } else {
+          optionGroupId = newGroupId();
+          groupIdMap.set(srcKey, optionGroupId);
+        }
+      }
+
       try {
         const created = await createSetupField(id, {
           signerId: src.signerId,
@@ -287,6 +325,7 @@ export default function SetupPage() {
           y,
           width: src.width,
           height: src.height,
+          optionGroupId,
         });
         newIds.push(created.id);
         setFields(prev => [...prev, created]);
@@ -876,33 +915,23 @@ export default function SetupPage() {
           <span style={{ fontSize: '0.75rem', color: '#166534', fontWeight: 600, marginRight: 4 }}>
             {selectedFieldIds.size} selected
           </span>
-          <AlignBtn title="Duplicate selection" onClick={handleDuplicateSelection}>⧉ Duplicate</AlignBtn>
+          <AlignBtn title="Duplicate selection (⌘D)" onClick={handleDuplicateSelection}>⧉ Duplicate</AlignBtn>
+          <AlignBtn title="Delete selection (Del)" onClick={handleDeleteSelection}>✕ Delete</AlignBtn>
           {selectedFieldIds.size >= 2 && (
             <>
               <span style={{ borderLeft: '1px solid #bbf7d0', height: 20, margin: '0 4px' }} />
-              <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-                <span style={{ fontSize: '0.7rem', color: 'var(--gray-500)', marginRight: 4 }}>Align:</span>
-                <AlignBtn title="Align Left" onClick={() => applyAlignment('left')}>⇤</AlignBtn>
-                <AlignBtn title="Align Center (Horizontal)" onClick={() => applyAlignment('center-x')}>↔</AlignBtn>
-                <AlignBtn title="Align Right" onClick={() => applyAlignment('right')}>⇥</AlignBtn>
-                <span style={{ borderLeft: '1px solid #bbf7d0', height: 20, margin: '0 4px' }} />
-                <AlignBtn title="Align Top" onClick={() => applyAlignment('top')}>⤒</AlignBtn>
-                <AlignBtn title="Align Middle (Vertical)" onClick={() => applyAlignment('center-y')}>↕</AlignBtn>
-                <AlignBtn title="Align Bottom" onClick={() => applyAlignment('bottom')}>⤓</AlignBtn>
-              </div>
-              <div style={{ display: 'flex', gap: 4, alignItems: 'center', marginLeft: 8 }}>
-                <span style={{ fontSize: '0.7rem', color: 'var(--gray-500)', marginRight: 4 }}>Distribute:</span>
-                <AlignBtn
-                  title="Distribute Horizontally (needs 3+)"
-                  onClick={() => applyAlignment('distribute-h')}
-                  disabled={selectedFieldIds.size < 3}
-                >|⇔|</AlignBtn>
-                <AlignBtn
-                  title="Distribute Vertically (needs 3+)"
-                  onClick={() => applyAlignment('distribute-v')}
-                  disabled={selectedFieldIds.size < 3}
-                >|⇕|</AlignBtn>
-              </div>
+              <AlignBtn title="Center on vertical axis (align X)" onClick={() => applyAlignment('center-x')}>↔ Center X</AlignBtn>
+              <AlignBtn title="Center on horizontal axis (align Y)" onClick={() => applyAlignment('center-y')}>↕ Center Y</AlignBtn>
+              <AlignBtn
+                title="Distribute Horizontally (needs 3+)"
+                onClick={() => applyAlignment('distribute-h')}
+                disabled={selectedFieldIds.size < 3}
+              >|⇔| Distribute H</AlignBtn>
+              <AlignBtn
+                title="Distribute Vertically (needs 3+)"
+                onClick={() => applyAlignment('distribute-v')}
+                disabled={selectedFieldIds.size < 3}
+              >|⇕| Distribute V</AlignBtn>
             </>
           )}
           <button

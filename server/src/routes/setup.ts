@@ -72,6 +72,7 @@ export function createSetupRouter(): Router {
           height: f.height,
           required: f.required,
           optionValues: safeJsonParse(f.option_values),
+          optionGroupId: f.option_group_id,
           isTemplate: f.is_template,
         })),
       });
@@ -132,7 +133,7 @@ export function createSetupRouter(): Router {
         return;
       }
 
-      const { signerId, type, page, x, y, width, height } = req.body;
+      const { signerId, type, page, x, y, width, height, optionGroupId } = req.body;
       if (!signerId || !type || !page || x === undefined || y === undefined) {
         res.status(400).json({ error: 'signerId, type, page, x, y are required' });
         return;
@@ -157,6 +158,7 @@ export function createSetupRouter(): Router {
         width: width || dim.w,
         height: height || dim.h,
         required: true,
+        option_group_id: type === 'option' ? (optionGroupId || null) : null,
       }]);
 
       const field = fields[0];
@@ -171,6 +173,7 @@ export function createSetupRouter(): Router {
         height: field.height,
         required: field.required,
         optionValues: safeJsonParse(field.option_values),
+        optionGroupId: field.option_group_id,
       });
     } catch (err) {
       logger.error({ err }, 'Error creating setup field');
@@ -349,8 +352,20 @@ export function createSetupRouter(): Router {
           const signerIdsWithFields = new Set(allFields.filter(f => !f.is_template).map(f => f.signer_id));
           for (const signer of signers) {
             if (signerIdsWithFields.has(signer.id)) continue;
+            // Map each source option_group_id to a new one for this signer, so option stacks stay isolated
+            const groupIdMap = new Map<string, string>();
             for (const tf of templateFields) {
               if (tf.signer_id === signer.id) continue; // skip if template belongs to this signer
+              let newGroupId: string | null = null;
+              if (tf.type === 'option' && tf.option_group_id) {
+                const existing = groupIdMap.get(tf.option_group_id);
+                if (existing) {
+                  newGroupId = existing;
+                } else {
+                  newGroupId = randomUUID();
+                  groupIdMap.set(tf.option_group_id, newGroupId);
+                }
+              }
               await db('document_fields').insert({
                 id: randomUUID(),
                 document_request_id: doc.id,
@@ -363,6 +378,7 @@ export function createSetupRouter(): Router {
                 height: tf.height,
                 required: tf.required,
                 option_values: tf.option_values,
+                option_group_id: newGroupId,
                 is_template: false,
               });
             }

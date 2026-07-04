@@ -333,6 +333,21 @@ async function runIncrementalMigrations(database: Knex): Promise<void> {
     // Columns may already exist
   }
 
+  // --- Option group id on document_fields (20260704000001) ---
+  try {
+    const hasOptionGroupId = await database.raw(`
+      SELECT 1 FROM information_schema.columns
+      WHERE table_name = 'document_fields' AND column_name = 'option_group_id'
+    `);
+    if (hasOptionGroupId.rows.length === 0) {
+      await database.schema.alterTable('document_fields', (table) => {
+        table.text('option_group_id');
+      });
+    }
+  } catch (err) {
+    // Column may already exist
+  }
+
   // --- Sender nudge tracking on document_requests (20260511000001) ---
   try {
     const hasSenderNudgeNotifiedAt = await database.raw(`
