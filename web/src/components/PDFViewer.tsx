@@ -26,70 +26,73 @@ export default function PDFViewer({ url, fallbackUrl, pageCount, renderOverlay, 
   const [retryCount, setRetryCount] = useState(0);
   const MAX_AUTO_RETRIES = 4;
   const objectUrlRef = useRef<string | null>(null);
-
-  const fetchPdf = useCallback(async (signal: AbortSignal) => {
-    setBlobUrl(null);
-    setLoadError(false);
-    setErrorDetail('');
-
-    const errors: string[] = [];
-
-    async function tryFetch(fetchUrl: string, label: string): Promise<ArrayBuffer | null> {
-      try {
-        const res = await fetch(fetchUrl, { signal });
-        if (!res.ok) {
-          const text = await res.text().catch(() => '');
-          const detail = `${label}: ${res.status} ${text.slice(0, 100)}`;
-          console.error(`[PDFViewer] ${detail}`);
-          errors.push(detail);
-          return null;
-        }
-        const ct = res.headers.get('content-type') || '';
-        if (!ct.includes('pdf') && !ct.includes('octet-stream')) {
-          const detail = `${label}: unexpected content-type "${ct}"`;
-          console.error(`[PDFViewer] ${detail}`);
-          errors.push(detail);
-          return null;
-        }
-        return res.arrayBuffer();
-      } catch (err) {
-        if (signal.aborted) return null;
-        const msg = err instanceof Error ? err.message : String(err);
-        const detail = `${label}: ${msg}`;
-        console.error(`[PDFViewer] ${detail}`);
-        errors.push(detail);
-        return null;
-      }
-    }
-
-    let buffer = await tryFetch(url, 'primary');
-    if (!buffer && fallbackUrl && !signal.aborted) {
-      buffer = await tryFetch(fallbackUrl, 'fallback');
-    }
-
-    if (signal.aborted) return;
-
-    if (buffer) {
-      if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
-      const newUrl = URL.createObjectURL(new Blob([buffer], { type: 'application/pdf' }));
-      objectUrlRef.current = newUrl;
-      setBlobUrl(newUrl);
-    } else {
-      setErrorDetail(errors.join(' | '));
-      setLoadError(true);
-      onError?.();
-    }
-  }, [url, fallbackUrl, onError]);
+  const onErrorRef = useRef(onError);
+  useEffect(() => { onErrorRef.current = onError; }, [onError]);
 
   useEffect(() => {
     const controller = new AbortController();
+    const signal = controller.signal;
+
+    async function fetchPdf() {
+      setBlobUrl(null);
+      setLoadError(false);
+      setErrorDetail('');
+
+      const errors: string[] = [];
+
+      async function tryFetch(fetchUrl: string, label: string): Promise<ArrayBuffer | null> {
+        try {
+          const res = await fetch(fetchUrl, { signal });
+          if (!res.ok) {
+            const text = await res.text().catch(() => '');
+            const detail = `${label}: ${res.status} ${text.slice(0, 100)}`;
+            console.error(`[PDFViewer] ${detail}`);
+            errors.push(detail);
+            return null;
+          }
+          const ct = res.headers.get('content-type') || '';
+          if (!ct.includes('pdf') && !ct.includes('octet-stream')) {
+            const detail = `${label}: unexpected content-type "${ct}"`;
+            console.error(`[PDFViewer] ${detail}`);
+            errors.push(detail);
+            return null;
+          }
+          return res.arrayBuffer();
+        } catch (err) {
+          if (signal.aborted) return null;
+          const msg = err instanceof Error ? err.message : String(err);
+          const detail = `${label}: ${msg}`;
+          console.error(`[PDFViewer] ${detail}`);
+          errors.push(detail);
+          return null;
+        }
+      }
+
+      let buffer = await tryFetch(url, 'primary');
+      if (!buffer && fallbackUrl && !signal.aborted) {
+        buffer = await tryFetch(fallbackUrl, 'fallback');
+      }
+
+      if (signal.aborted) return;
+
+      if (buffer) {
+        if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
+        const newUrl = URL.createObjectURL(new Blob([buffer], { type: 'application/pdf' }));
+        objectUrlRef.current = newUrl;
+        setBlobUrl(newUrl);
+      } else {
+        setErrorDetail(errors.join(' | '));
+        setLoadError(true);
+        onErrorRef.current?.();
+      }
+    }
 
     if (retryCount === 0) {
-      fetchPdf(controller.signal);
+      fetchPdf();
     } else if (retryCount <= MAX_AUTO_RETRIES) {
       const delay = Math.min(2000 * Math.pow(2, retryCount - 1), 10000);
       console.log(`[PDFViewer] Auto-retry ${retryCount}/${MAX_AUTO_RETRIES} in ${delay}ms...`);
-      const timer = setTimeout(() => fetchPdf(controller.signal), delay);
+      const timer = setTimeout(fetchPdf, delay);
       return () => { controller.abort(); clearTimeout(timer); };
     }
 
@@ -100,7 +103,7 @@ export default function PDFViewer({ url, fallbackUrl, pageCount, renderOverlay, 
         objectUrlRef.current = null;
       }
     };
-  }, [url, fallbackUrl, retryCount, fetchPdf]);
+  }, [url, fallbackUrl, retryCount]);
 
   useEffect(() => {
     if (loadError && retryCount < MAX_AUTO_RETRIES) {
