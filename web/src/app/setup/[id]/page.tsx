@@ -267,6 +267,158 @@ export default function SetupPage() {
     persistPositions(updated.map(u => ({ id: u.id, x: u.x, y: u.y })));
   }, [fields, selectedFieldIds, persistPositions]);
 
+  // Duplicate selected fields (offset by small amount)
+  const handleDuplicateSelection = useCallback(async () => {
+    if (selectedFieldIds.size === 0) return;
+    const selected = fields.filter(f => selectedFieldIds.has(f.id));
+    if (selected.length === 0) return;
+
+    const OFFSET = 0.02;
+    const newIds: string[] = [];
+    for (const src of selected) {
+      const x = Math.max(0, Math.min(1 - src.width, src.x + OFFSET));
+      const y = Math.max(0, Math.min(1 - src.height, src.y + OFFSET));
+      try {
+        const created = await createSetupField(id, {
+          signerId: src.signerId,
+          type: src.type,
+          page: src.page,
+          x,
+          y,
+          width: src.width,
+          height: src.height,
+        });
+        newIds.push(created.id);
+        setFields(prev => [...prev, created]);
+      } catch (err: any) {
+        setError(err.message);
+      }
+    }
+    if (newIds.length > 0) setSelectedFieldIds(new Set(newIds));
+  }, [fields, selectedFieldIds, id]);
+
+  // Cmd/Ctrl+D duplicates current selection
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      const inInput = !!target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'd' && !inInput) {
+        if (selectedFieldIds.size > 0) {
+          e.preventDefault();
+          handleDuplicateSelection();
+        }
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [selectedFieldIds, handleDuplicateSelection]);
+
+  // Marquee (rubber-band) selection
+  const [marquee, setMarquee] = useState<{
+    pageIndex: number;
+    minX: number;
+    minY: number;
+    maxX: number;
+    maxY: number;
+  } | null>(null);
+  const marqueeRef = useRef<{
+    pageIndex: number;
+    startX: number;
+    startY: number;
+    containerRect: DOMRect;
+    additive: boolean;
+    dragged: boolean;
+  } | null>(null);
+
+  const handleMarqueeStart = useCallback((e: React.MouseEvent, pageIndex: number) => {
+    if (activeTool) return;
+    if ((e.target as HTMLElement).closest('.placed-item')) return;
+
+    const catcherEl = e.currentTarget as HTMLElement;
+    const containerRect = catcherEl.getBoundingClientRect();
+
+    e.preventDefault();
+    e.stopPropagation();
+
+    marqueeRef.current = {
+      pageIndex,
+      startX: e.clientX,
+      startY: e.clientY,
+      containerRect,
+      additive: e.shiftKey || e.metaKey || e.ctrlKey,
+      dragged: false,
+    };
+  }, [activeTool]);
+
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      if (!marqueeRef.current) return;
+      const { pageIndex, startX, startY, containerRect } = marqueeRef.current;
+      const dx = Math.abs(e.clientX - startX);
+      const dy = Math.abs(e.clientY - startY);
+      if (!marqueeRef.current.dragged && dx < 3 && dy < 3) return;
+      marqueeRef.current.dragged = true;
+
+      const nx1 = (startX - containerRect.left) / containerRect.width;
+      const ny1 = (startY - containerRect.top) / containerRect.height;
+      const nx2 = (e.clientX - containerRect.left) / containerRect.width;
+      const ny2 = (e.clientY - containerRect.top) / containerRect.height;
+
+      setMarquee({
+        pageIndex,
+        minX: Math.max(0, Math.min(nx1, nx2)),
+        minY: Math.max(0, Math.min(ny1, ny2)),
+        maxX: Math.min(1, Math.max(nx1, nx2)),
+        maxY: Math.min(1, Math.max(ny1, ny2)),
+      });
+    };
+
+    const onUp = () => {
+      const state = marqueeRef.current;
+      if (!state) return;
+      marqueeRef.current = null;
+
+      if (!state.dragged) {
+        // Was a click on empty area, not a drag → clear selection
+        if (!state.additive) setSelectedFieldIds(new Set());
+        setMarquee(null);
+        return;
+      }
+
+      // Determine intersecting fields on this page
+      setMarquee(current => {
+        if (!current) return null;
+        const { pageIndex, minX, minY, maxX, maxY } = current;
+        const intersecting = fields
+          .filter(f =>
+            f.page === pageIndex + 1 &&
+            f.x < maxX &&
+            f.x + f.width > minX &&
+            f.y < maxY &&
+            f.y + f.height > minY,
+          )
+          .map(f => f.id);
+
+        setSelectedFieldIds(prev => {
+          if (state.additive) {
+            const next = new Set(prev);
+            intersecting.forEach(id => next.add(id));
+            return next;
+          }
+          return new Set(intersecting);
+        });
+        return null;
+      });
+    };
+
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+    return () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    };
+  }, [fields]);
+
   // Drag-to-move fields (supports group drag when multiple selected)
   const dragRef = useRef<{
     primaryId: string;
@@ -715,7 +867,7 @@ export default function SetupPage() {
         </div>
       )}
 
-      {selectedFieldIds.size >= 2 && (
+      {selectedFieldIds.size >= 1 && (
         <div className="align-toolbar" style={{
           display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap',
           background: '#f0fdf4', borderBottom: '1px solid #bbf7d0',
@@ -724,29 +876,35 @@ export default function SetupPage() {
           <span style={{ fontSize: '0.75rem', color: '#166534', fontWeight: 600, marginRight: 4 }}>
             {selectedFieldIds.size} selected
           </span>
-          <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-            <span style={{ fontSize: '0.7rem', color: 'var(--gray-500)', marginRight: 4 }}>Align:</span>
-            <AlignBtn title="Align Left" onClick={() => applyAlignment('left')}>⇤</AlignBtn>
-            <AlignBtn title="Align Center (Horizontal)" onClick={() => applyAlignment('center-x')}>↔</AlignBtn>
-            <AlignBtn title="Align Right" onClick={() => applyAlignment('right')}>⇥</AlignBtn>
-            <span style={{ borderLeft: '1px solid #bbf7d0', height: 20, margin: '0 4px' }} />
-            <AlignBtn title="Align Top" onClick={() => applyAlignment('top')}>⤒</AlignBtn>
-            <AlignBtn title="Align Middle (Vertical)" onClick={() => applyAlignment('center-y')}>↕</AlignBtn>
-            <AlignBtn title="Align Bottom" onClick={() => applyAlignment('bottom')}>⤓</AlignBtn>
-          </div>
-          <div style={{ display: 'flex', gap: 4, alignItems: 'center', marginLeft: 8 }}>
-            <span style={{ fontSize: '0.7rem', color: 'var(--gray-500)', marginRight: 4 }}>Distribute:</span>
-            <AlignBtn
-              title="Distribute Horizontally (needs 3+)"
-              onClick={() => applyAlignment('distribute-h')}
-              disabled={selectedFieldIds.size < 3}
-            >|⇔|</AlignBtn>
-            <AlignBtn
-              title="Distribute Vertically (needs 3+)"
-              onClick={() => applyAlignment('distribute-v')}
-              disabled={selectedFieldIds.size < 3}
-            >|⇕|</AlignBtn>
-          </div>
+          <AlignBtn title="Duplicate selection" onClick={handleDuplicateSelection}>⧉ Duplicate</AlignBtn>
+          {selectedFieldIds.size >= 2 && (
+            <>
+              <span style={{ borderLeft: '1px solid #bbf7d0', height: 20, margin: '0 4px' }} />
+              <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                <span style={{ fontSize: '0.7rem', color: 'var(--gray-500)', marginRight: 4 }}>Align:</span>
+                <AlignBtn title="Align Left" onClick={() => applyAlignment('left')}>⇤</AlignBtn>
+                <AlignBtn title="Align Center (Horizontal)" onClick={() => applyAlignment('center-x')}>↔</AlignBtn>
+                <AlignBtn title="Align Right" onClick={() => applyAlignment('right')}>⇥</AlignBtn>
+                <span style={{ borderLeft: '1px solid #bbf7d0', height: 20, margin: '0 4px' }} />
+                <AlignBtn title="Align Top" onClick={() => applyAlignment('top')}>⤒</AlignBtn>
+                <AlignBtn title="Align Middle (Vertical)" onClick={() => applyAlignment('center-y')}>↕</AlignBtn>
+                <AlignBtn title="Align Bottom" onClick={() => applyAlignment('bottom')}>⤓</AlignBtn>
+              </div>
+              <div style={{ display: 'flex', gap: 4, alignItems: 'center', marginLeft: 8 }}>
+                <span style={{ fontSize: '0.7rem', color: 'var(--gray-500)', marginRight: 4 }}>Distribute:</span>
+                <AlignBtn
+                  title="Distribute Horizontally (needs 3+)"
+                  onClick={() => applyAlignment('distribute-h')}
+                  disabled={selectedFieldIds.size < 3}
+                >|⇔|</AlignBtn>
+                <AlignBtn
+                  title="Distribute Vertically (needs 3+)"
+                  onClick={() => applyAlignment('distribute-v')}
+                  disabled={selectedFieldIds.size < 3}
+                >|⇕|</AlignBtn>
+              </div>
+            </>
+          )}
           <button
             onClick={() => setSelectedFieldIds(new Set())}
             style={{
@@ -776,6 +934,33 @@ export default function SetupPage() {
               onPageClick={activeTool ? handlePdfClick : undefined}
               renderOverlay={(pageIndex) => (
                 <>
+                  {!activeTool && (
+                    <div
+                      className="marquee-catcher"
+                      onMouseDown={(e) => handleMarqueeStart(e, pageIndex)}
+                      style={{
+                        position: 'absolute',
+                        inset: 0,
+                        pointerEvents: 'auto',
+                        cursor: 'default',
+                      }}
+                    />
+                  )}
+                  {marquee && marquee.pageIndex === pageIndex && (
+                    <div
+                      style={{
+                        position: 'absolute',
+                        left: `${marquee.minX * 100}%`,
+                        top: `${marquee.minY * 100}%`,
+                        width: `${(marquee.maxX - marquee.minX) * 100}%`,
+                        height: `${(marquee.maxY - marquee.minY) * 100}%`,
+                        border: '1px dashed #166534',
+                        background: 'rgba(22, 163, 74, 0.08)',
+                        pointerEvents: 'none',
+                        zIndex: 5,
+                      }}
+                    />
+                  )}
                   {fields
                     .filter((f) => f.page === pageIndex + 1)
                     .map((f) => {
