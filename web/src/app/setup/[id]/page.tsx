@@ -895,25 +895,29 @@ export default function SetupPage() {
         </div>
       )}
 
-      {/* Signing Mode Toggle */}
-      <div className="mode-toggle-bar">
-        <button
-          className={`mode-btn ${doc.signingMode === 'shared' ? 'active' : ''}`}
+      {/* Signing Mode Cards */}
+      <div style={{
+        display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12,
+        padding: '12px 16px', maxWidth: 832, margin: '0 auto', width: '100%',
+      }}>
+        <SigningModeCard
+          active={doc.signingMode === 'shared'}
           onClick={() => doc.signingMode !== 'shared' && handleToggleMode()}
-        >
-          Shared document
-        </button>
-        <button
-          className={`mode-btn ${doc.signingMode === 'individual' ? 'active' : ''}`}
+          title="Shared document"
+          subtitle="One PDF, everyone signs it"
+          bestFor="Contracts, leases, partnership agreements — where every party appears together on one signed file."
+          fields="✍ Signature · T Text · 📅 Date"
+          limitation="Checkbox and Option are disabled (they'd conflict between signers on one document)."
+        />
+        <SigningModeCard
+          active={doc.signingMode === 'individual'}
           onClick={() => doc.signingMode !== 'individual' && handleToggleMode()}
-        >
-          Individual copies
-        </button>
-        <span className="mode-hint">
-          {doc.signingMode === 'shared'
-            ? 'All signers sign the same document'
-            : 'Each signer gets their own copy to sign'}
-        </span>
+          title="Individual copies"
+          subtitle="Each signer gets their own PDF"
+          bestFor="NDAs, HR forms, surveys, questionnaires — where each person returns their own signed version."
+          fields="✍ Signature · T Text · 📅 Date · ☑ Checkbox · ◉ Option"
+          limitation={null}
+        />
       </div>
 
       {/* Signer Tabs — hidden in template mode (1 template signer, no real signers) */}
@@ -1251,6 +1255,67 @@ export default function SetupPage() {
               </button>
             </div>
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SigningModeCard({
+  active, onClick, title, subtitle, bestFor, fields, limitation,
+}: {
+  active: boolean;
+  onClick: () => void;
+  title: string;
+  subtitle: string;
+  bestFor: string;
+  fields: string;
+  limitation: string | null;
+}) {
+  return (
+    <div
+      onClick={onClick}
+      role="button"
+      tabIndex={0}
+      style={{
+        cursor: active ? 'default' : 'pointer',
+        border: `2px solid ${active ? '#2c4a35' : 'var(--gray-200)'}`,
+        background: active ? '#f0fdf4' : 'white',
+        borderRadius: 10,
+        padding: '14px 16px',
+        transition: 'border-color 120ms, background 120ms',
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+        <span
+          aria-hidden
+          style={{
+            width: 16, height: 16, borderRadius: '50%', flexShrink: 0,
+            border: `2px solid ${active ? '#2c4a35' : 'var(--gray-400)'}`,
+            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+          }}
+        >
+          {active && (
+            <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#2c4a35' }} />
+          )}
+        </span>
+        <div style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--ink)' }}>{title}</div>
+      </div>
+      <div style={{ fontSize: '0.85rem', color: 'var(--gray-700)', marginBottom: 8, lineHeight: 1.4 }}>
+        {subtitle}
+      </div>
+      <div style={{ fontSize: '0.75rem', color: 'var(--gray-500)', lineHeight: 1.5, marginBottom: 6 }}>
+        <strong style={{ color: 'var(--gray-700)' }}>Good for:</strong> {bestFor}
+      </div>
+      <div style={{ fontSize: '0.72rem', color: 'var(--gray-500)', lineHeight: 1.5 }}>
+        <strong style={{ color: 'var(--gray-700)' }}>Available fields:</strong> {fields}
+      </div>
+      {limitation && (
+        <div style={{
+          fontSize: '0.72rem', color: '#92400e', marginTop: 8, lineHeight: 1.5,
+          padding: '6px 10px', background: '#fef3c7', border: '1px solid #fbbf24', borderRadius: 6,
+        }}>
+          {limitation}
         </div>
       )}
     </div>
