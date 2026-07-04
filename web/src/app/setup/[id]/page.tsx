@@ -122,9 +122,6 @@ export default function SetupPage() {
     } catch (err: any) {
       setError(err.message);
     }
-
-    // Always clear tool after placing a field
-    setActiveTool(null);
   }, [activeTool, selectedSigner, id]);
 
   // Done — mark template as ready (no signers needed)
@@ -636,7 +633,7 @@ export default function SetupPage() {
                             width: `${f.width * 100}%`,
                             height: `${f.height * 100}%`,
                             borderColor: color,
-                            background: `${color}15`,
+                            background: `${color}0D`,
                             cursor: 'grab',
                           }}
                           onMouseDown={(e) => handleDragStart(e, f.id)}
