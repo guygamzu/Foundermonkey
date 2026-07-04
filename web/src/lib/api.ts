@@ -79,12 +79,20 @@ export async function getSigningSession(token: string): Promise<SigningSession> 
   return apiFetch(`/api/signing/session/${token}`);
 }
 
-export function getDocumentProxyUrl(token: string): string {
+export function getDocumentDirectUrl(token: string): string {
   return `${API_URL}/api/signing/session/${token}/document`;
 }
 
-export function getPreviewDocumentProxyUrl(documentId: string): string {
+export function getDocumentProxyUrl(token: string): string {
+  return `/api/document-proxy/${token}`;
+}
+
+export function getPreviewDocumentDirectUrl(documentId: string): string {
   return `${API_URL}/api/documents/preview/${documentId}/document`;
+}
+
+export function getPreviewDocumentProxyUrl(documentId: string): string {
+  return `/api/preview-proxy/${documentId}`;
 }
 
 export async function submitFieldValue(token: string, fieldId: string, value: string): Promise<void> {
@@ -176,6 +184,7 @@ export interface SetupField {
   width: number;
   height: number;
   required: boolean;
+  isTemplate?: boolean;
 }
 
 export interface SetupDocument {
@@ -185,6 +194,8 @@ export interface SetupDocument {
   isSequential: boolean;
   signingMode: 'shared' | 'individual';
   creditsRequired: number;
+  status?: string;
+  warning?: { alreadySent: boolean; signerCount: number; signedCount: number };
   signers: SetupSigner[];
   fields: SetupField[];
 }
@@ -193,8 +204,12 @@ export async function getSetupDocument(id: string): Promise<SetupDocument> {
   return apiFetch(`/api/setup/${id}`);
 }
 
-export function getSetupDocumentProxyUrl(id: string): string {
+export function getSetupDocumentDirectUrl(id: string): string {
   return `${API_URL}/api/setup/${id}/document`;
+}
+
+export function getSetupDocumentProxyUrl(id: string): string {
+  return `/api/setup-proxy/${id}`;
 }
 
 export async function createSetupField(
@@ -244,4 +259,16 @@ export async function updateSetupSigningMode(
 
 export async function sendForSigning(id: string): Promise<{ success: boolean; statusUrl: string }> {
   return apiFetch(`/api/setup/${id}/send`, { method: 'POST' });
+}
+
+export async function finishSetup(id: string): Promise<{ success: boolean }> {
+  return apiFetch(`/api/setup/${id}/done`, { method: 'POST' });
+}
+
+export async function voidAndReconfigure(id: string): Promise<{ success: boolean }> {
+  return apiFetch(`/api/setup/${id}/void-and-reconfigure`, { method: 'POST' });
+}
+
+export async function sendNudge(documentId: string): Promise<{ success: boolean; remindedCount: number }> {
+  return apiFetch(`/api/documents/nudge/${documentId}`, { method: 'POST' });
 }

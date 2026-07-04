@@ -1,10 +1,15 @@
 import { Router, Request, Response } from 'express';
-import { randomBytes } from 'crypto';
+import { randomBytes, randomUUID } from 'crypto';
 import { getDatabase } from '../config/database.js';
 import { DocumentRepository } from '../models/DocumentRepository.js';
 import { AuditRepository } from '../models/AuditRepository.js';
 import { UserRepository } from '../models/UserRepository.js';
 import { logger } from '../config/logger.js';
+
+function safeJsonParse(value: string | null | undefined): any {
+  if (!value) return undefined;
+  try { return JSON.parse(value); } catch { return undefined; }
+}
 
 export function createSetupRouter(): Router {
   const router = Router();
@@ -12,6 +17,9 @@ export function createSetupRouter(): Router {
   const documentRepo = new DocumentRepository(db);
   const auditRepo = new AuditRepository(db);
   const userRepo = new UserRepository(db);
+
+  // Statuses that allow field/signer editing
+  const editableStatuses = ['pending_setup', 'template_ready'];
 
   // Get setup data: document + signers + fields
   router.get('/:id', async (req: Request<{ id: string }>, res: Response) => {
@@ -22,13 +30,21 @@ export function createSetupRouter(): Router {
         return;
       }
 
-      if (doc.status !== 'pending_setup') {
-        res.status(400).json({ error: 'Document is not in setup state', status: doc.status });
+      const allowedStatuses = ['pending_setup', 'template_ready', 'sent', 'partially_signed'];
+      if (!allowedStatuses.includes(doc.status)) {
+        res.status(400).json({ error: 'Document is not in a configurable state', status: doc.status });
         return;
       }
 
       const signers = await documentRepo.findSignersByDocumentId(doc.id);
       const fields = await documentRepo.findFieldsByDocumentId(doc.id);
+
+      // Build warning for already-sent documents
+      let warning: { alreadySent: boolean; signerCount: number; signedCount: number } | undefined;
+      if (doc.status === 'sent' || doc.status === 'partially_signed') {
+        const signedCount = signers.filter(s => s.status === 'signed').length;
+        warning = { alreadySent: true, signerCount: signers.length, signedCount };
+      }
 
       res.json({
         id: doc.id,
@@ -37,6 +53,8 @@ export function createSetupRouter(): Router {
         isSequential: doc.is_sequential,
         signingMode: doc.signing_mode || 'shared',
         creditsRequired: doc.credits_required,
+        status: doc.status,
+        warning,
         signers: signers.map((s) => ({
           id: s.id,
           name: s.name,
@@ -53,6 +71,8 @@ export function createSetupRouter(): Router {
           width: f.width,
           height: f.height,
           required: f.required,
+          optionValues: safeJsonParse(f.option_values),
+          isTemplate: f.is_template,
         })),
       });
     } catch (err) {
@@ -63,6 +83,12 @@ export function createSetupRouter(): Router {
 
   // Proxy endpoint to stream PDF content for setup page
   router.get('/:id/document', async (req: Request<{ id: string }>, res: Response) => {
+    const origin = req.headers.origin;
+    if (origin) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Access-Control-Allow-Credentials', 'true');
+    }
+
     try {
       const doc = await documentRepo.findById(req.params.id);
       if (!doc) {
@@ -81,7 +107,10 @@ export function createSetupRouter(): Router {
         const pdfBuffer = await storageService.getDocument(doc.s3_key);
 
         res.setHeader('Content-Type', 'application/pdf');
-        res.setHeader('Content-Disposition', `inline; filename="${doc.file_name}"`);
+        const disposition = req.query.download === 'true' ? 'attachment' : 'inline';
+        const safeName = doc.file_name.replace(/[^\x20-\x7e]/g, '_');
+        const encodedName = encodeURIComponent(doc.file_name);
+        res.setHeader('Content-Disposition', `${disposition}; filename="${safeName}"; filename*=UTF-8''${encodedName}`);
         res.setHeader('Content-Length', pdfBuffer.length);
         res.send(pdfBuffer);
       } catch (s3Err) {
@@ -98,7 +127,7 @@ export function createSetupRouter(): Router {
   router.post('/:id/fields', async (req: Request<{ id: string }>, res: Response) => {
     try {
       const doc = await documentRepo.findById(req.params.id);
-      if (!doc || doc.status !== 'pending_setup') {
+      if (!doc || !editableStatuses.includes(doc.status)) {
         res.status(400).json({ error: 'Document not in setup state' });
         return;
       }
@@ -109,12 +138,14 @@ export function createSetupRouter(): Router {
         return;
       }
 
-      const dims = {
+      const dims: Record<string, { w: number; h: number }> = {
         signature: { w: 0.25, h: 0.05 },
         text: { w: 0.15, h: 0.035 },
         date: { w: 0.12, h: 0.03 },
-        checkbox: { w: 0.025, h: 0.025 },
-      }[type as string] || { w: 0.15, h: 0.035 };
+        checkbox: { w: 0.04, h: 0.04 },
+        option: { w: 0.04, h: 0.04 },
+      };
+      const dim = dims[type as string] || { w: 0.15, h: 0.035 };
 
       const fields = await documentRepo.createFields([{
         document_request_id: doc.id,
@@ -123,8 +154,8 @@ export function createSetupRouter(): Router {
         page,
         x,
         y,
-        width: width || dims.w,
-        height: height || dims.h,
+        width: width || dim.w,
+        height: height || dim.h,
         required: true,
       }]);
 
@@ -139,6 +170,7 @@ export function createSetupRouter(): Router {
         width: field.width,
         height: field.height,
         required: field.required,
+        optionValues: safeJsonParse(field.option_values),
       });
     } catch (err) {
       logger.error({ err }, 'Error creating setup field');
@@ -150,7 +182,7 @@ export function createSetupRouter(): Router {
   router.delete('/:id/fields/:fieldId', async (req: Request<{ id: string; fieldId: string }>, res: Response) => {
     try {
       const doc = await documentRepo.findById(req.params.id);
-      if (!doc || doc.status !== 'pending_setup') {
+      if (!doc || !editableStatuses.includes(doc.status)) {
         res.status(400).json({ error: 'Document not in setup state' });
         return;
       }
@@ -167,7 +199,7 @@ export function createSetupRouter(): Router {
   router.patch('/:id/fields/:fieldId', async (req: Request<{ id: string; fieldId: string }>, res: Response) => {
     try {
       const doc = await documentRepo.findById(req.params.id);
-      if (!doc || doc.status !== 'pending_setup') {
+      if (!doc || !editableStatuses.includes(doc.status)) {
         res.status(400).json({ error: 'Document not in setup state' });
         return;
       }
@@ -194,7 +226,7 @@ export function createSetupRouter(): Router {
   router.post('/:id/signers', async (req: Request<{ id: string }>, res: Response) => {
     try {
       const doc = await documentRepo.findById(req.params.id);
-      if (!doc || doc.status !== 'pending_setup') {
+      if (!doc || !editableStatuses.includes(doc.status)) {
         res.status(400).json({ error: 'Document not in setup state' });
         return;
       }
@@ -242,7 +274,7 @@ export function createSetupRouter(): Router {
   router.delete('/:id/signers/:signerId', async (req: Request<{ id: string; signerId: string }>, res: Response) => {
     try {
       const doc = await documentRepo.findById(req.params.id);
-      if (!doc || doc.status !== 'pending_setup') {
+      if (!doc || !editableStatuses.includes(doc.status)) {
         res.status(400).json({ error: 'Document not in setup state' });
         return;
       }
@@ -271,7 +303,7 @@ export function createSetupRouter(): Router {
   router.patch('/:id', async (req: Request<{ id: string }>, res: Response) => {
     try {
       const doc = await documentRepo.findById(req.params.id);
-      if (!doc || doc.status !== 'pending_setup') {
+      if (!doc || !editableStatuses.includes(doc.status)) {
         res.status(400).json({ error: 'Document not in setup state' });
         return;
       }
@@ -294,18 +326,51 @@ export function createSetupRouter(): Router {
   router.post('/:id/send', async (req: Request<{ id: string }>, res: Response) => {
     try {
       const doc = await documentRepo.findById(req.params.id);
-      if (!doc || doc.status !== 'pending_setup') {
+      if (!doc || !editableStatuses.includes(doc.status)) {
         res.status(400).json({ error: 'Document not in setup state' });
         return;
       }
 
-      const signers = await documentRepo.findSignersByDocumentId(doc.id);
+      const allSigners = await documentRepo.findSignersByDocumentId(doc.id);
+      // Filter out placeholder template signer
+      const signers = allSigners.filter(s => s.email !== 'template@lapen.ai');
       if (signers.length === 0) {
-        res.status(400).json({ error: 'At least one signer is required' });
+        res.status(400).json({ error: 'At least one signer is required. Use the Done button for template mode.' });
         return;
       }
 
-      // Check at least one field exists per signer
+      // For individual mode: clone template fields to all signers
+      const allFields = await documentRepo.findFieldsByDocumentId(doc.id);
+      if (doc.signing_mode === 'individual' && signers.length > 1) {
+        // Find template fields (fields belonging to the first signer used as template)
+        const templateFields = allFields.filter(f => f.is_template);
+        if (templateFields.length > 0) {
+          // Clone template fields for signers that don't have their own fields yet
+          const signerIdsWithFields = new Set(allFields.filter(f => !f.is_template).map(f => f.signer_id));
+          for (const signer of signers) {
+            if (signerIdsWithFields.has(signer.id)) continue;
+            for (const tf of templateFields) {
+              if (tf.signer_id === signer.id) continue; // skip if template belongs to this signer
+              await db('document_fields').insert({
+                id: randomUUID(),
+                document_request_id: doc.id,
+                signer_id: signer.id,
+                type: tf.type,
+                page: tf.page,
+                x: tf.x,
+                y: tf.y,
+                width: tf.width,
+                height: tf.height,
+                required: tf.required,
+                option_values: tf.option_values,
+                is_template: false,
+              });
+            }
+          }
+        }
+      }
+
+      // Re-fetch fields after potential cloning
       const fields = await documentRepo.findFieldsByDocumentId(doc.id);
       const signerIdsWithFields = new Set(fields.map(f => f.signer_id));
       const signersWithoutFields = signers.filter(s => !signerIdsWithFields.has(s.id));
@@ -381,6 +446,169 @@ export function createSetupRouter(): Router {
       res.json({ success: true, statusUrl });
     } catch (err) {
       logger.error({ err }, 'Error sending for signing');
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  // Done — mark template as ready, email sender with instructions
+  router.post('/:id/done', async (req: Request<{ id: string }>, res: Response) => {
+    try {
+      const doc = await documentRepo.findById(req.params.id);
+      if (!doc || !editableStatuses.includes(doc.status)) {
+        res.status(400).json({ error: 'Document not in setup state' });
+        return;
+      }
+
+      const fields = await documentRepo.findFieldsByDocumentId(doc.id);
+      if (fields.length === 0) {
+        res.status(400).json({ error: 'At least one field must be placed before marking as done' });
+        return;
+      }
+
+      // Mark all fields as template
+      await db('document_fields')
+        .where({ document_request_id: doc.id })
+        .update({ is_template: true });
+
+      // NOTE: Do NOT delete the template@lapen.ai signer here — document_fields.signer_id
+      // has ON DELETE CASCADE, so deleting the signer would cascade-delete all the fields.
+      // The template signer is filtered out by other code (send endpoint, template forward).
+
+      // Update document status to template_ready
+      await db('document_requests')
+        .where({ id: doc.id })
+        .update({ status: 'template_ready', updated_at: new Date() });
+
+      // Email sender with instructions (non-critical — don't fail endpoint)
+      try {
+        const sender = await db('users').where({ id: doc.sender_id }).first();
+        if (sender?.email) {
+          const { EmailService } = await import('../services/EmailService.js');
+          const emailService = new EmailService();
+
+          const appUrl = process.env.APP_URL || 'https://app.lapen.ai';
+          const purchaseUrl = `${appUrl}/credits?user=${sender.id}`;
+          const creditFooter = emailService.renderCreditBalanceHtml(sender.credits ?? 0, purchaseUrl);
+
+          await emailService.sendEmail({
+            to: sender.email,
+            subject: `Your document "${doc.file_name}" is ready`,
+            html: `
+<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; color: #111827;">
+  <div style="background: #2c4a35; color: white; padding: 20px 24px; border-radius: 8px 8px 0 0;">
+    <h1 style="margin: 0; font-size: 20px;">✓ Document Ready</h1>
+  </div>
+  <div style="background: white; padding: 24px; border: 1px solid #e5e7eb; border-top: none;">
+    <p>Hi ${sender.name || sender.email.split('@')[0]},</p>
+    <p>Your fields for <strong>${doc.file_name}</strong> are configured!</p>
+    <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 16px; margin: 16px 0;">
+      <p style="margin: 0 0 8px; font-weight: 600;">What to do next:</p>
+      <ol style="margin: 0; padding-left: 20px; line-height: 1.8;">
+        <li>Email the PDF <strong>"${doc.file_name}"</strong> to your recipients</li>
+        <li>Add <strong>sign@lapen.ai</strong> in CC</li>
+        <li>Lapen will send each recipient a personalized signing link with your pre-configured fields</li>
+      </ol>
+    </div>
+    <p style="font-size: 13px; color: #6b7280;">Lapen will recognize the document by its filename and your email address.</p>
+  </div>
+  ${creditFooter}
+</div>`,
+            text: `Your document "${doc.file_name}" is ready!\n\nWhat to do next:\n1. Email the PDF "${doc.file_name}" to your recipients\n2. Add sign@lapen.ai in CC\n3. Lapen will send each recipient a personalized signing link with your pre-configured fields\n\nLapen will recognize the document by its filename and your email address.`,
+          });
+        }
+      } catch (emailErr) {
+        logger.warn({ err: emailErr, docId: doc.id }, 'Failed to send template_ready email');
+      }
+
+      await auditRepo.log({
+        document_request_id: doc.id,
+        signer_id: null,
+        action: 'template_ready',
+        ip_address: req.ip || 'unknown',
+        user_agent: req.headers['user-agent'] || 'unknown',
+        metadata: { fieldCount: fields.length },
+      });
+
+      res.json({ success: true });
+    } catch (err) {
+      logger.error({ err }, 'Error marking setup as done');
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  // Void and reconfigure — void existing signatures and return to setup
+  router.post('/:id/void-and-reconfigure', async (req: Request<{ id: string }>, res: Response) => {
+    try {
+      const doc = await documentRepo.findById(req.params.id);
+      if (!doc) {
+        res.status(404).json({ error: 'Document not found' });
+        return;
+      }
+
+      if (!['sent', 'partially_signed'].includes(doc.status)) {
+        res.status(400).json({ error: 'Document must be in sent or partially_signed status to void' });
+        return;
+      }
+
+      const signers = await documentRepo.findSignersByDocumentId(doc.id);
+
+      // Void all signers
+      for (const signer of signers) {
+        await db('signers').where({ id: signer.id }).update({
+          status: 'voided',
+          signing_token: randomBytes(32).toString('base64url'), // invalidate old token
+        });
+      }
+
+      // Delete all non-template fields (keep template fields for reconfiguration)
+      await db('document_fields')
+        .where({ document_request_id: doc.id, is_template: false })
+        .del();
+
+      // Delete voided signers
+      await db('signers')
+        .where({ document_request_id: doc.id, status: 'voided' })
+        .del();
+
+      // Reset document status
+      await db('document_requests')
+        .where({ id: doc.id })
+        .update({ status: 'pending_setup', updated_at: new Date() });
+
+      // Notify affected signers
+      const notifiedSigners = signers.filter(s => s.email && ['notified', 'viewed', 'signed'].includes(s.status));
+      if (notifiedSigners.length > 0) {
+        try {
+          const { EmailService } = await import('../services/EmailService.js');
+          const emailService = new EmailService();
+          const sender = await db('users').where({ id: doc.sender_id }).first();
+          const senderName = sender?.name || sender?.email?.split('@')[0] || 'The sender';
+
+          for (const signer of notifiedSigners) {
+            if (!signer.email) continue;
+            await emailService.sendEmail({
+              to: signer.email,
+              subject: `Document "${doc.file_name}" has been reconfigured`,
+              text: `Hi ${signer.name || 'there'},\n\n${senderName} has reconfigured the document "${doc.file_name}". Your previous signature has been voided.\n\nYou'll receive a new signing link once the document is ready.\n\nLapen E-Signature Service`,
+            });
+          }
+        } catch (emailErr) {
+          logger.warn({ err: emailErr }, 'Failed to send void notification emails');
+        }
+      }
+
+      await auditRepo.log({
+        document_request_id: doc.id,
+        signer_id: null,
+        action: 'signatures_voided',
+        ip_address: req.ip || 'unknown',
+        user_agent: req.headers['user-agent'] || 'unknown',
+        metadata: { voidedSignerCount: signers.length },
+      });
+
+      res.json({ success: true });
+    } catch (err) {
+      logger.error({ err }, 'Error voiding and reconfiguring');
       res.status(500).json({ error: 'Internal server error' });
     }
   });

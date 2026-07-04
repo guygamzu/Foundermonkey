@@ -301,6 +301,54 @@ async function runIncrementalMigrations(database: Knex): Promise<void> {
     // Non-critical
   }
 
+  // --- Template flow: option_values + is_template on document_fields (20260407000001) ---
+  try {
+    const hasIsTemplate = await database.raw(`
+      SELECT 1 FROM information_schema.columns
+      WHERE table_name = 'document_fields' AND column_name = 'is_template'
+    `);
+    if (hasIsTemplate.rows.length === 0) {
+      await database.schema.alterTable('document_fields', (table) => {
+        table.text('option_values');
+        table.boolean('is_template').notNullable().defaultTo(false);
+      });
+    }
+  } catch (err) {
+    // Columns may already exist
+  }
+
+  // --- Reminder tracking on signers (20260503000001) ---
+  try {
+    const hasReminderCount = await database.raw(`
+      SELECT 1 FROM information_schema.columns
+      WHERE table_name = 'signers' AND column_name = 'reminder_count'
+    `);
+    if (hasReminderCount.rows.length === 0) {
+      await database.schema.alterTable('signers', (table) => {
+        table.integer('reminder_count').notNullable().defaultTo(0);
+        table.timestamp('last_reminder_at');
+      });
+    }
+  } catch (err) {
+    // Columns may already exist
+  }
+
+  // --- Sender nudge tracking on document_requests (20260511000001) ---
+  try {
+    const hasSenderNudgeNotifiedAt = await database.raw(`
+      SELECT 1 FROM information_schema.columns
+      WHERE table_name = 'document_requests' AND column_name = 'sender_nudge_notified_at'
+    `);
+    if (hasSenderNudgeNotifiedAt.rows.length === 0) {
+      await database.schema.alterTable('document_requests', (table) => {
+        table.timestamp('sender_nudge_notified_at');
+        table.timestamp('last_nudge_sent_at');
+      });
+    }
+  } catch (err) {
+    // Columns may already exist
+  }
+
   // --- Risk Monitor tables (20260406000002) ---
   try {
     const hasRiskEventsTable = await database.schema.hasTable('risk_events');

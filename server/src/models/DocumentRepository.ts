@@ -18,6 +18,8 @@ export interface DocumentRequestRow {
   original_email_message_id: string | null;
   subject: string | null;
   pending_signers_json: string | null;
+  sender_nudge_notified_at: Date | null;
+  last_nudge_sent_at: Date | null;
   expires_at: Date;
   completed_at: Date | null;
   created_at: Date;
@@ -42,6 +44,8 @@ export interface SignerRow {
   signed_at: Date | null;
   declined_at: Date | null;
   decline_reason: string | null;
+  reminder_count: number;
+  last_reminder_at: Date | null;
   created_at: Date;
 }
 
@@ -58,6 +62,8 @@ export interface DocumentFieldRow {
   required: boolean;
   value: string | null;
   completed_at: Date | null;
+  option_values: string | null;
+  is_template: boolean;
 }
 
 export class DocumentRepository {

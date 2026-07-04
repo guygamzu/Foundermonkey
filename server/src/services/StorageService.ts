@@ -3,6 +3,8 @@ import {
   PutObjectCommand,
   GetObjectCommand,
   DeleteObjectCommand,
+  PutBucketCorsCommand,
+  GetBucketCorsCommand,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { logger } from '../config/logger.js';
@@ -22,23 +24,67 @@ export class StorageService {
     this.bucket = process.env.S3_BUCKET || 'lapen-documents';
   }
 
+  async ensureBucketCors(): Promise<void> {
+    try {
+      await this.s3.send(new GetBucketCorsCommand({ Bucket: this.bucket }));
+      logger.info('S3 bucket CORS already configured');
+    } catch {
+      try {
+        await this.s3.send(new PutBucketCorsCommand({
+          Bucket: this.bucket,
+          CORSConfiguration: {
+            CORSRules: [{
+              AllowedOrigins: ['*'],
+              AllowedMethods: ['GET', 'HEAD'],
+              AllowedHeaders: ['*'],
+              MaxAgeSeconds: 3600,
+            }],
+          },
+        }));
+        logger.info('S3 bucket CORS configured successfully');
+      } catch (err) {
+        logger.warn({ err }, 'Could not set S3 bucket CORS — pre-signed URLs may fail in browser');
+      }
+    }
+  }
+
   async uploadDocument(key: string, content: Buffer, contentType: string): Promise<string> {
-    await this.s3.send(new PutObjectCommand({
-      Bucket: this.bucket,
-      Key: key,
-      Body: content,
-      ContentType: contentType,
-      ServerSideEncryption: 'AES256',
-    }));
-    logger.info({ key }, 'Document uploaded to S3');
-    return key;
+    const maxRetries = 3;
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        await this.s3.send(new PutObjectCommand({
+          Bucket: this.bucket,
+          Key: key,
+          Body: content,
+          ContentType: contentType,
+          ServerSideEncryption: 'AES256',
+        }));
+        logger.info({ key, attempt }, 'Document uploaded to S3');
+        return key;
+      } catch (err) {
+        if (attempt === maxRetries) throw err;
+        const delay = 1000 * Math.pow(2, attempt - 1);
+        logger.warn({ key, attempt, maxRetries, err: err instanceof Error ? err.message : String(err) }, `S3 upload failed, retrying in ${delay}ms`);
+        await new Promise(r => setTimeout(r, delay));
+      }
+    }
+    throw new Error('S3 upload failed after all retries');
   }
 
   async getDocument(key: string): Promise<Buffer> {
-    const response = await this.s3.send(new GetObjectCommand({
-      Bucket: this.bucket,
-      Key: key,
-    }));
+    let response;
+    try {
+      response = await this.s3.send(new GetObjectCommand({
+        Bucket: this.bucket,
+        Key: key,
+      }));
+    } catch (err: any) {
+      const code = err?.name || err?.Code;
+      if (code === 'NoSuchKey' || code === 'NotFound' || err?.$metadata?.httpStatusCode === 404) {
+        throw new Error('Document file not available');
+      }
+      throw err;
+    }
     const stream = response.Body;
     if (!stream) throw new Error('Empty response from S3');
 

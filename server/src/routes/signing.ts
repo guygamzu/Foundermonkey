@@ -5,6 +5,11 @@ import { AuditRepository } from '../models/AuditRepository.js';
 import { logger } from '../config/logger.js';
 import { notifyAdmin } from './admin.js';
 
+function safeJsonParse(value: string | null | undefined): any {
+  if (!value) return undefined;
+  try { return JSON.parse(value); } catch { return undefined; }
+}
+
 export function createSigningRouter(): Router {
   const router = Router();
   const db = getDatabase();
@@ -123,6 +128,7 @@ export function createSigningRouter(): Router {
           required: f.required,
           value: f.value,
           completed: !!f.completed_at,
+          optionValues: safeJsonParse(f.option_values),
         })),
         otherFields: otherCompletedFields,
       });
@@ -134,6 +140,13 @@ export function createSigningRouter(): Router {
 
   // Proxy endpoint to stream PDF content (avoids S3 CORS issues)
   router.get('/session/:token/document', async (req: Request<{ token: string }>, res: Response) => {
+    // Explicit CORS — belt-and-suspenders alongside the global cors middleware
+    const origin = req.headers.origin;
+    if (origin) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Access-Control-Allow-Credentials', 'true');
+    }
+
     try {
       const signer = await documentRepo.findSignerByToken(req.params.token);
       if (!signer) {
@@ -148,22 +161,28 @@ export function createSigningRouter(): Router {
       }
 
       if (!process.env.AWS_ACCESS_KEY_ID || !doc.s3_key || doc.s3_key.startsWith('pending/')) {
-        res.status(404).json({ error: 'Document file not available' });
+        logger.warn({ docId: doc.id, s3Key: doc.s3_key, hasAws: !!process.env.AWS_ACCESS_KEY_ID }, 'Document file not available');
+        res.status(404).json({ error: 'Document file not available', reason: !process.env.AWS_ACCESS_KEY_ID ? 'aws_not_configured' : doc.s3_key?.startsWith('pending/') ? 'pending_upload' : 'no_s3_key' });
         return;
       }
 
       try {
         const { StorageService } = await import('../services/StorageService.js');
         const storageService = new StorageService();
+        logger.info({ s3Key: doc.s3_key, docId: doc.id }, 'Fetching document from S3');
         const pdfBuffer = await storageService.getDocument(doc.s3_key);
+        logger.info({ s3Key: doc.s3_key, size: pdfBuffer.length }, 'Document fetched from S3');
 
+        const safeName = doc.file_name.replace(/[^\x20-\x7e]/g, '_');
+        const encodedName = encodeURIComponent(doc.file_name);
         res.setHeader('Content-Type', 'application/pdf');
-        res.setHeader('Content-Disposition', `inline; filename="${doc.file_name}"`);
+        res.setHeader('Content-Disposition', `inline; filename="${safeName}"; filename*=UTF-8''${encodedName}`);
         res.setHeader('Content-Length', pdfBuffer.length);
         res.send(pdfBuffer);
       } catch (s3Err) {
-        logger.error({ err: s3Err, s3Key: doc.s3_key }, 'Error fetching document from S3');
-        res.status(502).json({ error: 'Could not retrieve document' });
+        const errMsg = s3Err instanceof Error ? s3Err.message : String(s3Err);
+        logger.error({ err: errMsg, s3Key: doc.s3_key, docId: doc.id }, 'Error fetching document from S3');
+        res.status(502).json({ error: 'Could not retrieve document', detail: errMsg });
       }
     } catch (err) {
       logger.error({ err, token: req.params.token }, 'Error in document proxy');
@@ -317,30 +336,38 @@ export function createSigningRouter(): Router {
 
       // Individual mode: generate per-signer PDF immediately
       if (doc?.signing_mode === 'individual') {
+        const { EmailService } = await import('../services/EmailService.js');
+        const emailService = new EmailService();
+        const sender = await db('users').where({ id: doc.sender_id }).first();
+        const appUrl = process.env.APP_URL || 'https://app.lapen.ai';
+        const signerName = signer.name || signer.email?.split('@')[0] || 'signer';
+
+        let pdfAttachment: { filename: string; content: Buffer; contentType: string } | null = null;
         try {
           const { StorageService } = await import('../services/StorageService.js');
           const { AIService } = await import('../services/AIService.js');
           const { DocumentService } = await import('../services/DocumentService.js');
-          const { EmailService } = await import('../services/EmailService.js');
           const storageService = new StorageService();
           const aiService = new AIService();
           const documentService = new DocumentService(documentRepo, auditRepo, storageService, aiService);
-          const emailService = new EmailService();
 
           // Generate PDF with only this signer's fields
           const signerPdf = await documentService.applySignaturesToDocument(signer.document_request_id, signer.id);
-          const signerName = signer.name || signer.email?.split('@')[0] || 'signer';
-          const signedKey = `signed/${signer.document_request_id}/${signer.id}/${doc.file_name.replace('.pdf', '')}-signed-${signerName}.pdf`;
+          const safeFileName = doc.file_name.replace(/[^\x20-\x7e]/g, '_').replace('.pdf', '');
+          const safeSigner = (signerName || '').replace(/[^\x20-\x7e]/g, '_');
+          const signedKey = `signed/${signer.document_request_id}/${signer.id}/${safeFileName}-signed-${safeSigner}.pdf`;
           await storageService.uploadDocument(signedKey, signerPdf, 'application/pdf');
 
           // Store per-signer signed key
           await db('signers').where({ id: signer.id }).update({ signed_s3_key: signedKey });
+          pdfAttachment = { filename: `${safeFileName}-signed-${safeSigner}.pdf`, content: signerPdf, contentType: 'application/pdf' };
+          logger.info({ documentId: doc.id, signerId: signer.id }, 'Individual signer PDF generated');
+        } catch (completionErr) {
+          logger.error({ error: completionErr instanceof Error ? completionErr.message : String(completionErr), stack: completionErr instanceof Error ? completionErr.stack : undefined }, 'Individual signer PDF generation failed — sending emails without attachment');
+        }
 
-          // Send to this signer + sender
-          const sender = await db('users').where({ id: doc.sender_id }).first();
-          const appUrl = process.env.APP_URL || 'https://app.lapen.ai';
-          const attachment = { filename: `${doc.file_name.replace('.pdf', '')}-signed-${signerName}.pdf`, content: signerPdf, contentType: 'application/pdf' };
-
+        // Always send confirmation emails (with or without PDF attachment)
+        try {
           const recipientEmails = new Set<string>();
           if (signer.email) recipientEmails.add(signer.email);
           if (sender?.email) recipientEmails.add(sender.email);
@@ -348,49 +375,57 @@ export function createSigningRouter(): Router {
           for (const email of recipientEmails) {
             const isSender = sender?.email && email === sender.email;
             const senderCredits = isSender ? { credits: sender.credits, purchaseUrl: `${appUrl}/credits?user=${sender.id}` } : undefined;
-            await emailService.sendCompletionNotification(email, doc.file_name, `${appUrl}/status/${doc.id}`, [attachment], senderCredits);
+            await emailService.sendCompletionNotification(email, doc.file_name, `${appUrl}/status/${doc.id}`, pdfAttachment ? [pdfAttachment] : [], senderCredits);
           }
-
-          logger.info({ documentId: doc.id, signerId: signer.id }, 'Individual signer completion processed');
-        } catch (completionErr) {
-          logger.error({ err: completionErr }, 'Individual signer completion failed');
+          logger.info({ documentId: doc.id, signerId: signer.id, withPdf: !!pdfAttachment }, 'Individual signer completion emails sent');
+        } catch (emailErr) {
+          logger.error({ error: emailErr instanceof Error ? emailErr.message : String(emailErr) }, 'Failed to send individual completion emails');
         }
 
         if (allSigned) {
           // All done — also generate combined PDF
           await documentRepo.updateStatus(signer.document_request_id, 'completed');
+
+          const combinedAttachments: Array<{ filename: string; content: Buffer; contentType: string }> = [];
           try {
             const { StorageService } = await import('../services/StorageService.js');
             const { AIService } = await import('../services/AIService.js');
             const { DocumentService } = await import('../services/DocumentService.js');
-            const { EmailService } = await import('../services/EmailService.js');
             const storageService = new StorageService();
             const aiService = new AIService();
             const documentService = new DocumentService(documentRepo, auditRepo, storageService, aiService);
-            const emailService = new EmailService();
 
             const combinedPdf = await documentService.applySignaturesToDocument(signer.document_request_id);
             const certificate = await documentService.generateCertificateOfCompletion(signer.document_request_id);
 
-            const signedKey = storageService.generateSignedKey(signer.document_request_id, `${doc!.file_name.replace('.pdf', '')}-signed-all.pdf`);
+            const safeDocName = doc!.file_name.replace(/[^\x20-\x7e]/g, '_').replace('.pdf', '');
+            const signedKey = storageService.generateSignedKey(signer.document_request_id, `${safeDocName}-signed-all.pdf`);
             const certKey = storageService.generateCertificateKey(signer.document_request_id);
             await storageService.uploadDocument(signedKey, combinedPdf, 'application/pdf');
             await storageService.uploadDocument(certKey, certificate, 'application/pdf');
             await documentRepo.markCompleted(signer.document_request_id, signedKey, certKey);
 
-            // Send combined PDF to sender
-            const sender = await db('users').where({ id: doc!.sender_id }).first();
-            if (sender?.email) {
-              const appUrl = process.env.APP_URL || 'https://app.lapen.ai';
-              const attachments = [
-                { filename: `${doc!.file_name.replace('.pdf', '')}-signed-all.pdf`, content: combinedPdf, contentType: 'application/pdf' },
-                { filename: `Certificate-of-Completion.pdf`, content: certificate, contentType: 'application/pdf' },
-              ];
-              await emailService.sendCompletionNotification(sender.email, doc!.file_name, `${appUrl}/archive/${signer.document_request_id}`, attachments, { credits: sender.credits, purchaseUrl: `${appUrl}/credits?user=${sender.id}` });
-            }
-            logger.info({ documentId: doc!.id }, 'All individual signers complete — combined PDF sent');
+            combinedAttachments.push(
+              { filename: `${safeDocName}-signed-all.pdf`, content: combinedPdf, contentType: 'application/pdf' },
+              { filename: `Certificate-of-Completion.pdf`, content: certificate, contentType: 'application/pdf' },
+            );
+            logger.info({ documentId: doc!.id }, 'Combined PDF generated successfully');
           } catch (err) {
-            logger.error({ err }, 'Combined PDF generation failed');
+            logger.error({ error: err instanceof Error ? err.message : String(err), stack: err instanceof Error ? err.stack : undefined }, 'Combined PDF generation failed — sending completion email without attachments');
+          }
+
+          // Always send completion email to sender (with or without PDF)
+          try {
+            const { EmailService } = await import('../services/EmailService.js');
+            const emailService = new EmailService();
+            const senderUser = await db('users').where({ id: doc!.sender_id }).first();
+            if (senderUser?.email) {
+              const appUrl = process.env.APP_URL || 'https://app.lapen.ai';
+              await emailService.sendCompletionNotification(senderUser.email, doc!.file_name, `${appUrl}/status/${signer.document_request_id}`, combinedAttachments, { credits: senderUser.credits, purchaseUrl: `${appUrl}/credits?user=${senderUser.id}` });
+            }
+            logger.info({ documentId: doc!.id, withPdf: combinedAttachments.length > 0 }, 'All individual signers complete — completion email sent');
+          } catch (emailErr) {
+            logger.error({ error: emailErr instanceof Error ? emailErr.message : String(emailErr) }, 'Failed to send combined completion email');
           }
         } else {
           await documentRepo.updateStatus(signer.document_request_id, 'partially_signed');
@@ -433,7 +468,8 @@ export function createSigningRouter(): Router {
               const certificate = await documentService.generateCertificateOfCompletion(signer.document_request_id);
 
               // Upload signed docs
-              const signedKey = storageService.generateSignedKey(signer.document_request_id, `${completedDoc.file_name.replace('.pdf', '')}-signed.pdf`);
+              const safeDocName = completedDoc.file_name.replace(/[^\x20-\x7e]/g, '_').replace('.pdf', '');
+              const signedKey = storageService.generateSignedKey(signer.document_request_id, `${safeDocName}-signed.pdf`);
               const certKey = storageService.generateCertificateKey(signer.document_request_id);
               await storageService.uploadDocument(signedKey, signedPdf, 'application/pdf');
               await storageService.uploadDocument(certKey, certificate, 'application/pdf');
@@ -446,7 +482,7 @@ export function createSigningRouter(): Router {
               if (sender?.email) allEmails.add(sender.email);
               for (const s of allSigners) { if (s.email) allEmails.add(s.email); }
 
-              const signedPdfAttachment = { filename: `${completedDoc.file_name.replace('.pdf', '')}-signed.pdf`, content: signedPdf, contentType: 'application/pdf' };
+              const signedPdfAttachment = { filename: `${safeDocName}-signed.pdf`, content: signedPdf, contentType: 'application/pdf' };
               const certificateAttachment = { filename: `Certificate-of-Completion.pdf`, content: certificate, contentType: 'application/pdf' };
               const archiveUrl = `${process.env.APP_URL}/archive/${signer.document_request_id}`;
 

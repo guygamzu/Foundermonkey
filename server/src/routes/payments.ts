@@ -404,10 +404,10 @@ export function createPaymentsRouter(): Router {
       }
 
       const result = await userRepo.redeemReferral(referrer.id, userId);
-      res.json({ message: 'Referral redeemed! 5 credits added for both of you.', credits: result.referredCredits });
+      res.json({ message: 'Referral redeemed! Credits added.', credits: result.referrerCredits });
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      if (errMsg === 'Cannot refer yourself' || errMsg === 'Referral already redeemed') {
+      if (errMsg === 'Cannot refer yourself' || errMsg === 'Referral already redeemed' || errMsg === 'Monthly referral cap reached') {
         res.status(400).json({ error: errMsg });
         return;
       }

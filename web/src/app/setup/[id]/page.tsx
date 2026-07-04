@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, lazy, Suspense, useRef } from 'react'
 import { useParams, useRouter } from 'next/navigation';
 import {
   getSetupDocument,
+  getSetupDocumentDirectUrl,
   getSetupDocumentProxyUrl,
   createSetupField,
   deleteSetupField,
@@ -11,6 +12,8 @@ import {
   addSetupSigner,
   removeSetupSigner,
   sendForSigning,
+  finishSetup,
+  voidAndReconfigure,
   updateSetupSigningMode,
   type SetupDocument,
   type SetupField,
@@ -19,7 +22,7 @@ import {
 
 const PDFViewer = lazy(() => import('@/components/PDFViewer'));
 
-type ToolType = 'signature' | 'text' | 'date' | 'checkbox' | null;
+type ToolType = 'signature' | 'text' | 'date' | 'checkbox' | 'option' | null;
 
 const SIGNER_COLORS = ['#2563eb', '#dc2626', '#16a34a', '#9333ea', '#ea580c', '#0891b2', '#be185d', '#4f46e5'];
 
@@ -38,16 +41,38 @@ export default function SetupPage() {
   const [showAddSigner, setShowAddSigner] = useState(false);
   const [newSignerEmail, setNewSignerEmail] = useState('');
   const [newSignerName, setNewSignerName] = useState('');
+  const [showVoidWarning, setShowVoidWarning] = useState(false);
+  const [voiding, setVoiding] = useState(false);
+  const [doneSuccess, setDoneSuccess] = useState(false);
 
   useEffect(() => {
     async function load() {
       try {
         const data = await getSetupDocument(id);
+        // Show page immediately with whatever data we have
         setDoc(data);
         setFields(data.fields);
+        setLoading(false);
+
+        // In template mode (no signers), auto-create a placeholder signer and default to individual mode
+        const hasTemplateSigner = data.signers.some(s => s.email === 'template@lapen.ai');
+        if (data.signers.length === 0) {
+          try {
+            const [templateSigner] = await Promise.all([
+              addSetupSigner(id, { name: 'Template', email: 'template@lapen.ai' }),
+              data.signingMode !== 'individual' ? updateSetupSigningMode(id, 'individual') : Promise.resolve(),
+            ]);
+            setDoc(prev => prev ? {
+              ...prev,
+              signers: [...prev.signers, templateSigner],
+              signingMode: 'individual',
+            } : prev);
+          } catch {
+            // Template signer creation failed — page still works, user can add signers manually
+          }
+        }
       } catch (err: any) {
         setError(err.message);
-      } finally {
         setLoading(false);
       }
     }
@@ -62,20 +87,26 @@ export default function SetupPage() {
     return SIGNER_COLORS[idx % SIGNER_COLORS.length];
   };
 
+  // Determine if this is template mode: only signer is the placeholder template@lapen.ai
+  const isTemplateMode = signers.length === 0 || (signers.length === 1 && signers[0].email === 'template@lapen.ai');
+  const realSigners = signers.filter(s => s.email !== 'template@lapen.ai');
+
   // Place field on PDF click
   const handlePdfClick = useCallback(async (pageIndex: number, relativeX: number, relativeY: number) => {
     if (!activeTool || !selectedSigner) return;
 
     const type = activeTool;
-    const dims = {
+    const dims: Record<string, { w: number; h: number }> = {
       signature: { w: 0.25, h: 0.05 },
       text: { w: 0.15, h: 0.035 },
       date: { w: 0.12, h: 0.03 },
-      checkbox: { w: 0.025, h: 0.025 },
-    }[type] || { w: 0.15, h: 0.035 };
+      checkbox: { w: 0.04, h: 0.04 },
+      option: { w: 0.04, h: 0.04 },
+    };
+    const dim = dims[type] || { w: 0.15, h: 0.035 };
 
-    const x = Math.max(0, Math.min(1 - dims.w, relativeX - dims.w / 2));
-    const y = Math.max(0, Math.min(1 - dims.h, relativeY - dims.h / 2));
+    const x = Math.max(0, Math.min(1 - dim.w, relativeX - dim.w / 2));
+    const y = Math.max(0, Math.min(1 - dim.h, relativeY - dim.h / 2));
 
     try {
       const field = await createSetupField(id, {
@@ -84,16 +115,50 @@ export default function SetupPage() {
         page: pageIndex + 1,
         x,
         y,
-        width: dims.w,
-        height: dims.h,
+        width: dim.w,
+        height: dim.h,
       });
       setFields(prev => [...prev, field]);
     } catch (err: any) {
       setError(err.message);
     }
 
+    // Always clear tool after placing a field
     setActiveTool(null);
   }, [activeTool, selectedSigner, id]);
+
+  // Done — mark template as ready (no signers needed)
+  const handleDone = useCallback(async () => {
+    if (sending) return;
+    setSending(true);
+    setError(null);
+    try {
+      await finishSetup(id);
+      setDoneSuccess(true);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setSending(false);
+    }
+  }, [id, sending]);
+
+  // Void and reconfigure
+  const handleVoidAndReconfigure = useCallback(async () => {
+    setVoiding(true);
+    setError(null);
+    try {
+      await voidAndReconfigure(id);
+      // Reload the page data
+      const data = await getSetupDocument(id);
+      setDoc(data);
+      setFields(data.fields);
+      setShowVoidWarning(false);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setVoiding(false);
+    }
+  }, [id]);
 
   // Remove field
   const handleRemoveField = useCallback(async (fieldId: string) => {
@@ -241,6 +306,10 @@ export default function SetupPage() {
     try {
       await updateSetupSigningMode(id, newMode);
       setDoc(prev => prev ? { ...prev, signingMode: newMode } : prev);
+      // Clear activeTool if switching to shared with checkbox/option selected
+      if (newMode === 'shared' && (activeTool === 'checkbox' || activeTool === 'option')) {
+        setActiveTool(null);
+      }
     } catch (err: any) {
       setError(err.message);
     }
@@ -287,23 +356,133 @@ export default function SetupPage() {
     if (type === 'text') return 'Text';
     if (type === 'date') return 'Date';
     if (type === 'checkbox') return '✓';
+    if (type === 'option') return 'Opt';
     return type;
   };
+
+  // Show done success page
+  if (doneSuccess) {
+    const emailSubject = encodeURIComponent(`Please sign: ${doc?.fileName || 'Document'}`);
+    const emailBody = encodeURIComponent(
+      `Hi,\n\nPlease review and sign the attached document "${doc?.fileName || 'Document'}".\n\n` +
+      `Once you receive this email, Lapen will send you a simple and secure link to sign the document electronically — no account or downloads needed.\n\n` +
+      `Thank you!`
+    );
+    const mailtoLink = `mailto:?cc=sign@lapen.ai&subject=${emailSubject}&body=${emailBody}`;
+    const downloadUrl = `${getSetupDocumentProxyUrl(id)}?download=true`;
+
+    return (
+      <div className="message-page">
+        <div className="message-card" style={{ textAlign: 'center' }}>
+          <div style={{ fontSize: '3rem', marginBottom: 16 }}>✓</div>
+          <h2>Document Ready!</h2>
+          <p style={{ margin: '12px 0', color: 'var(--gray-500)' }}>
+            Your fields for <strong>{doc?.fileName}</strong> are configured.
+          </p>
+          <div style={{
+            background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8,
+            padding: 16, margin: '16px 0', textAlign: 'left',
+          }}>
+            <p style={{ fontWeight: 600, margin: '0 0 8px' }}>What to do next:</p>
+            <ol style={{ margin: 0, paddingLeft: 20, lineHeight: 1.8 }}>
+              <li>Click <strong>&quot;Send via Email&quot;</strong> below to open your email with everything pre-filled</li>
+              <li>Attach the PDF <strong>&quot;{doc?.fileName}&quot;</strong> (download it below if needed)</li>
+              <li>Add your recipients and hit send</li>
+              <li>Lapen will send each recipient a personalized signing link</li>
+            </ol>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, margin: '20px 0' }}>
+            <a
+              href={mailtoLink}
+              className="btn btn-primary btn-block"
+              style={{ textDecoration: 'none', textAlign: 'center' }}
+            >
+              Send via Email
+            </a>
+            <a
+              href={downloadUrl}
+              className="btn btn-block"
+              style={{
+                textDecoration: 'none', textAlign: 'center',
+                background: 'white', border: '1px solid var(--gray-300)', color: 'var(--gray-700)',
+              }}
+            >
+              Download PDF
+            </a>
+          </div>
+          <p style={{ fontSize: '0.8125rem', color: 'var(--gray-400)' }}>
+            Make sure <strong>sign@lapen.ai</strong> is in CC so we can send signing links to your recipients.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // Show void warning if document already sent
+  if (doc?.warning?.alreadySent && !showVoidWarning) {
+    return (
+      <div className="message-page">
+        <div className="message-card" style={{ textAlign: 'center' }}>
+          <div style={{ fontSize: '3rem', marginBottom: 16 }}>⚠️</div>
+          <h2>Document Already Sent</h2>
+          <p style={{ margin: '12px 0', color: 'var(--gray-500)' }}>
+            This document has been sent to <strong>{doc.warning.signerCount}</strong> signer{doc.warning.signerCount !== 1 ? 's' : ''}.
+            {doc.warning.signedCount > 0 && (
+              <> <strong>{doc.warning.signedCount}</strong> ha{doc.warning.signedCount !== 1 ? 've' : 's'} already signed.</>
+            )}
+          </p>
+          <p style={{ margin: '12px 0', color: '#991b1b', fontWeight: 500 }}>
+            Making changes will void all existing signatures. Signers will need to re-sign.
+          </p>
+          <div style={{ display: 'flex', gap: 12, justifyContent: 'center', marginTop: 20 }}>
+            <button
+              className="btn btn-secondary"
+              onClick={() => router.push(`/status/${id}`)}
+            >
+              Cancel
+            </button>
+            <button
+              className="btn"
+              style={{ background: '#dc2626', color: 'white' }}
+              onClick={() => {
+                setShowVoidWarning(true);
+                handleVoidAndReconfigure();
+              }}
+              disabled={voiding}
+            >
+              {voiding ? 'Voiding...' : 'Proceed & Void Signatures'}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="signing-page">
       {/* Header */}
       <div className="signing-header">
-        <span className="logo">ləˈpɛn</span>
+        <span className="logo">La <span className="pen">Pen</span><span className="seal">.</span></span>
         <h1>{doc.fileName}</h1>
-        <button
-          className="btn btn-primary"
-          style={{ padding: '6px 16px', fontSize: '0.8rem', minHeight: 'auto' }}
-          onClick={handleSend}
-          disabled={sending}
-        >
-          {sending ? 'Sending...' : 'Send for Signing'}
-        </button>
+        {!isTemplateMode ? (
+          <button
+            className="btn btn-primary"
+            style={{ padding: '6px 16px', fontSize: '0.8rem', minHeight: 'auto' }}
+            onClick={handleSend}
+            disabled={sending}
+          >
+            {sending ? 'Sending...' : 'Send for Signing'}
+          </button>
+        ) : (
+          <button
+            className="btn btn-primary"
+            style={{ padding: '6px 16px', fontSize: '0.8rem', minHeight: 'auto' }}
+            onClick={handleDone}
+            disabled={sending || fields.length === 0}
+          >
+            {sending ? 'Saving...' : 'Done'}
+          </button>
+        )}
       </div>
 
       {/* Error banner */}
@@ -341,58 +520,78 @@ export default function SetupPage() {
         </span>
       </div>
 
-      {/* Signer Tabs */}
-      <div className="signer-tabs">
-        {signers.map((signer, idx) => (
-          <div
-            key={signer.id}
-            className={`signer-tab ${idx === selectedSignerIdx ? 'active' : ''}`}
-            style={{
-              '--signer-color': SIGNER_COLORS[idx % SIGNER_COLORS.length],
-            } as React.CSSProperties}
-            onClick={() => setSelectedSignerIdx(idx)}
-          >
-            <span className="signer-tab-dot" style={{ background: SIGNER_COLORS[idx % SIGNER_COLORS.length] }} />
-            <span className="signer-tab-name">{signer.name || signer.email}</span>
-            {signers.length > 1 && (
-              <button
-                className="signer-tab-remove"
-                onClick={(e) => { e.stopPropagation(); handleRemoveSigner(signer.id, idx); }}
-                title="Remove signer"
-              >
-                &times;
-              </button>
-            )}
+      {/* Signer Tabs — hidden in template mode (1 template signer, no real signers) */}
+      {signers.length === 1 && signers[0].email === 'template@lapen.ai' ? (
+        <div className="signer-tabs">
+          <div className="signer-tab active" style={{ '--signer-color': SIGNER_COLORS[0] } as React.CSSProperties}>
+            <span className="signer-tab-dot" style={{ background: SIGNER_COLORS[0] }} />
+            <span className="signer-tab-name">Template Fields</span>
           </div>
-        ))}
-        <button className="add-signer-btn" onClick={() => setShowAddSigner(true)} title="Add signer">+</button>
-      </div>
+          <span style={{ fontSize: '0.75rem', color: 'var(--gray-400)', padding: '0 8px', alignSelf: 'center' }}>
+            These fields will be placed for every signer
+          </span>
+        </div>
+      ) : (
+        <div className="signer-tabs">
+          {signers.map((signer, idx) => (
+            <div
+              key={signer.id}
+              className={`signer-tab ${idx === selectedSignerIdx ? 'active' : ''}`}
+              style={{
+                '--signer-color': SIGNER_COLORS[idx % SIGNER_COLORS.length],
+              } as React.CSSProperties}
+              onClick={() => setSelectedSignerIdx(idx)}
+            >
+              <span className="signer-tab-dot" style={{ background: SIGNER_COLORS[idx % SIGNER_COLORS.length] }} />
+              <span className="signer-tab-name">{signer.name || signer.email}</span>
+              {signers.length > 1 && (
+                <button
+                  className="signer-tab-remove"
+                  onClick={(e) => { e.stopPropagation(); handleRemoveSigner(signer.id, idx); }}
+                  title="Remove signer"
+                >
+                  &times;
+                </button>
+              )}
+            </div>
+          ))}
+          <button className="add-signer-btn" onClick={() => setShowAddSigner(true)} title="Add signer">+</button>
+        </div>
+      )}
 
       {/* Toolbar */}
       <div className="signing-toolbar">
         <span style={{ fontSize: '0.75rem', color: 'var(--gray-500)', marginRight: 8 }}>
-          Place for {selectedSigner?.name || selectedSigner?.email || 'signer'}:
+          {isTemplateMode ? 'Place fields:' : `Place for ${selectedSigner?.name || selectedSigner?.email || 'signer'}:`}
         </span>
-        {(['signature', 'text', 'date', 'checkbox'] as ToolType[]).map(tool => (
-          <button
-            key={tool!}
-            className={`toolbar-btn ${activeTool === tool ? 'active' : ''}`}
-            onClick={() => setActiveTool(activeTool === tool ? null : tool)}
-          >
-            <span className="toolbar-icon">
-              {tool === 'signature' && '✍'}
-              {tool === 'text' && 'T'}
-              {tool === 'date' && '📅'}
-              {tool === 'checkbox' && '☑'}
-            </span>
-            <span className="toolbar-label">
-              {tool === 'signature' && 'Signature'}
-              {tool === 'text' && 'Text'}
-              {tool === 'date' && 'Date'}
-              {tool === 'checkbox' && 'Checkbox'}
-            </span>
-          </button>
-        ))}
+        {(['signature', 'text', 'date', 'checkbox', 'option'] as ToolType[]).map(tool => {
+          // In shared mode, only signature/text/date are allowed
+          const isDisabled = doc?.signingMode === 'shared' && (tool === 'checkbox' || tool === 'option');
+          return (
+            <button
+              key={tool!}
+              className={`toolbar-btn ${activeTool === tool ? 'active' : ''}${isDisabled ? ' disabled' : ''}`}
+              onClick={() => !isDisabled && setActiveTool(activeTool === tool ? null : tool)}
+              disabled={isDisabled}
+              title={isDisabled ? 'Only available in Individual Copies mode' : undefined}
+            >
+              <span className="toolbar-icon">
+                {tool === 'signature' && '✍'}
+                {tool === 'text' && 'T'}
+                {tool === 'date' && '📅'}
+                {tool === 'checkbox' && '☑'}
+                {tool === 'option' && '◉'}
+              </span>
+              <span className="toolbar-label">
+                {tool === 'signature' && 'Signature'}
+                {tool === 'text' && 'Text'}
+                {tool === 'date' && 'Date'}
+                {tool === 'checkbox' && 'Checkbox'}
+                {tool === 'option' && 'Option'}
+              </span>
+            </button>
+          );
+        })}
       </div>
 
       {activeTool && (
@@ -416,7 +615,8 @@ export default function SetupPage() {
             }
           >
             <PDFViewer
-              url={getSetupDocumentProxyUrl(id)}
+              url={getSetupDocumentDirectUrl(id)}
+              fallbackUrl={getSetupDocumentProxyUrl(id)}
               pageCount={doc.pageCount}
               onPageClick={activeTool ? handlePdfClick : undefined}
               renderOverlay={(pageIndex) => (
@@ -442,18 +642,30 @@ export default function SetupPage() {
                           onMouseDown={(e) => handleDragStart(e, f.id)}
                           onTouchStart={(e) => handleDragStart(e, f.id)}
                         >
-                          <span style={{
-                            fontSize: '9px',
-                            color,
-                            fontWeight: 600,
-                            whiteSpace: 'nowrap',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            maxWidth: '100%',
-                            padding: '0 2px',
-                          }}>
-                            {fieldTypeLabel(f.type)} — {signer?.name || signer?.email || ''}
-                          </span>
+                          {f.type === 'option' ? (
+                            <span style={{
+                              fontSize: '16px', color, fontWeight: 700,
+                              lineHeight: 1, display: 'inline-block',
+                            }}>○</span>
+                          ) : f.type === 'checkbox' ? (
+                            <span style={{
+                              fontSize: '16px', color, fontWeight: 700,
+                              lineHeight: 1, display: 'inline-block',
+                            }}>☐</span>
+                          ) : (
+                            <span style={{
+                              fontSize: '9px',
+                              color,
+                              fontWeight: 600,
+                              whiteSpace: 'nowrap',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              maxWidth: '100%',
+                              padding: '0 2px',
+                            }}>
+                              {fieldTypeLabel(f.type)} — {signer?.name || signer?.email || ''}
+                            </span>
+                          )}
                           <button
                             className="remove-item-btn"
                             onClick={(e) => { e.stopPropagation(); handleRemoveField(f.id); }}
@@ -472,19 +684,32 @@ export default function SetupPage() {
         </div>
       </div>
 
-      {/* Send Banner */}
+      {/* Send/Done Banner */}
       <div className="send-banner">
         <div style={{ fontSize: '0.8125rem', color: 'var(--gray-500)' }}>
-          {signers.length} signer{signers.length !== 1 ? 's' : ''} &middot; {fields.length} field{fields.length !== 1 ? 's' : ''} placed
+          {isTemplateMode
+            ? `${fields.length} field${fields.length !== 1 ? 's' : ''} placed (template mode)`
+            : `${realSigners.length} signer${realSigners.length !== 1 ? 's' : ''} · ${fields.length} field${fields.length !== 1 ? 's' : ''} placed`}
         </div>
-        <button
-          className="btn btn-primary"
-          onClick={handleSend}
-          disabled={sending || fields.length === 0}
-          style={{ padding: '10px 24px' }}
-        >
-          {sending ? 'Sending...' : 'Send for Signing'}
-        </button>
+        {!isTemplateMode ? (
+          <button
+            className="btn btn-primary"
+            onClick={handleSend}
+            disabled={sending || fields.length === 0}
+            style={{ padding: '10px 24px' }}
+          >
+            {sending ? 'Sending...' : 'Send for Signing'}
+          </button>
+        ) : (
+          <button
+            className="btn btn-primary"
+            onClick={handleDone}
+            disabled={sending || fields.length === 0}
+            style={{ padding: '10px 24px' }}
+          >
+            {sending ? 'Saving...' : 'Done'}
+          </button>
+        )}
       </div>
 
       {/* Add Signer Modal */}

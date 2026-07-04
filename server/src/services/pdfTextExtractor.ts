@@ -32,6 +32,23 @@ export async function extractPdfText(pdfBuffer: Buffer): Promise<{ text: string;
     };
   } catch (err) {
     logger.warn(`PDF text extraction failed: ${err instanceof Error ? err.message : String(err)}`);
-    return { text: '', pageCount: 1 };
+    // Try to at least get the page count even if text extraction failed
+    const pageCount = extractPageCountFallback(pdfBuffer);
+    return { text: '', pageCount };
+  }
+}
+
+/**
+ * Fallback page count extraction by counting /Type /Page entries in the raw PDF.
+ * Works even when pdfjs-dist isn't available.
+ */
+function extractPageCountFallback(pdfBuffer: Buffer): number {
+  try {
+    const pdfStr = pdfBuffer.toString('latin1');
+    // Count occurrences of "/Type /Page" (but not "/Type /Pages")
+    const matches = pdfStr.match(/\/Type\s*\/Page(?!s)/g);
+    return matches ? matches.length : 1;
+  } catch {
+    return 1;
   }
 }

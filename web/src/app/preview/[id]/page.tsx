@@ -2,7 +2,7 @@
 
 import { useState, useEffect, lazy, Suspense, useRef } from 'react';
 import { useParams } from 'next/navigation';
-import { getPreviewDocumentProxyUrl, askPreviewQuestion } from '@/lib/api';
+import { getPreviewDocumentDirectUrl, getPreviewDocumentProxyUrl, askPreviewQuestion } from '@/lib/api';
 
 const PDFViewer = lazy(() => import('@/components/PDFViewer'));
 
@@ -42,7 +42,7 @@ export default function PreviewPage() {
   const [preview, setPreview] = useState<DocumentPreview | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [pdfFailed, setPdfFailed] = useState(false);
+
 
   // AI Summary & Chat — always visible on preview
   const [aiSummary, setAiSummary] = useState<string | null>(null);
@@ -125,13 +125,13 @@ export default function PreviewPage() {
     );
   }
 
-  const showPdf = preview.documentUrl && !pdfFailed;
+  const showPdf = true;
 
   return (
     <div className="signing-page">
       {/* Header — matches signing page but Decline is dimmed */}
       <div className="signing-header">
-        <span className="logo">ləˈpɛn</span>
+        <span className="logo">La <span className="pen">Pen</span><span className="seal">.</span></span>
         <h1>{preview.fileName}</h1>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <button
@@ -146,16 +146,16 @@ export default function PreviewPage() {
 
       {/* AI Summary + Chat Panel — always visible on preview */}
       <div style={{
-        background: '#eff6ff', borderBottom: '1px solid #bfdbfe', padding: '16px',
+        background: 'var(--cream)', borderBottom: '1px solid var(--gray-200)', padding: '16px',
         fontSize: '0.875rem', position: 'relative', maxHeight: '50vh', display: 'flex', flexDirection: 'column',
         maxWidth: 832, margin: '0 auto', width: '100%',
       }}>
         <div style={{ marginBottom: 12 }}>
-          <strong style={{ color: '#1e40af' }}>AI Document Assistant</strong>
+          <strong style={{ color: 'var(--forest)' }}>AI Document Assistant</strong>
         </div>
 
         {aiLoading ? (
-          <div style={{ padding: 16, textAlign: 'center', color: '#6b7280' }}>
+          <div style={{ padding: 16, textAlign: 'center', color: 'var(--ink-mute)' }}>
             <div className="spinner" style={{ width: 20, height: 20, margin: '0 auto 8px' }} />
             Analyzing document...
           </div>
@@ -169,20 +169,20 @@ export default function PreviewPage() {
                     padding: '8px 12px',
                     margin: '4px 0',
                     borderRadius: 8,
-                    background: msg.role === 'user' ? '#dbeafe' : 'white',
-                    borderLeft: msg.role === 'assistant' ? '3px solid #2563eb' : 'none',
+                    background: msg.role === 'user' ? 'rgba(112,130,56,0.1)' : 'white',
+                    borderLeft: msg.role === 'assistant' ? '3px solid var(--forest)' : 'none',
                     fontSize: '0.8125rem',
                     lineHeight: 1.5,
-                    color: '#374151',
+                    color: 'var(--ink-soft)',
                     whiteSpace: 'pre-wrap',
                   }}
                 >
-                  {msg.role === 'user' && <strong style={{ color: '#2563eb' }}>You: </strong>}
+                  {msg.role === 'user' && <strong style={{ color: 'var(--forest)' }}>You: </strong>}
                   {msg.content}
                 </div>
               ))}
               {chatLoading && (
-                <div style={{ padding: '8px 12px', color: '#6b7280', fontSize: '0.8125rem' }}>Thinking...</div>
+                <div style={{ padding: '8px 12px', color: 'var(--ink-mute)', fontSize: '0.8125rem' }}>Thinking...</div>
               )}
               <div ref={chatEndRef} />
             </div>
@@ -194,7 +194,7 @@ export default function PreviewPage() {
                 onChange={(e) => setChatInput(e.target.value)}
                 placeholder="Ask a question about this document..."
                 style={{
-                  flex: 1, padding: '8px 12px', border: '1px solid #bfdbfe', borderRadius: 8,
+                  flex: 1, padding: '8px 12px', border: '1px solid var(--gray-200)', borderRadius: 8,
                   fontSize: '0.8125rem', outline: 'none', background: 'white',
                 }}
               />
@@ -202,7 +202,7 @@ export default function PreviewPage() {
                 type="submit"
                 disabled={!chatInput.trim() || chatLoading}
                 style={{
-                  padding: '8px 14px', background: '#2563eb', color: 'white', border: 'none',
+                  padding: '8px 14px', background: 'var(--forest)', color: 'white', border: 'none',
                   borderRadius: 8, cursor: chatInput.trim() && !chatLoading ? 'pointer' : 'not-allowed',
                   opacity: chatInput.trim() && !chatLoading ? 1 : 0.5, fontSize: '0.8125rem', fontWeight: 600,
                 }}
@@ -251,7 +251,8 @@ export default function PreviewPage() {
               }
             >
               <PDFViewer
-                url={getPreviewDocumentProxyUrl(documentId)}
+                url={getPreviewDocumentDirectUrl(documentId)}
+                fallbackUrl={getPreviewDocumentProxyUrl(documentId)}
                 pageCount={preview.pageCount}
                 renderOverlay={(pageIndex) => (
                   <>
@@ -276,7 +277,6 @@ export default function PreviewPage() {
                       ))}
                   </>
                 )}
-                onError={() => setPdfFailed(true)}
               />
             </Suspense>
           ) : (

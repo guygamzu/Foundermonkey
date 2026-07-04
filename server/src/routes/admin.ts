@@ -1,4 +1,7 @@
 import { Router, Request, Response } from 'express';
+import Imap from 'imap';
+import { simpleParser } from 'mailparser';
+import crypto from 'crypto';
 import { getDatabase } from '../config/database.js';
 import { EmailService } from '../services/EmailService.js';
 import { logger } from '../config/logger.js';
@@ -295,7 +298,166 @@ export function createAdminRouter(): Router {
     }
   });
 
+  // Recover a document whose S3 upload failed — re-fetch from IMAP and upload
+  router.post('/recover-document/:id', async (req: Request<{ id: string }>, res: Response) => {
+    if (!requireAdminSecret(req, res)) return;
+
+    const docId = req.params.id;
+    try {
+      const doc = await db('document_requests').where({ id: docId }).first();
+      if (!doc) {
+        res.status(404).json({ error: 'Document not found' });
+        return;
+      }
+
+      if (doc.s3_key && !doc.s3_key.startsWith('pending/')) {
+        res.status(400).json({ error: 'Document already has a valid S3 key', s3_key: doc.s3_key });
+        return;
+      }
+
+      if (!doc.original_email_message_id) {
+        res.status(400).json({ error: 'No original email message ID — cannot recover from IMAP' });
+        return;
+      }
+
+      if (!process.env.IMAP_HOST || !process.env.IMAP_USER || !process.env.AWS_ACCESS_KEY_ID) {
+        res.status(503).json({ error: 'IMAP or AWS not configured' });
+        return;
+      }
+
+      const messageId = doc.original_email_message_id;
+      logger.info({ docId, messageId }, 'Attempting document recovery from IMAP');
+
+      const attachment = await fetchAttachmentFromImap(messageId);
+      if (!attachment) {
+        res.status(404).json({ error: 'Could not find email or PDF attachment in IMAP' });
+        return;
+      }
+
+      const { StorageService } = await import('../services/StorageService.js');
+      const storageService = new StorageService();
+      const s3Key = `documents/${doc.sender_id}/${crypto.randomUUID()}/${doc.file_name}`;
+      await storageService.uploadDocument(s3Key, attachment.content, 'application/pdf');
+
+      let pageCount = doc.page_count;
+      try {
+        const { extractPdfText } = await import('../services/pdfTextExtractor.js');
+        const result = await extractPdfText(attachment.content);
+        pageCount = result.pageCount;
+      } catch { /* keep existing page count */ }
+
+      await db('document_requests').where({ id: docId }).update({
+        s3_key: s3Key,
+        file_size: attachment.content.length,
+        page_count: pageCount,
+        document_hash: crypto.createHash('sha256').update(attachment.content).digest('hex'),
+        updated_at: new Date(),
+      });
+
+      logger.info({ docId, s3Key }, 'Document recovered successfully');
+      res.json({ success: true, s3_key: s3Key, size: attachment.content.length, pageCount });
+    } catch (err) {
+      logger.error({ err, docId }, 'Document recovery failed');
+      res.status(500).json({ error: 'Recovery failed', details: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  // List documents with broken (pending/) S3 keys
+  router.get('/broken-documents', async (req: Request, res: Response) => {
+    if (!requireAdminSecret(req, res)) return;
+    try {
+      const docs = await db('document_requests')
+        .where('s3_key', 'like', 'pending/%')
+        .select('id', 'file_name', 'sender_id', 'status', 'original_email_message_id', 'created_at')
+        .orderBy('created_at', 'desc')
+        .limit(50);
+
+      const senderIds = [...new Set(docs.map((d: any) => d.sender_id))];
+      const senders = senderIds.length
+        ? await db('users').whereIn('id', senderIds).select('id', 'email', 'name')
+        : [];
+      const senderMap = new Map(senders.map((s: any) => [s.id, s]));
+
+      res.json(docs.map((d: any) => ({
+        ...d,
+        sender: senderMap.get(d.sender_id) || null,
+      })));
+    } catch (err) {
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
   return router;
+}
+
+async function fetchAttachmentFromImap(messageId: string): Promise<{ content: Buffer; filename: string } | null> {
+  return new Promise((resolve, reject) => {
+    const imap = new Imap({
+      user: (process.env.IMAP_USER || '').replace(/@@/g, '@'),
+      password: (process.env.IMAP_PASSWORD || process.env.IMAP_PASS || '').replace(/@@/g, '@'),
+      host: process.env.IMAP_HOST!,
+      port: Number(process.env.IMAP_PORT) || 993,
+      tls: true,
+      tlsOptions: { rejectUnauthorized: false },
+      connTimeout: 15000,
+      authTimeout: 15000,
+    });
+
+    const timeout = setTimeout(() => {
+      try { imap.end(); } catch {}
+      reject(new Error('IMAP connection timeout'));
+    }, 30000);
+
+    imap.on('ready', () => {
+      imap.openBox('INBOX', true, (err) => {
+        if (err) { clearTimeout(timeout); imap.end(); reject(err); return; }
+
+        imap.search([['HEADER', 'Message-ID', messageId]], (searchErr, results) => {
+          if (searchErr || !results?.length) {
+            clearTimeout(timeout);
+            imap.end();
+            if (searchErr) reject(searchErr);
+            else resolve(null);
+            return;
+          }
+
+          let rawEmail = '';
+          const fetch = imap.fetch(results.slice(0, 1), { bodies: '' });
+          fetch.on('message', (msg) => {
+            msg.on('body', (stream) => {
+              stream.on('data', (chunk: Buffer) => { rawEmail += chunk.toString(); });
+            });
+          });
+          fetch.once('end', async () => {
+            clearTimeout(timeout);
+            imap.end();
+            try {
+              const parsed = await simpleParser(rawEmail);
+              const pdfAttachment = parsed.attachments?.find(
+                (a) => a.contentType === 'application/pdf' || a.filename?.toLowerCase().endsWith('.pdf'),
+              );
+              if (!pdfAttachment) { resolve(null); return; }
+              resolve({ content: pdfAttachment.content, filename: pdfAttachment.filename || 'document.pdf' });
+            } catch (parseErr) {
+              reject(parseErr);
+            }
+          });
+          fetch.once('error', (fetchErr) => {
+            clearTimeout(timeout);
+            imap.end();
+            reject(fetchErr);
+          });
+        });
+      });
+    });
+
+    imap.on('error', (err: Error) => {
+      clearTimeout(timeout);
+      reject(err);
+    });
+
+    imap.connect();
+  });
 }
 
 // Helper for internal use — fire-and-forget admin notification

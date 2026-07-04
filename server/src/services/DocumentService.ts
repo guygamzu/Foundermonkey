@@ -1,11 +1,43 @@
 import crypto from 'crypto';
-import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
+import { PDFDocument, PDFFont, PDFPage, rgb, StandardFonts } from 'pdf-lib';
 import { DocumentRepository } from '../models/DocumentRepository.js';
 import { AuditRepository } from '../models/AuditRepository.js';
 import { StorageService } from './StorageService.js';
 import { AIService } from './AIService.js';
 import { FieldDetectionService } from './FieldDetectionService.js';
 import { logger } from '../config/logger.js';
+
+function safeText(text: string, font: PDFFont): string {
+  const chars: string[] = [];
+  for (const ch of text) {
+    try {
+      font.encodeText(ch);
+      chars.push(ch);
+    } catch {
+      chars.push('?');
+    }
+  }
+  return chars.join('');
+}
+
+function safeDrawText(
+  page: PDFPage,
+  text: string,
+  opts: { x: number; y: number; size: number; font: PDFFont; color?: ReturnType<typeof rgb>; maxWidth?: number },
+) {
+  const safe = safeText(text, opts.font);
+  let drawStr = safe;
+  if (opts.maxWidth) {
+    const w = opts.font.widthOfTextAtSize(drawStr, opts.size);
+    if (w > opts.maxWidth) {
+      while (drawStr.length > 3 && opts.font.widthOfTextAtSize(drawStr + '...', opts.size) > opts.maxWidth) {
+        drawStr = drawStr.slice(0, -1);
+      }
+      drawStr += '...';
+    }
+  }
+  page.drawText(drawStr, { x: opts.x, y: opts.y, size: opts.size, font: opts.font, color: opts.color });
+}
 
 export class DocumentService {
   private fieldDetectionService: FieldDetectionService;
@@ -143,6 +175,10 @@ export class DocumentService {
     for (const field of fields) {
       if (!field.value) continue;
 
+      // Skip checkbox and option fields — their selections are tracked in the DB,
+      // and their Unicode values (✓, ●) aren't supported by standard PDF fonts
+      if (field.type === 'checkbox' || field.type === 'option') continue;
+
       if (field.page < 1 || field.page > pdfDoc.getPageCount()) {
         logger.warn({ fieldId: field.id, page: field.page, pageCount: pdfDoc.getPageCount() }, 'Field references invalid page, skipping');
         continue;
@@ -196,7 +232,7 @@ export class DocumentService {
             // Fallback to text if image embedding fails
             const signer = signerMap.get(field.signer_id);
             const sigText = signer?.name || signer?.email || 'Signed';
-            page.drawText(sigText, {
+            safeDrawText(page, sigText, {
               x: x + 4,
               y: y + height / 3,
               size: Math.min(height * 0.6, 14),
@@ -209,7 +245,7 @@ export class DocumentService {
           // Typed signature - render in italic/cursive style
           const sigText = field.value;
           const fontSize = Math.min(height * 0.6, 16);
-          page.drawText(sigText, {
+          safeDrawText(page, sigText, {
             x: x + 4,
             y: y + height * 0.3,
             size: fontSize,
@@ -228,12 +264,13 @@ export class DocumentService {
       } else {
         // Date, text, name, title — all render as text
         const fontSize = Math.min(height * 0.7, 11);
-        page.drawText(field.value, {
+        safeDrawText(page, field.value, {
           x: x + 2,
           y: y + height * 0.25,
           size: fontSize,
           font,
           color: rgb(0, 0, 0),
+          maxWidth: width - 4,
         });
       }
     }
@@ -255,6 +292,31 @@ export class DocumentService {
 
     const signers = await this.documentRepo.findSignersByDocumentId(documentId);
     const auditEvents = await this.auditRepo.findByDocumentId(documentId);
+    const allFields = await this.documentRepo.findFieldsByDocumentId(documentId);
+
+    // Prefer the name the signer actually typed into a "name" field during
+    // signing over the auto-populated signer.name, which is often just the
+    // email prefix (e.g. "alice" from alice@example.com) and should not be
+    // shown as a real name on the certificate.
+    const resolveDisplayName = (
+      signerId: string,
+      fallbackName: string | null,
+      email: string | null,
+      identifier: string,
+    ): string => {
+      const nameField = allFields.find(
+        f => f.signer_id === signerId && f.type === 'name' && typeof f.value === 'string' && f.value.trim().length > 0,
+      );
+      if (nameField?.value) return nameField.value.trim();
+
+      // Only trust signer.name when it looks like a real name, not the email prefix.
+      const trimmed = fallbackName?.trim() ?? '';
+      const emailPrefix = email ? email.split('@')[0].toLowerCase() : '';
+      const looksLikeEmailPrefix = trimmed.length > 0 && trimmed.toLowerCase() === emailPrefix;
+      if (trimmed.length > 0 && !looksLikeEmailPrefix) return trimmed;
+
+      return identifier;
+    };
 
     const pdfDoc = await PDFDocument.create();
     const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
@@ -272,7 +334,7 @@ export class DocumentService {
     };
 
     // Title
-    currentPage.drawText('Certificate of Completion', {
+    safeDrawText(currentPage, 'Certificate of Completion', {
       x: margin,
       y,
       size: 24,
@@ -282,41 +344,42 @@ export class DocumentService {
     y -= 40;
 
     // Document info
-    currentPage.drawText(`Document: ${doc.file_name}`, { x: margin, y, size: 12, font });
+    safeDrawText(currentPage, `Document: ${doc.file_name}`, { x: margin, y, size: 12, font, maxWidth: 612 - margin * 2 });
     y -= 20;
-    currentPage.drawText(`Document Hash (SHA-256): ${doc.document_hash}`, { x: margin, y, size: 9, font, color: rgb(0.4, 0.4, 0.4) });
+    safeDrawText(currentPage, `Document Hash (SHA-256): ${doc.document_hash}`, { x: margin, y, size: 9, font, color: rgb(0.4, 0.4, 0.4) });
     y -= 20;
-    currentPage.drawText(`Completed: ${doc.completed_at?.toISOString() || 'N/A'}`, { x: margin, y, size: 12, font });
+    safeDrawText(currentPage, `Completed: ${doc.completed_at?.toISOString() || 'N/A'}`, { x: margin, y, size: 12, font });
     y -= 30;
 
     // Signers
-    currentPage.drawText('Signers', { x: margin, y, size: 16, font: boldFont });
+    safeDrawText(currentPage, 'Signers', { x: margin, y, size: 16, font: boldFont });
     y -= 25;
 
     for (const signer of signers) {
       ensureSpace(60);
       const identifier = signer.email || signer.phone || 'Unknown';
-      currentPage.drawText(`• ${signer.name || identifier}`, { x: margin + 10, y, size: 11, font: boldFont });
+      const displayName = resolveDisplayName(signer.id, signer.name, signer.email, identifier);
+      safeDrawText(currentPage, `• ${displayName}`, { x: margin + 10, y, size: 11, font: boldFont });
       y -= 16;
-      currentPage.drawText(`  Contact: ${identifier}`, { x: margin + 10, y, size: 10, font });
+      safeDrawText(currentPage, `  Contact: ${identifier}`, { x: margin + 10, y, size: 10, font });
       y -= 16;
-      currentPage.drawText(`  Status: ${signer.status} | Signed: ${signer.signed_at?.toISOString() || 'N/A'}`, { x: margin + 10, y, size: 10, font });
+      safeDrawText(currentPage, `  Status: ${signer.status} | Signed: ${signer.signed_at?.toISOString() || 'N/A'}`, { x: margin + 10, y, size: 10, font });
       y -= 22;
     }
 
     // Audit trail
     ensureSpace(40);
     y -= 10;
-    currentPage.drawText('Audit Trail', { x: margin, y, size: 16, font: boldFont });
+    safeDrawText(currentPage, 'Audit Trail', { x: margin, y, size: 16, font: boldFont });
     y -= 25;
 
     for (const event of auditEvents) {
       ensureSpace(40);
       const timestamp = event.created_at.toISOString();
-      currentPage.drawText(`${timestamp} - ${event.action}`, { x: margin + 10, y, size: 9, font });
+      safeDrawText(currentPage, `${timestamp} - ${event.action}`, { x: margin + 10, y, size: 9, font });
       y -= 14;
       const ua = event.user_agent ? event.user_agent.substring(0, 60) : 'N/A';
-      currentPage.drawText(`  IP: ${event.ip_address || 'N/A'} | UA: ${ua}`, {
+      safeDrawText(currentPage, `  IP: ${event.ip_address || 'N/A'} | UA: ${ua}`, {
         x: margin + 10, y, size: 8, font, color: rgb(0.5, 0.5, 0.5),
       });
       y -= 18;

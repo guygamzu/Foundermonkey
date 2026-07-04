@@ -189,10 +189,9 @@ export class EmailProcessor {
     const senderName = parsed.from?.value?.[0]?.name || null;
 
     const imapUser = (process.env.IMAP_USER || '').replace(/@@/g, '@').toLowerCase();
-    const setEmail = (process.env.SET_EMAIL || 'guygamzu@lapen.ai').replace(/@@/g, '@').toLowerCase();
     // Lapen addresses we accept emails for (also include FROM_EMAIL to prevent it from becoming a signer)
     const fromEmailAddr = (process.env.FROM_EMAIL || '').replace(/@@/g, '@').toLowerCase();
-    const lapenAddresses = new Set([imapUser, setEmail, fromEmailAddr].filter(Boolean));
+    const lapenAddresses = new Set([imapUser, fromEmailAddr].filter(Boolean));
 
     // Extract TO and CC with full name+address info
     const toEntries = (parsed.to ? (Array.isArray(parsed.to) ? parsed.to : [parsed.to]) : [])
@@ -211,9 +210,7 @@ export class EmailProcessor {
       return;
     }
 
-    // Determine which Lapen flow: sign@ or set@
-    const isSetFlow = allRecipientAddresses.includes(setEmail);
-    const isSignFlow = !isSetFlow;
+    // All flows now go through sign@ (set@ has been removed)
 
     const senderLower = senderEmail.toLowerCase();
 
@@ -255,7 +252,7 @@ export class EmailProcessor {
     const db = getDatabase();
 
     const firstLine = body.split(/\r?\n/)[0].trim();
-    logger.info(`Processing incoming email: from=${senderEmail} subject="${subject}" bodyLen=${body.length} attachments=${attachments.length} flow=${isSetFlow ? 'set' : 'sign'} toCount=${toEntries.length} ccCount=${ccEntries.length} firstLine="${firstLine}"`);
+    logger.info(`Processing incoming email: from=${senderEmail} subject="${subject}" bodyLen=${body.length} attachments=${attachments.length} toCount=${toEntries.length} ccCount=${ccEntries.length} firstLine="${firstLine}"`);
 
     // ---------------------------------------------------------------
     // Extract signers from TO/CC addresses (excluding Lapen addresses and sender)
@@ -267,7 +264,7 @@ export class EmailProcessor {
     // Log raw TO/CC entries for debugging name extraction
     logger.info({ toEntries: toEntries.map(e => ({ name: e.name, address: e.address })), ccEntries: ccEntries.map(e => ({ name: e.name, address: e.address })) }, 'Raw TO/CC entries from email parser');
 
-    for (const entry of toEntries) {
+    for (const entry of [...toEntries, ...ccEntries]) {
       const addr = (entry.address || '').toLowerCase();
       if (!addr) continue;
       if (lapenAddresses.has(addr)) continue;
@@ -297,8 +294,7 @@ export class EmailProcessor {
 
     // ---------------------------------------------------------------
     // DIRECT FLOW: Signers found in TO + PDF attached
-    // sign@: create doc → send signing links immediately
-    // set@: create doc → reply with field placement link
+    // → check for template match first, then send signing links
     // ---------------------------------------------------------------
     if (recipientSigners.length > 0 && pdfAttachment) {
       if (pdfAttachment.size > 25 * 1024 * 1024) {
@@ -320,13 +316,24 @@ export class EmailProcessor {
         }
       }
 
-      logger.info({ signerCount: recipientSigners.length, signers: recipientSigners.map(s => s.email), flow: isSetFlow ? 'set' : 'sign' }, 'Direct flow: signers detected in TO');
-
-      if (isSetFlow) {
-        await this.handleSetFlow(senderEmail, pdfAttachment, recipientSigners, subject, messageId, body, senderName);
-      } else {
-        await this.handleDirectSign(senderEmail, pdfAttachment, recipientSigners, subject, messageId, body, senderName);
+      // Check for template match: same sender + same filename + status template_ready
+      const fileName = pdfAttachment.filename || 'document.pdf';
+      const senderUser = await this.userRepo.findByEmail(senderEmail);
+      if (senderUser) {
+        const templateDoc = await db('document_requests')
+          .where({ sender_id: senderUser.id, status: 'template_ready' })
+          .whereRaw('LOWER(file_name) = LOWER(?)', [fileName])
+          .orderBy('updated_at', 'desc')
+          .first();
+        if (templateDoc) {
+          logger.info({ templateDocId: templateDoc.id, signerCount: recipientSigners.length }, 'Template match found — using pre-configured fields');
+          await this.handleTemplateForward(templateDoc, senderEmail, senderUser, recipientSigners, subject, messageId, body);
+          return;
+        }
       }
+
+      logger.info({ signerCount: recipientSigners.length, signers: recipientSigners.map(s => s.email) }, 'Direct flow: signers detected in TO');
+      await this.handleDirectSign(senderEmail, pdfAttachment, recipientSigners, subject, messageId, body, senderName);
       return;
     }
 
@@ -383,14 +390,12 @@ export class EmailProcessor {
     }
 
     if (!pdfAttachment) {
-      if (body.length > 0) {
-        await this.trySendEmail({
-          to: senderEmail,
-          subject: `Re: ${subject}`,
-          text: `Welcome to Lapen! To send a document for signing:\n\n1. Compose a new email TO sign@lapen.ai and your signers (e.g. sign@lapen.ai, john@example.com)\n2. Attach the PDF\n3. Send!\n\nLapen will send signing links to your recipients automatically.\n\nFor advanced field placement, use set@lapen.ai instead of sign@lapen.ai.`,
-          inReplyTo: messageId,
-        });
-      }
+      await this.trySendEmail({
+        to: senderEmail,
+        subject: `Re: ${subject}`,
+        text: `Welcome to Lapen! To send a document for signing:\n\n1. Compose a new email TO sign@lapen.ai and your signers (e.g. sign@lapen.ai, john@example.com)\n2. Attach the PDF\n3. Send!\n\nLapen will send signing links to your recipients automatically.\n\nWant to customize fields first? Send the PDF only to sign@lapen.ai (no other recipients) and we'll send you a setup link.`,
+        inReplyTo: messageId,
+      });
       return;
     }
 
@@ -404,174 +409,8 @@ export class EmailProcessor {
       return;
     }
 
-    // PDF attached but no signers — ask for signers (legacy Step 1)
-    await this.handleNewDocument(senderEmail, pdfAttachment, subject, messageId, body, senderName);
-  }
-
-  // =========================================================================
-  // STEP 1: Handle new document — upload, summarize, reply with instructions
-  // =========================================================================
-  private async handleNewDocument(
-    senderEmail: string,
-    attachment: { content: Buffer; filename?: string; size: number; contentType?: string },
-    subject: string,
-    messageId: string,
-    body: string,
-    senderName?: string | null,
-  ): Promise<void> {
-    const fileName = attachment.filename || 'document.pdf';
-    const content = attachment.content;
-    const size = attachment.size;
-
-    logger.info(`Step 1: New document from ${senderEmail}: ${fileName} (${size}b)`);
-
-    // Create user
-    const user = await this.userRepo.findOrCreateByEmail(senderEmail, senderName || undefined);
-
-    // Extract text from PDF (independent of S3)
-    let documentText = '';
-    let pageCount = 1;
-    try {
-      const { extractPdfText } = await import('../services/pdfTextExtractor.js');
-      const result = await extractPdfText(content);
-      documentText = result.text;
-      pageCount = result.pageCount;
-    } catch (parseErr) {
-      logger.warn(`PDF text extraction failed: ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`);
-    }
-
-    // Upload to S3 and create document record
-    let documentId: string;
-
-    if (process.env.AWS_ACCESS_KEY_ID) {
-      try {
-        const { StorageService } = await import('../services/StorageService.js');
-        const storageService = new StorageService();
-
-        const s3Key = `documents/${user.id}/${crypto.randomUUID()}/${fileName}`;
-        await storageService.uploadDocument(s3Key, content, 'application/pdf');
-        logger.info(`S3 upload successful: key=${s3Key}`);
-
-        const doc = await this.documentRepo.create({
-          sender_id: user.id,
-          status: 'pending_confirmation',
-          file_name: fileName,
-          file_size: size,
-          page_count: pageCount,
-          mime_type: 'application/pdf',
-          document_hash: crypto.createHash('sha256').update(content).digest('hex'),
-          s3_key: s3Key,
-          is_sequential: false,
-          credits_required: 1,
-          original_email_message_id: messageId,
-          subject,
-          expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-        });
-        documentId = doc.id;
-      } catch (err) {
-        const errDetail = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
-        logger.error(`S3 upload failed: ${errDetail}. Using basic record.`);
-        documentId = await this.createBasicDocument(user.id, { content, filename: fileName, size }, messageId, subject);
-      }
-    } else {
-      logger.warn('AWS_ACCESS_KEY_ID not set, skipping S3 upload');
-      documentId = await this.createBasicDocument(user.id, attachment, messageId, subject);
-    }
-
-    // Audit log
-    await this.auditRepo.log({
-      document_request_id: documentId,
-      signer_id: null,
-      action: 'document_created',
-      ip_address: 'email',
-      user_agent: 'email-agent',
-      metadata: { senderEmail, subject },
-    });
-
-    // Generate AI summary and suggested cover text
-    let summary = '';
-    let suggestedCoverText = '';
-    try {
-      const { AIService } = await import('../services/AIService.js');
-      const aiService = new AIService();
-      const result = await aiService.summarizeDocumentForSender(documentText, fileName);
-      summary = result.summary;
-      suggestedCoverText = result.suggestedCoverText;
-    } catch (err) {
-      logger.warn({ error: err instanceof Error ? err.message : String(err) }, 'AI summary generation failed');
-      summary = `Document "${fileName}" (${pageCount} pages) has been uploaded.`;
-      suggestedCoverText = `Hi,\n\nPlease review and sign the attached document "${fileName}".\n\nThank you`;
-    }
-
-    // Store AI summary and suggested cover text on the document for use in step 2
-    await getDatabase()('document_requests').where({ id: documentId }).update({
-      ai_summary: summary,
-      suggested_cover_text: suggestedCoverText,
-    });
-
-    // Preview URL for the sender to see what signees will see
-    const appUrl = process.env.APP_URL || 'https://app.lapen.ai';
-    const previewUrl = `${appUrl}/preview/${documentId}`;
-    const purchaseUrl = `${appUrl}/credits?user=${user.id}`;
-    const creditFooter = this.emailService.renderCreditBalanceHtml(user.credits, purchaseUrl);
-    const creditText = this.emailService.renderCreditBalanceText(user.credits);
-
-    // Send the welcome/instructions email
-    const html = `
-<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; color: #111827;">
-  <div style="background: #2563eb; color: white; padding: 20px 24px; border-radius: 8px 8px 0 0;">
-    <h1 style="margin: 0; font-size: 20px; font-weight: 700;">Lapen</h1>
-  </div>
-
-  <div style="background: white; padding: 24px; border: 1px solid #e5e7eb; border-top: none;">
-    <p style="margin: 0 0 12px;">Hi ${user.name || senderEmail.split('@')[0]},</p>
-
-    <p style="margin: 0 0 12px;">Got your document <strong>${fileName}</strong>:</p>
-
-    <div style="background: #f9fafb; border-left: 4px solid #2563eb; padding: 12px 16px; margin: 0 0 16px; border-radius: 0 4px 4px 0;">
-      <p style="margin: 0; font-size: 14px; color: #374151;">${summary}</p>
-    </div>
-
-    <p style="margin: 0 0 16px; font-size: 14px; color: #374151;">
-      <strong>Reply to this email</strong> with each signer's name and contact — one per line:
-    </p>
-    <div style="background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 6px; padding: 10px 14px; margin: 0 0 16px; font-family: monospace; font-size: 13px; color: #374151; line-height: 1.8;">
-      John Smith john@example.com<br>
-      Jane Doe +14155551234 whatsapp<br>
-      Bob Wilson +442071234567 sms
-    </div>
-
-    <div style="text-align: center; margin: 20px 0 0;">
-      <a href="${previewUrl}" style="display: inline-block; background: #2563eb; color: white; padding: 12px 28px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 14px;">Preview Document</a>
-    </div>
-  </div>
-
-  ${creditFooter}
-</div>`;
-
-    await this.trySendEmail({
-      to: senderEmail,
-      subject: `Re: ${subject || fileName}`,
-      text: `Hi ${user.name || senderEmail.split('@')[0]},
-
-Got your document "${fileName}":
-
-${summary}
-
-Reply to this email with each signer's name and contact — one per line:
-
-John Smith john@example.com
-Jane Doe +14155551234 whatsapp
-Bob Wilson +442071234567 sms
-
-Preview: ${previewUrl}
-
-${creditText}`,
-      html,
-      inReplyTo: messageId,
-    });
-
-    logger.info({ documentId, senderEmail }, 'Step 1 complete: welcome email sent with AI summary');
+    // PDF attached but no signers — enter template setup flow
+    await this.handleTemplateSetup(senderEmail, pdfAttachment, subject, messageId, body, senderName);
   }
 
   // =========================================================================
@@ -767,6 +606,7 @@ ${creditText}`,
 
     // Send confirmation to sender
     const statusUrl = `${appUrl}/status/${pendingDoc.id}`;
+    const setupUrl = `${appUrl}/setup/${pendingDoc.id}`;
     const purchaseUrl = `${appUrl}/credits?user=${user.id}`;
     const sentList = sentContacts.map(c => `  • ${c}`).join('\n');
     const failedList = failedContacts.map(c => `  • ${c} (delivery failed)`).join('\n');
@@ -794,10 +634,10 @@ ${creditText}`,
     await this.trySendEmail({
       to: senderEmail,
       subject: `✓ Document sent for signature: ${pendingDoc.file_name}`,
-      text: `Done! I've sent "${pendingDoc.file_name}" for signature to:\n\n${sentList}${failedList ? '\n' + failedList : ''}\n\nI'll notify you as each person signs.${failedNote}\n\nTrack status: ${statusUrl}\n\n${creditText}`,
+      text: `Done! I've sent "${pendingDoc.file_name}" for signature to:\n\n${sentList}${failedList ? '\n' + failedList : ''}\n\nI'll notify you as each person signs.${failedNote}\n\nTrack status: ${statusUrl}\n\nWant to reconfigure fields? ${setupUrl}\nNote: this will void any signatures already collected.\n\n${creditText}`,
       html: `
 <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; color: #111827;">
-  <div style="background: #16a34a; color: white; padding: 20px 24px; border-radius: 8px 8px 0 0;">
+  <div style="background: #2c4a35; color: white; padding: 20px 24px; border-radius: 8px 8px 0 0;">
     <h1 style="margin: 0; font-size: 20px;">✓ Document Sent</h1>
   </div>
   <div style="background: white; padding: 24px; border: 1px solid #e5e7eb; border-top: none;">
@@ -808,8 +648,12 @@ ${creditText}`,
     <p>I'll notify you as each person signs.</p>
     ${failedNoteHtml}
     <div style="text-align: center; margin: 20px 0 0;">
-      <a href="${statusUrl}" style="display: inline-block; background: #2563eb; color: white; padding: 12px 28px; border-radius: 8px; text-decoration: none; font-weight: 600;">Track Signing Status</a>
+      <a href="${statusUrl}" style="display: inline-block; background: #2c4a35; color: white; padding: 12px 28px; border-radius: 8px; text-decoration: none; font-weight: 600;">Track Signing Status</a>
     </div>
+    <p style="margin: 16px 0 0; font-size: 13px; color: #6b7280; text-align: center;">
+      Want to reconfigure fields? <a href="${setupUrl}" style="color: #2c4a35;">Customize fields</a>
+      <br><span style="font-size: 12px;">(Note: this will void any signatures already collected)</span>
+    </p>
   </div>
   ${creditFooter}
 </div>`,
@@ -838,6 +682,9 @@ ${creditText}`,
     // Create user
     const user = await this.userRepo.findOrCreateByEmail(senderEmail, senderName || undefined);
 
+    // Referral bonus: first-time sender who previously signed a Lapen doc.
+    await this.tryRedeemAndNotifyReferral(user, senderEmail);
+
     // Extract text and page count
     let pageCount = 1;
     try {
@@ -851,35 +698,50 @@ ${creditText}`,
     // Upload to S3 and create document
     let documentId: string;
     let s3Key: string | null = null;
-    if (process.env.AWS_ACCESS_KEY_ID) {
-      try {
-        const { StorageService } = await import('../services/StorageService.js');
-        const storageService = new StorageService();
-        s3Key = `documents/${user.id}/${crypto.randomUUID()}/${fileName}`;
-        await storageService.uploadDocument(s3Key, content, 'application/pdf');
-        const doc = await this.documentRepo.create({
-          sender_id: user.id,
-          status: 'pending_confirmation',
-          file_name: fileName,
-          file_size: attachment.size,
-          page_count: pageCount,
-          mime_type: 'application/pdf',
-          document_hash: crypto.createHash('sha256').update(content).digest('hex'),
-          s3_key: s3Key,
-          is_sequential: false,
-          signing_mode: 'shared',
-          credits_required: signers.length,
-          original_email_message_id: messageId,
-          subject,
-          expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-        });
-        documentId = doc.id;
-      } catch (err) {
-        logger.error(`S3 upload failed: ${err instanceof Error ? err.message : String(err)}`);
-        documentId = await this.createBasicDocument(user.id, { content, filename: fileName, size: attachment.size }, messageId, subject);
-      }
-    } else {
-      documentId = await this.createBasicDocument(user.id, attachment, messageId, subject);
+    if (!process.env.AWS_ACCESS_KEY_ID) {
+      logger.error({ senderEmail, fileName }, 'AWS not configured — cannot store document');
+      const { EmailService } = await import('../services/EmailService.js');
+      await new EmailService().sendEmail({
+        to: senderEmail,
+        subject: `Could not process: ${fileName}`,
+        text: `We couldn't process your document "${fileName}" because file storage is temporarily unavailable. Please try again later.\n\nLapen E-Signature Service`,
+        html: `<p>We couldn't process your document "<strong>${fileName}</strong>" because file storage is temporarily unavailable. Please try again later.</p><p>Lapen E-Signature Service</p>`,
+      });
+      return;
+    }
+    try {
+      const { StorageService } = await import('../services/StorageService.js');
+      const storageService = new StorageService();
+      const safeFileName = fileName.replace(/[^\x20-\x7e]/g, '_');
+      s3Key = `documents/${user.id}/${crypto.randomUUID()}/${safeFileName}`;
+      await storageService.uploadDocument(s3Key, content, 'application/pdf');
+      const doc = await this.documentRepo.create({
+        sender_id: user.id,
+        status: 'pending_confirmation',
+        file_name: fileName,
+        file_size: attachment.size,
+        page_count: pageCount,
+        mime_type: 'application/pdf',
+        document_hash: crypto.createHash('sha256').update(content).digest('hex'),
+        s3_key: s3Key,
+        is_sequential: false,
+        signing_mode: 'shared',
+        credits_required: signers.length,
+        original_email_message_id: messageId,
+        subject,
+        expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+      });
+      documentId = doc.id;
+    } catch (err) {
+      logger.error({ err: err instanceof Error ? err.message : String(err), senderEmail, fileName }, 'S3 upload failed after retries');
+      const { EmailService } = await import('../services/EmailService.js');
+      await new EmailService().sendEmail({
+        to: senderEmail,
+        subject: `Could not process: ${fileName}`,
+        text: `We couldn't upload your document "${fileName}" for signing. Please try sending it again.\n\nLapen E-Signature Service`,
+        html: `<p>We couldn't upload your document "<strong>${fileName}</strong>" for signing. Please try sending it again.</p><p>Lapen E-Signature Service</p>`,
+      });
+      return;
     }
 
     // Audit
@@ -902,12 +764,11 @@ ${creditText}`,
   }
 
   // =========================================================================
-  // SET FLOW: set@ — create doc + signers, reply with field placement link
+  // TEMPLATE SETUP: PDF sent to sign@ with no recipients — setup flow
   // =========================================================================
-  private async handleSetFlow(
+  private async handleTemplateSetup(
     senderEmail: string,
     attachment: { content: Buffer; filename?: string; size: number; contentType?: string },
-    signers: Array<{ email: string; phone: null; name: string | null; channel: 'email' }>,
     subject: string,
     messageId: string,
     body: string,
@@ -915,10 +776,13 @@ ${creditText}`,
   ): Promise<void> {
     const fileName = attachment.filename || 'document.pdf';
     const content = attachment.content;
-    logger.info(`Set flow: ${senderEmail} → ${signers.length} signers, file=${fileName}`);
+    logger.info(`Template setup flow: ${senderEmail}, file=${fileName}`);
 
     // Create user
     const user = await this.userRepo.findOrCreateByEmail(senderEmail, senderName || undefined);
+
+    // Referral bonus: first-time sender who previously signed a Lapen doc.
+    await this.tryRedeemAndNotifyReferral(user, senderEmail);
 
     // Extract text and page count
     let documentText = '';
@@ -934,34 +798,49 @@ ${creditText}`,
 
     // Upload to S3 and create document
     let documentId: string;
-    if (process.env.AWS_ACCESS_KEY_ID) {
-      try {
-        const { StorageService } = await import('../services/StorageService.js');
-        const storageService = new StorageService();
-        const s3Key = `documents/${user.id}/${crypto.randomUUID()}/${fileName}`;
-        await storageService.uploadDocument(s3Key, content, 'application/pdf');
-        const doc = await this.documentRepo.create({
-          sender_id: user.id,
-          status: 'pending_setup',
-          file_name: fileName,
-          file_size: attachment.size,
-          page_count: pageCount,
-          mime_type: 'application/pdf',
-          document_hash: crypto.createHash('sha256').update(content).digest('hex'),
-          s3_key: s3Key,
-          is_sequential: false,
-          credits_required: signers.length,
-          original_email_message_id: messageId,
-          subject,
-          expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-        });
-        documentId = doc.id;
-      } catch (err) {
-        logger.error(`S3 upload failed: ${err instanceof Error ? err.message : String(err)}`);
-        documentId = await this.createBasicDocument(user.id, { content, filename: fileName, size: attachment.size }, messageId, subject);
-      }
-    } else {
-      documentId = await this.createBasicDocument(user.id, attachment, messageId, subject);
+    if (!process.env.AWS_ACCESS_KEY_ID) {
+      logger.error({ senderEmail, fileName }, 'AWS not configured — cannot store document');
+      const { EmailService: ES } = await import('../services/EmailService.js');
+      await new ES().sendEmail({
+        to: senderEmail,
+        subject: `Could not process: ${fileName}`,
+        text: `We couldn't process your document "${fileName}" because file storage is temporarily unavailable. Please try again later.\n\nLapen E-Signature Service`,
+        html: `<p>We couldn't process your document "<strong>${fileName}</strong>" because file storage is temporarily unavailable. Please try again later.</p><p>Lapen E-Signature Service</p>`,
+      });
+      return;
+    }
+    try {
+      const { StorageService } = await import('../services/StorageService.js');
+      const storageService = new StorageService();
+      const safeFileName = fileName.replace(/[^\x20-\x7e]/g, '_');
+      const s3Key = `documents/${user.id}/${crypto.randomUUID()}/${safeFileName}`;
+      await storageService.uploadDocument(s3Key, content, 'application/pdf');
+      const doc = await this.documentRepo.create({
+        sender_id: user.id,
+        status: 'pending_setup',
+        file_name: fileName,
+        file_size: attachment.size,
+        page_count: pageCount,
+        mime_type: 'application/pdf',
+        document_hash: crypto.createHash('sha256').update(content).digest('hex'),
+        s3_key: s3Key,
+        is_sequential: false,
+        credits_required: 0,
+        original_email_message_id: messageId,
+        subject,
+        expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+      });
+      documentId = doc.id;
+    } catch (err) {
+      logger.error({ err: err instanceof Error ? err.message : String(err), senderEmail, fileName }, 'S3 upload failed after retries');
+      const { EmailService: ES } = await import('../services/EmailService.js');
+      await new ES().sendEmail({
+        to: senderEmail,
+        subject: `Could not process: ${fileName}`,
+        text: `We couldn't upload your document "${fileName}". Please try sending it again.\n\nLapen E-Signature Service`,
+        html: `<p>We couldn't upload your document "<strong>${fileName}</strong>". Please try sending it again.</p><p>Lapen E-Signature Service</p>`,
+      });
+      return;
     }
 
     // Generate AI summary
@@ -977,23 +856,6 @@ ${creditText}`,
 
     await getDatabase()('document_requests').where({ id: documentId }).update({ ai_summary: summary });
 
-    // Create signer records (as pending — they won't be notified until sender finishes setup)
-    const db = getDatabase();
-    for (let i = 0; i < signers.length; i++) {
-      const { email, name: signeeName } = signers[i];
-      await this.documentRepo.createSigner({
-        document_request_id: documentId,
-        email,
-        phone: null,
-        name: signeeName,
-        status: 'pending',
-        delivery_channel: 'email',
-        signing_order: i + 1,
-        signing_token: crypto.randomBytes(32).toString('base64url'),
-        custom_message: null,
-      });
-    }
-
     // Audit
     await this.auditRepo.log({
       document_request_id: documentId,
@@ -1001,7 +863,7 @@ ${creditText}`,
       action: 'document_created',
       ip_address: 'email',
       user_agent: 'email-agent',
-      metadata: { senderEmail, subject, flow: 'set', signerCount: signers.length },
+      metadata: { senderEmail, subject, flow: 'template-setup' },
     });
 
     // Reply with setup link
@@ -1010,30 +872,25 @@ ${creditText}`,
     const purchaseUrl = `${appUrl}/credits?user=${user.id}`;
     const creditFooter = this.emailService.renderCreditBalanceHtml(user.credits, purchaseUrl);
     const creditText = this.emailService.renderCreditBalanceText(user.credits);
-    const signerListHtml = signers.map(s =>
-      `<li style="margin: 4px 0;">${s.name || s.email} (${s.email})</li>`
-    ).join('');
 
     await this.trySendEmail({
       to: senderEmail,
       subject: `Re: ${subject || fileName}`,
-      text: `Hi ${user.name || senderEmail.split('@')[0]},\n\nGot your document "${fileName}".\n\n${summary}\n\nSigners detected:\n${signers.map(s => `  • ${s.name || s.email} (${s.email})`).join('\n')}\n\nSet up field placement and send: ${setupUrl}\n\n${creditText}`,
+      text: `Hi ${user.name || senderEmail.split('@')[0]},\n\nGot your document "${fileName}".\n\n${summary}\n\nSet up your fields and configure the signing experience:\n${setupUrl}\n\nOnce you're done, you'll be able to send the PDF to your recipients with Lapen handling the signing.\n\n${creditText}`,
       html: `
 <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; color: #111827;">
-  <div style="background: #2563eb; color: white; padding: 20px 24px; border-radius: 8px 8px 0 0;">
+  <div style="background: #2c4a35; color: white; padding: 20px 24px; border-radius: 8px 8px 0 0;">
     <h1 style="margin: 0; font-size: 20px; font-weight: 700;">Lapen</h1>
   </div>
   <div style="background: white; padding: 24px; border: 1px solid #e5e7eb; border-top: none;">
     <p>Hi ${user.name || senderEmail.split('@')[0]},</p>
     <p>Got your document <strong>${fileName}</strong>:</p>
-    <div style="background: #f9fafb; border-left: 4px solid #2563eb; padding: 12px 16px; margin: 0 0 16px; border-radius: 0 4px 4px 0;">
+    <div style="background: #f9fafb; border-left: 4px solid #2c4a35; padding: 12px 16px; margin: 0 0 16px; border-radius: 0 4px 4px 0;">
       <p style="margin: 0; font-size: 14px; color: #374151;">${summary}</p>
     </div>
-    <p style="font-weight: 600;">Signers:</p>
-    <ul style="margin: 8px 0 16px; padding-left: 20px;">${signerListHtml}</ul>
-    <p>Place signature fields and other form elements for each signer, then send:</p>
+    <p>Set up your fields and configure the signing experience. Once done, you can send the PDF to your recipients and Lapen will handle the rest.</p>
     <div style="text-align: center; margin: 20px 0 0;">
-      <a href="${setupUrl}" style="display: inline-block; background: #2563eb; color: white; padding: 12px 28px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 14px;">Set Up & Send</a>
+      <a href="${setupUrl}" style="display: inline-block; background: #2c4a35; color: white; padding: 12px 28px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 14px;">Set Up Document</a>
     </div>
   </div>
   ${creditFooter}
@@ -1041,12 +898,264 @@ ${creditText}`,
       inReplyTo: messageId,
     });
 
-    logger.info({ documentId, signerCount: signers.length }, 'Set flow: setup email sent');
+    logger.info({ documentId }, 'Template setup flow: setup email sent');
+  }
+
+  // =========================================================================
+  // TEMPLATE FORWARD: Sender forwards prepared PDF with recipients + CC sign@
+  // Matches template by sender + filename → clones fields → sends signing links
+  // =========================================================================
+  private async handleTemplateForward(
+    templateDoc: any,
+    senderEmail: string,
+    user: { id: string; name: string | null; email: string; credits: number },
+    signers: Array<{ email: string; phone: null; name: string | null; channel: 'email' }>,
+    subject: string,
+    messageId: string,
+    body: string,
+  ): Promise<void> {
+    const db = getDatabase();
+    const appUrl = process.env.APP_URL || 'https://app.lapen.ai';
+    const signeeCount = signers.length;
+
+    logger.info({ templateDocId: templateDoc.id, signerCount: signeeCount }, 'Template forward: cloning fields for new signers');
+
+    // Credit check (same as handleSigneeReply)
+    if (user.credits < signeeCount && process.env.STRIPE_SECRET_KEY) {
+      try {
+        const recovered = await this.recoverUnprocessedPayments(user.id, user.email);
+        if (recovered) {
+          const updatedUser = await this.userRepo.findById(user.id);
+          if (updatedUser) {
+            user = { id: updatedUser.id, name: updatedUser.name, email: updatedUser.email, credits: updatedUser.credits };
+          }
+        }
+      } catch (err) {
+        logger.warn({ err }, 'Failed to recover Stripe payments');
+      }
+    }
+
+    if (user.credits < signeeCount) {
+      const purchaseUrl = `${appUrl}/credits?user=${user.id}`;
+      await this.emailService.sendInsufficientCreditsEmail(
+        senderEmail,
+        signeeCount,
+        user.credits,
+        purchaseUrl,
+        messageId,
+      );
+      logger.info({ templateDocId: templateDoc.id, required: signeeCount, available: user.credits }, 'Template forward: insufficient credits');
+      return;
+    }
+
+    // Deduct credits
+    await this.userRepo.deductCredits(user.id, signeeCount, templateDoc.id);
+
+    // Create a NEW document cloned from the template (leave template untouched for reuse)
+    const newDoc = await this.documentRepo.create({
+      sender_id: user.id,
+      status: 'sent',
+      file_name: templateDoc.file_name,
+      file_size: templateDoc.file_size,
+      page_count: templateDoc.page_count,
+      mime_type: templateDoc.mime_type,
+      document_hash: templateDoc.document_hash,
+      s3_key: templateDoc.s3_key,
+      is_sequential: templateDoc.is_sequential,
+      signing_mode: templateDoc.signing_mode || 'shared',
+      credits_required: signeeCount,
+      original_email_message_id: messageId,
+      subject,
+      expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+    });
+
+    // Get template fields
+    const templateFields = await db('document_fields')
+      .where({ document_request_id: templateDoc.id, is_template: true });
+
+    // Fetch PDF for attachment
+    let pdfBuffer: Buffer | null = null;
+    if (templateDoc.s3_key && process.env.AWS_ACCESS_KEY_ID) {
+      try {
+        const { StorageService } = await import('../services/StorageService.js');
+        const storageService = new StorageService();
+        pdfBuffer = await storageService.getDocument(templateDoc.s3_key);
+      } catch (err) {
+        logger.warn({ err: err instanceof Error ? err.message : String(err) }, 'Failed to fetch PDF from S3 for attachment');
+      }
+    }
+
+    // Create signers, clone template fields, send notifications
+    const sentContacts: string[] = [];
+    const failedContacts: string[] = [];
+    const senderDisplayName = user.name || senderEmail.split('@')[0];
+
+    // Extract cover text from the forwarding email body
+    let coverText = this.extractCoverText(body, signers.map(s => s.email));
+    if (!coverText) {
+      coverText = `Please review and sign the document "${templateDoc.file_name}".\n\nThank you,\n${senderDisplayName}`;
+    }
+
+    for (let i = 0; i < signers.length; i++) {
+      const { email, name: signeeName } = signers[i];
+      const signingToken = crypto.randomBytes(32).toString('base64url');
+
+      // Create signer on the new document
+      await this.documentRepo.createSigner({
+        document_request_id: newDoc.id,
+        email,
+        phone: null,
+        name: signeeName,
+        status: 'pending',
+        delivery_channel: 'email',
+        signing_order: i + 1,
+        signing_token: signingToken,
+        custom_message: coverText || null,
+      });
+
+      // Get the signer record to get its ID
+      const signer = await db('signers').where({ document_request_id: newDoc.id, email }).first();
+
+      // Clone template fields for this signer on the new document
+      if (signer && templateFields.length > 0) {
+        for (const tf of templateFields) {
+          await db('document_fields').insert({
+            id: crypto.randomUUID(),
+            document_request_id: newDoc.id,
+            signer_id: signer.id,
+            type: tf.type,
+            page: tf.page,
+            x: tf.x,
+            y: tf.y,
+            width: tf.width,
+            height: tf.height,
+            required: tf.required,
+            option_values: tf.option_values,
+            is_template: false,
+          });
+        }
+      }
+
+      // Send personalized signing notification
+      const signingUrl = `${appUrl}/sign/${signingToken}`;
+      try {
+        await this.emailService.sendSigningNotification(
+          email,
+          signeeName || undefined,
+          senderDisplayName,
+          senderEmail,
+          templateDoc.file_name,
+          signingUrl,
+          coverText || undefined,
+          'email',
+          pdfBuffer ? { content: pdfBuffer, filename: templateDoc.file_name } : undefined,
+        );
+
+        // Update signer status to notified
+        if (signer) {
+          await this.documentRepo.updateSignerStatus(signer.id, 'notified', { notified_at: new Date() } as any);
+        }
+
+        const displayLabel = signeeName ? `${signeeName} (${email})` : email;
+        sentContacts.push(displayLabel);
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        logger.error({ error: errMsg, contact: email }, 'Failed to send signing notification (template forward)');
+        failedContacts.push(signeeName ? `${signeeName} (${email})` : email);
+      }
+    }
+
+    // Audit
+    await this.auditRepo.log({
+      document_request_id: newDoc.id,
+      signer_id: null,
+      action: 'document_sent',
+      ip_address: 'email',
+      user_agent: 'email-agent',
+      metadata: { flow: 'template-forward', templateDocId: templateDoc.id, signerCount: signeeCount },
+    });
+
+    // Send confirmation to sender (link to the new document's status page)
+    const statusUrl = `${appUrl}/status/${newDoc.id}`;
+    const setupUrl = `${appUrl}/setup/${newDoc.id}`;
+    const purchaseUrl = `${appUrl}/credits?user=${user.id}`;
+    const sentList = sentContacts.map(c => `  • ${c}`).join('\n');
+    const recipientListHtml = sentContacts.map(c =>
+      `<li style="margin: 4px 0;">${c}</li>`
+    ).join('');
+
+    const updatedUser = await this.userRepo.findById(user.id);
+    const currentCredits = updatedUser?.credits ?? 0;
+    const creditFooter = this.emailService.renderCreditBalanceHtml(currentCredits, purchaseUrl);
+    const creditText = this.emailService.renderCreditBalanceText(currentCredits);
+
+    await this.trySendEmail({
+      to: senderEmail,
+      subject: `✓ Document sent for signature: ${templateDoc.file_name}`,
+      text: `Done! Your pre-configured document "${templateDoc.file_name}" has been sent for signature to:\n\n${sentList}\n\nEach recipient received a personalized signing link with your pre-configured fields.\n\nI'll notify you as each person signs.\n\nTrack status: ${statusUrl}\n\n${creditText}`,
+      html: `
+<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; color: #111827;">
+  <div style="background: #2c4a35; color: white; padding: 20px 24px; border-radius: 8px 8px 0 0;">
+    <h1 style="margin: 0; font-size: 20px;">✓ Document Sent (Pre-configured)</h1>
+  </div>
+  <div style="background: white; padding: 24px; border: 1px solid #e5e7eb; border-top: none;">
+    <p>Your pre-configured document <strong>${templateDoc.file_name}</strong> has been sent for signature to:</p>
+    <ul style="margin: 12px 0; padding-left: 20px;">
+      ${recipientListHtml}
+    </ul>
+    <p>Each recipient received a personalized signing link with your pre-configured fields. I'll notify you as each person signs.</p>
+    <div style="text-align: center; margin: 20px 0 0;">
+      <a href="${statusUrl}" style="display: inline-block; background: #2c4a35; color: white; padding: 12px 28px; border-radius: 8px; text-decoration: none; font-weight: 600;">Track Signing Status</a>
+    </div>
+    <p style="margin: 16px 0 0; font-size: 13px; color: #6b7280; text-align: center;">
+      Want to reconfigure fields? <a href="${setupUrl}" style="color: #2c4a35;">Customize fields</a>
+      <br><span style="font-size: 12px;">(Note: this will void any signatures already collected)</span>
+    </p>
+  </div>
+  ${creditFooter}
+</div>`,
+      inReplyTo: messageId,
+    });
+
+    logger.info({ newDocId: newDoc.id, templateDocId: templateDoc.id, sent: sentContacts.length, failed: failedContacts.length }, 'Template forward complete');
   }
 
   // =========================================================================
   // Helpers
   // =========================================================================
+
+  private async tryRedeemAndNotifyReferral(
+    user: { id: string; email: string; name: string | null; credits: number },
+    senderEmail: string,
+  ): Promise<void> {
+    let referral: { referrerId: string; referrerCredits: number } | null;
+    try {
+      referral = await this.userRepo.autoRedeemReferralFromSigningHistory(user.id, senderEmail);
+    } catch (refErr) {
+      logger.warn({ err: refErr }, 'Referral auto-redeem failed (non-fatal)');
+      return;
+    }
+    if (!referral) return;
+
+    logger.info({ newSenderId: user.id, referrerId: referral.referrerId }, 'Referral bonus redeemed');
+
+    try {
+      const referrer = await this.userRepo.findById(referral.referrerId);
+      if (!referrer) return;
+
+      await this.emailService.sendReferralBonusEmail({
+        to: referrer.email,
+        recipientName: referrer.name,
+        newSenderEmail: user.email,
+        newSenderName: user.name,
+        bonusAmount: 3,
+        newBalance: referral.referrerCredits,
+      });
+    } catch (emailErr) {
+      logger.warn({ err: emailErr }, 'Referral bonus email dispatch failed (non-fatal)');
+    }
+  }
+
   private async createBasicDocument(
     senderId: string,
     attachment: { content: Buffer; filename?: string; size: number },

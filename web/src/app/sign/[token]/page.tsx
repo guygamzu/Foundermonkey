@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, lazy, Suspense, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, lazy, Suspense, useRef } from 'react';
 import { useParams } from 'next/navigation';
 import SignatureCanvas from '@/components/SignatureCanvas';
 import {
@@ -9,6 +9,7 @@ import {
   createField,
   completeSigning,
   declineSigning,
+  getDocumentDirectUrl,
   getDocumentProxyUrl,
   askDocumentQuestion,
   type SigningSession,
@@ -30,6 +31,7 @@ interface PlacedItem {
   height: number;
   value: string | null;
   completed: boolean;
+  required?: boolean;
   isLocal?: boolean; // not yet saved to server
 }
 
@@ -52,12 +54,15 @@ export default function SigningPage() {
   const [loading, setLoading] = useState(true);
   const [showTextInput, setShowTextInput] = useState(false);
   const [textInputValue, setTextInputValue] = useState('');
-  const [aiSummary, setAiSummary] = useState<string | null>(null);
   const [aiSummaryLoading, setAiSummaryLoading] = useState(true);
   const [chatMessages, setChatMessages] = useState<Array<{ role: 'user' | 'assistant'; content: string }>>([]);
   const [chatInput, setChatInput] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
   const [otherFields, setOtherFields] = useState<OtherField[]>([]);
+
+  const [editingFieldId, setEditingFieldId] = useState<string | null>(null);
+  const [inlineTextValue, setInlineTextValue] = useState('');
+  const [currentStepIndex, setCurrentStepIndex] = useState(-1); // -1 = not started (guided flow)
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   // Effect 1: Load session data (unblocks page render immediately)
@@ -70,6 +75,7 @@ export default function SigningPage() {
           setPlacedItems(data.fields.map(f => ({
             ...f,
             completed: !!f.completed,
+            required: f.required,
           })));
         }
         if (data.otherFields && data.otherFields.length > 0) {
@@ -77,7 +83,6 @@ export default function SigningPage() {
         }
       } catch (err: any) {
         setError(err.message);
-        setAiSummaryLoading(false);
       } finally {
         setLoading(false);
       }
@@ -85,24 +90,40 @@ export default function SigningPage() {
     loadSession();
   }, [token]);
 
-  // Effect 2: Load AI summary independently (non-blocking)
+  // Effect 2: Load AI summary independently (non-blocking) with retry.
+  // Early attempts can fail when the document upload / text extraction is still
+  // propagating (especially in the direct email flow), so retry a few times
+  // with backoff before surrendering.
   useEffect(() => {
     if (!session) return;
     let cancelled = false;
     async function loadSummary() {
-      try {
-        const res = await askDocumentQuestion(token, 'Summarize this document in one concise sentence: what type of document it is and who the parties are. Be brief.', []);
-        if (!cancelled) {
-          setAiSummary(res.answer);
-          setChatMessages([{ role: 'assistant', content: res.answer }]);
+      const delays = [0, 1500, 3500, 6000]; // 4 attempts: 0s, 1.5s, 3.5s, 6s
+      for (let attempt = 0; attempt < delays.length; attempt++) {
+        if (cancelled) return;
+        if (delays[attempt] > 0) {
+          await new Promise(r => setTimeout(r, delays[attempt]));
+          if (cancelled) return;
         }
-      } catch {
-        if (!cancelled) {
-          setAiSummary('Unable to generate summary at this time.');
-        }
-      } finally {
-        if (!cancelled) {
-          setAiSummaryLoading(false);
+        try {
+          const res = await askDocumentQuestion(
+            token,
+            'Summarize this document in one concise sentence: what type of document it is and who the parties are. Be brief.',
+            [],
+          );
+          if (!cancelled) {
+            setChatMessages([{ role: 'assistant', content: res.answer }]);
+            setAiSummaryLoading(false);
+          }
+          return;
+        } catch {
+          if (attempt === delays.length - 1 && !cancelled) {
+            setChatMessages([{
+              role: 'assistant',
+              content: 'Summary is still loading — try asking a question below to chat with the document.',
+            }]);
+            setAiSummaryLoading(false);
+          }
         }
       }
     }
@@ -113,9 +134,158 @@ export default function SigningPage() {
 
   const hasSignature = placedItems.some(item => item.type === 'signature' && item.completed);
 
+  // Detect click-to-fill mode: pre-placed fields exist that haven't been filled yet
+  const hasPreplacedFields = placedItems.some(item => item.required && !item.isLocal);
+
+  // Group option fields by page — each group counts as ONE field (mutually exclusive)
+  const optionGroups = useMemo(() => {
+    const groups = new Map<number, PlacedItem[]>();
+    placedItems.filter(item => item.type === 'option').forEach(item => {
+      const group = groups.get(item.page) || [];
+      group.push(item);
+      groups.set(item.page, group);
+    });
+    return groups;
+  }, [placedItems]);
+
+  const nonOptionCompleted = placedItems.filter(item => item.type !== 'option' && item.completed).length;
+  const optionGroupsCompleted = [...optionGroups.values()].filter(group => group.some(item => item.completed)).length;
+  const completedCount = nonOptionCompleted + optionGroupsCompleted;
+  const totalFields = placedItems.filter(item => item.type !== 'option').length + optionGroups.size;
+
+  const allNonOptionFilled = placedItems.filter(item => item.required && item.type !== 'option').every(item => item.completed);
+  const allOptionGroupsFilled = [...optionGroups.values()].every(group =>
+    !group.some(item => item.required) || group.some(item => item.completed)
+  );
+  const allRequiredFilled = allNonOptionFilled && allOptionGroupsFilled;
+
+  // Build ordered steps for guided flow (sorted by page, then y position)
+  const fieldSteps = useMemo(() => {
+    if (!hasPreplacedFields) return [];
+    const steps: { type: 'field' | 'option-group'; page: number; y: number; items: PlacedItem[] }[] = [];
+    placedItems.filter(item => item.type !== 'option').forEach(item => {
+      steps.push({ type: 'field', page: item.page, y: item.y, items: [item] });
+    });
+    optionGroups.forEach((group, page) => {
+      const minY = Math.min(...group.map(item => item.y));
+      steps.push({ type: 'option-group', page, y: minY, items: group });
+    });
+    steps.sort((a, b) => a.page - b.page || a.y - b.y);
+    return steps;
+  }, [placedItems, hasPreplacedFields, optionGroups]);
+
+  const isStepComplete = useCallback((step: typeof fieldSteps[number]) => {
+    if (step.type === 'option-group') return step.items.some(item => item.completed);
+    return step.items[0]?.completed ?? false;
+  }, []);
+
+  // Derive indices of still-incomplete steps (used by the Next/Finish button)
+  const incompleteStepIndices = useMemo(
+    () => fieldSteps.map((s, i) => (isStepComplete(s) ? -1 : i)).filter(i => i !== -1),
+    [fieldSteps, isStepComplete],
+  );
+  const allStepsComplete = fieldSteps.length > 0 && incompleteStepIndices.length === 0;
+
+  // Scroll to current step's field
+  useEffect(() => {
+    if (currentStepIndex < 0 || currentStepIndex >= fieldSteps.length) return;
+    const step = fieldSteps[currentStepIndex];
+    const fieldId = step.items[0]?.id;
+    if (!fieldId) return;
+    const el = document.querySelector(`[data-field-id="${fieldId}"]`);
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [currentStepIndex, fieldSteps]);
+
+  // Click-to-fill: handle clicking on a pre-placed field
+  const handleFieldClick = useCallback(async (item: PlacedItem) => {
+    if (!consent) return;
+    // Allow toggling checkbox and option even when completed
+    if (item.completed && item.type !== 'checkbox' && item.type !== 'option') return;
+
+    if (item.type === 'signature') {
+      setActiveItemId(item.id);
+      setShowSignatureModal(true);
+    } else if (item.type === 'date') {
+      // Auto-fill with today's date
+      const today = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+      try {
+        await submitFieldValue(token, item.id, today);
+        setPlacedItems(prev => prev.map(i => i.id === item.id ? { ...i, value: today, completed: true } : i));
+      } catch (err: any) {
+        setError(err.message);
+      }
+    } else if (item.type === 'checkbox') {
+      // Toggle: if already checked, uncheck; if unchecked, check
+      const newValue = item.value === '✓' ? '' : '✓';
+      try {
+        await submitFieldValue(token, item.id, newValue || ' '); // server requires non-empty
+        setPlacedItems(prev => prev.map(i => i.id === item.id ? { ...i, value: newValue, completed: !!newValue } : i));
+      } catch (err: any) {
+        setError(err.message);
+      }
+    } else if (item.type === 'option') {
+      // Select this option and deselect all other option fields on the same page for the same signer
+      try {
+        await submitFieldValue(token, item.id, '●');
+        // Clear other options on same page
+        const otherOptions = placedItems.filter(
+          i => i.type === 'option' && i.page === item.page && i.id !== item.id,
+        );
+        for (const opt of otherOptions) {
+          if (opt.value) {
+            await submitFieldValue(token, opt.id, ' ');
+          }
+        }
+        setPlacedItems(prev => prev.map(i => {
+          if (i.id === item.id) return { ...i, value: '●', completed: true };
+          if (i.type === 'option' && i.page === item.page) return { ...i, value: '', completed: false };
+          return i;
+        }));
+      } catch (err: any) {
+        setError(err.message);
+      }
+    } else if (item.type === 'text') {
+      setEditingFieldId(item.id);
+      setInlineTextValue('');
+    }
+  }, [token, consent]);
+
+  // Submit inline text for click-to-fill
+  const handleInlineTextSubmit = useCallback(async () => {
+    if (!editingFieldId || !inlineTextValue.trim()) return;
+    try {
+      await submitFieldValue(token, editingFieldId, inlineTextValue.trim());
+      setPlacedItems(prev => prev.map(i =>
+        i.id === editingFieldId ? { ...i, value: inlineTextValue.trim(), completed: true } : i,
+      ));
+    } catch (err: any) {
+      setError(err.message);
+    }
+    setEditingFieldId(null);
+    setInlineTextValue('');
+  }, [token, editingFieldId, inlineTextValue]);
+
+
+  // Handle signature save for click-to-fill pre-placed fields
+  const handlePreplacedSignatureSave = useCallback(async (signatureData: string) => {
+    setShowSignatureModal(false);
+    if (!activeItemId) return;
+    try {
+      await submitFieldValue(token, activeItemId, signatureData);
+      setPlacedItems(prev => prev.map(i =>
+        i.id === activeItemId ? { ...i, value: signatureData, completed: true } : i,
+      ));
+    } catch (err: any) {
+      setError(err.message);
+    }
+    setActiveItemId(null);
+  }, [token, activeItemId]);
+
   // Handle clicking on the PDF to place a tool
   const handlePdfClick = useCallback((pageIndex: number, relativeX: number, relativeY: number) => {
-    if (!activeTool) return;
+    if (!activeTool || !consent) return;
 
     const toolType = activeTool;
 
@@ -166,7 +336,7 @@ export default function SigningPage() {
       setShowTextInput(true);
       setActiveTool(null);
     }
-  }, [activeTool, token]);
+  }, [activeTool, token, consent]);
 
   const placeAndSaveField = useCallback(async (
     type: string, page: number, relativeX: number, relativeY: number, value: string,
@@ -175,7 +345,7 @@ export default function SigningPage() {
       signature: { w: 0.25, h: 0.05 },
       text: { w: 0.15, h: 0.035 },
       date: { w: 0.12, h: 0.03 },
-      checkbox: { w: 0.025, h: 0.025 },
+      checkbox: { w: 0.04, h: 0.04 },
     }[type] || { w: 0.15, h: 0.035 };
 
     const x = Math.max(0, Math.min(1 - dims.w, relativeX - dims.w / 2));
@@ -398,7 +568,7 @@ export default function SigningPage() {
     return (
       <div className="message-page">
         <div className="message-card">
-          <h2 style={{ color: 'var(--success)' }}>Already Signed</h2>
+          <h2 style={{ color: 'var(--forest)' }}>Already Signed</h2>
           <p>You&apos;ve already signed this document. A copy has been sent to your email.</p>
           <hr style={{ border: 'none', borderTop: '1px solid var(--gray-200)', margin: '20px 0' }} />
           <h3 style={{ fontSize: '1rem', marginBottom: 8 }}>Need documents signed?</h3>
@@ -409,7 +579,7 @@ export default function SigningPage() {
           <a
             href="/"
             style={{
-              display: 'inline-block', padding: '10px 24px', background: 'var(--primary)',
+              display: 'inline-block', padding: '10px 24px', background: 'var(--forest)',
               color: 'white', borderRadius: 8, textDecoration: 'none', fontWeight: 600,
               fontSize: '0.875rem',
             }}
@@ -447,23 +617,32 @@ export default function SigningPage() {
     return (
       <div className="message-page">
         <div className="message-card">
-          <h2 style={{ color: 'var(--success)' }}>Document Signed!</h2>
+          <h2 style={{ color: 'var(--forest)' }}>Document Signed!</h2>
           <p>Thank you for signing. A completed copy will be sent to your email shortly.</p>
           <hr style={{ border: 'none', borderTop: '1px solid var(--gray-200)', margin: '20px 0' }} />
-          <h3 style={{ fontSize: '1rem', marginBottom: 8 }}>Need documents signed?</h3>
-          <p style={{ fontSize: '0.875rem', color: 'var(--gray-500)', marginBottom: 16 }}>
-            Try Lapen free &mdash; get 5 extra credits when you sign up.
-            Just email your PDF to <strong>sign@lapen.ai</strong> along with your signers.
+          <h3 style={{ fontSize: '1rem', marginBottom: 8 }}>Need to send something for signature yourself?</h3>
+          <p style={{ fontSize: '0.875rem', color: 'var(--gray-500)', marginBottom: 12 }}>
+            Just email <strong style={{ color: 'var(--primary)' }}>sign@lapen.ai</strong> with a PDF attached. Your first 5 are free.
           </p>
+          <details style={{ fontSize: '0.8125rem', color: 'var(--gray-500)', marginBottom: 16 }}>
+            <summary style={{ cursor: 'pointer', fontWeight: 600, color: 'var(--ink)', marginBottom: 8 }}>How it works</summary>
+            <ol style={{ paddingLeft: 20, lineHeight: 1.8, margin: '8px 0 0' }}>
+              <li>Compose a new email to <strong>sign@lapen.ai</strong></li>
+              <li>Add your signers in the To or CC field</li>
+              <li>Attach the PDF and hit send</li>
+              <li>Each signer gets a secure signing link — no account needed</li>
+              <li>You receive the signed copy and audit trail by email</li>
+            </ol>
+          </details>
           <a
-            href={`mailto:sign@lapen.ai?body=${encodeURIComponent('Hi,\n\nThe attached PDF is for your signature. You will receive a follow-up email from Lapen shortly with a secure signing link — no need to sign the attachment directly.\n\nThank you')}`}
+            href="mailto:sign@lapen.ai"
             style={{
-              display: 'inline-block', padding: '10px 24px', background: 'var(--primary)',
+              display: 'inline-block', padding: '10px 24px', background: 'var(--forest)',
               color: 'white', borderRadius: 8, textDecoration: 'none', fontWeight: 600,
               fontSize: '0.875rem',
             }}
           >
-            Try Lapen Free
+            Send your first document
           </a>
         </div>
       </div>
@@ -483,127 +662,320 @@ export default function SigningPage() {
 
   if (!session) return null;
 
+  // Consent gate — show only the agreement screen until user agrees
+  if (!consent) {
+    return (
+      <div className="signing-page">
+        <div className="signing-header">
+          <span className="logo">La <span className="pen">Pen</span><span className="seal">.</span></span>
+          <h1>{session.document.fileName}</h1>
+          <div />
+        </div>
+
+        <div style={{
+          flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
+          padding: '40px 16px', minHeight: 'calc(100vh - 56px)',
+        }}>
+          <div style={{
+            maxWidth: 480, width: '100%', textAlign: 'center',
+            background: 'white', borderRadius: 12, padding: '40px 32px',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+            border: '1px solid var(--gray-200)',
+          }}>
+            <div style={{
+              width: 56, height: 56, borderRadius: '50%', margin: '0 auto 20px',
+              background: 'var(--cream)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              border: '2px solid var(--olive)',
+            }}>
+              <span style={{ fontSize: 28 }}>&#9998;</span>
+            </div>
+
+            <h2 style={{
+              fontSize: '1.25rem', fontWeight: 700, color: 'var(--ink)',
+              marginBottom: 8,
+            }}>
+              You&apos;ve been asked to sign
+            </h2>
+            <p style={{
+              fontSize: '0.9375rem', color: 'var(--ink-soft)', marginBottom: 24,
+              lineHeight: 1.5,
+            }}>
+              <strong style={{ color: 'var(--ink)' }}>{session.document.fileName}</strong>
+            </p>
+
+            <div style={{
+              background: 'var(--cream)', borderRadius: 8, padding: '16px 20px',
+              fontSize: '0.8125rem', color: 'var(--ink-soft)', lineHeight: 1.6,
+              textAlign: 'left', marginBottom: 28,
+              border: '1px solid var(--gray-200)',
+            }}>
+              By proceeding, I agree to sign this document electronically.
+              I understand that my electronic signature has the same legal
+              effect as a handwritten signature.
+            </div>
+
+            <button
+              onClick={() => setConsent(true)}
+              style={{
+                width: '100%', padding: '14px 24px',
+                background: 'var(--forest)', color: 'white',
+                border: 'none', borderRadius: 8,
+                fontSize: '1rem', fontWeight: 700,
+                cursor: 'pointer', marginBottom: 12,
+                transition: 'background 0.15s',
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.background = '#1d3624')}
+              onMouseLeave={(e) => (e.currentTarget.style.background = 'var(--forest)')}
+            >
+              Agree &amp; Continue
+            </button>
+
+            <button
+              onClick={() => setShowDeclineModal(true)}
+              style={{
+                width: '100%', padding: '8px 16px',
+                background: 'transparent', color: 'var(--ink-mute)',
+                border: 'none', borderRadius: 8,
+                fontSize: '0.8125rem', fontWeight: 500,
+                cursor: 'pointer',
+                transition: 'color 0.15s',
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--danger)')}
+              onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--ink-mute)')}
+            >
+              Decline to Sign
+            </button>
+          </div>
+        </div>
+
+        {/* Decline Modal — available from consent screen */}
+        {showDeclineModal && (
+          <div className="modal-overlay" onClick={() => setShowDeclineModal(false)}>
+            <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-header">
+                <h2>Decline to Sign</h2>
+                <button className="modal-close" onClick={() => setShowDeclineModal(false)}>&times;</button>
+              </div>
+              <p style={{ marginBottom: 12, color: 'var(--gray-500)' }}>
+                Are you sure? The sender will be notified.
+              </p>
+              <textarea
+                value={declineReason}
+                onChange={(e) => setDeclineReason(e.target.value)}
+                placeholder="Reason (optional)"
+                rows={3}
+                style={{
+                  width: '100%', padding: 12,
+                  border: '1px solid var(--gray-200)', borderRadius: 'var(--radius)',
+                  marginBottom: 12, fontSize: '0.875rem', resize: 'vertical',
+                }}
+              />
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => setShowDeclineModal(false)}>
+                  Cancel
+                </button>
+                <button className="btn btn-danger" style={{ flex: 1 }} onClick={handleDecline}>
+                  Decline to Sign
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="signing-page">
       {/* Header */}
       <div className="signing-header">
-        <span className="logo">ləˈpɛn</span>
+        <span className="logo">La <span className="pen">Pen</span><span className="seal">.</span></span>
         <h1>{session.document.fileName}</h1>
-        <button
-          className="btn btn-danger"
-          style={{ padding: '6px 12px', fontSize: '0.75rem', minHeight: 'auto' }}
-          onClick={() => setShowDeclineModal(true)}
-        >
-          Decline
-        </button>
+        <div />
       </div>
 
-      {/* Toolbar */}
-      <div className="signing-toolbar">
-        <span style={{ fontSize: '0.75rem', color: 'var(--gray-500)', marginRight: 8 }}>Place on document:</span>
-        {(['signature', 'text', 'date', 'checkbox'] as ToolType[]).map(tool => (
-          <button
-            key={tool!}
-            className={`toolbar-btn ${activeTool === tool ? 'active' : ''}`}
-            onClick={() => setActiveTool(activeTool === tool ? null : tool)}
-          >
-            <span className="toolbar-icon">
-              {tool === 'signature' && '✍'}
-              {tool === 'text' && 'T'}
-              {tool === 'date' && '📅'}
-              {tool === 'checkbox' && '☑'}
-            </span>
-            <span className="toolbar-label">
-              {tool === 'signature' && 'Signature'}
-              {tool === 'text' && 'Text'}
-              {tool === 'date' && 'Date'}
-              {tool === 'checkbox' && 'Checkbox'}
-            </span>
-          </button>
-        ))}
-      </div>
-
-      {activeTool && (
-        <div style={{
-          background: '#fef3c7', borderBottom: '1px solid #fbbf24', padding: '8px 16px',
-          fontSize: '0.8125rem', color: '#92400e', textAlign: 'center',
-          maxWidth: 832, margin: '0 auto', width: '100%',
-        }}>
-          Click anywhere on the document to place {activeTool === 'signature' ? 'your signature' : `a ${activeTool} field`}
+      {/* AI Summary + Chat Panel */}
+      <div style={{
+        background: 'var(--cream)', borderBottom: '1px solid var(--gray-200)', padding: '16px',
+        fontSize: '0.875rem', position: 'relative', maxHeight: '50vh', display: 'flex', flexDirection: 'column',
+        maxWidth: 832, margin: '0 auto', width: '100%',
+      }}>
+        <div style={{ marginBottom: 12 }}>
+          <strong style={{ color: 'var(--forest)' }}>AI Document Assistant</strong>
         </div>
+
+        {aiSummaryLoading ? (
+          <div style={{ padding: 16, textAlign: 'center', color: 'var(--ink-mute)' }}>
+            <div className="spinner" style={{ width: 20, height: 20, margin: '0 auto 8px' }} />
+            Analyzing document...
+          </div>
+        ) : (
+          <>
+            <div style={{ flex: 1, overflowY: 'auto', marginBottom: 12, maxHeight: '35vh' }}>
+              {chatMessages.map((msg, i) => (
+                <div
+                  key={i}
+                  style={{
+                    padding: '8px 12px',
+                    margin: '4px 0',
+                    borderRadius: 8,
+                    background: msg.role === 'user' ? 'rgba(112,130,56,0.1)' : 'white',
+                    borderLeft: msg.role === 'assistant' ? '3px solid var(--forest)' : 'none',
+                    fontSize: '0.8125rem',
+                    lineHeight: 1.5,
+                    color: 'var(--ink-soft)',
+                    whiteSpace: 'pre-wrap',
+                  }}
+                >
+                  {msg.role === 'user' && <strong style={{ color: 'var(--forest)' }}>You: </strong>}
+                  {msg.content}
+                </div>
+              ))}
+              {chatLoading && (
+                <div style={{ padding: '8px 12px', color: 'var(--ink-mute)', fontSize: '0.8125rem' }}>Thinking...</div>
+              )}
+              <div ref={chatEndRef} />
+            </div>
+
+            <form onSubmit={handleChatSubmit} style={{ display: 'flex', gap: 8 }}>
+              <input
+                type="text"
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)}
+                placeholder="Ask a question about this document..."
+                style={{
+                  flex: 1, padding: '8px 12px', border: '1px solid var(--gray-200)', borderRadius: 8,
+                  fontSize: '0.8125rem', outline: 'none', background: 'white',
+                }}
+              />
+              <button
+                type="submit"
+                disabled={!chatInput.trim() || chatLoading}
+                style={{
+                  padding: '8px 14px', background: 'var(--forest)', color: 'white', border: 'none',
+                  borderRadius: 8, cursor: chatInput.trim() && !chatLoading ? 'pointer' : 'not-allowed',
+                  opacity: chatInput.trim() && !chatLoading ? 1 : 0.5, fontSize: '0.8125rem', fontWeight: 600,
+                }}
+              >
+                Ask
+              </button>
+            </form>
+          </>
+        )}
+      </div>
+
+      {/* Toolbar — free-form mode (no pre-placed fields) */}
+      {!hasPreplacedFields && (
+        <>
+          <div className="signing-toolbar">
+            <span style={{ fontSize: '0.75rem', color: 'var(--gray-500)', marginRight: 8 }}>Place on document:</span>
+            {(['signature', 'text', 'date', 'checkbox'] as ToolType[]).map(tool => (
+              <button
+                key={tool!}
+                className={`toolbar-btn ${activeTool === tool ? 'active' : ''}`}
+                onClick={() => setActiveTool(activeTool === tool ? null : tool)}
+              >
+                <span className="toolbar-icon">
+                  {tool === 'signature' && '✍'}
+                  {tool === 'text' && 'T'}
+                  {tool === 'date' && '📅'}
+                  {tool === 'checkbox' && '☑'}
+                </span>
+                <span className="toolbar-label">
+                  {tool === 'signature' && 'Signature'}
+                  {tool === 'text' && 'Text'}
+                  {tool === 'date' && 'Date'}
+                  {tool === 'checkbox' && 'Checkbox'}
+                </span>
+              </button>
+            ))}
+          </div>
+
+          {activeTool && (
+            <div style={{
+              background: '#fef3c7', borderBottom: '1px solid #fbbf24', padding: '8px 16px',
+              fontSize: '0.8125rem', color: '#92400e', textAlign: 'center',
+              maxWidth: 832, margin: '0 auto', width: '100%',
+            }}>
+              Click anywhere on the document to place {activeTool === 'signature' ? 'your signature' : `a ${activeTool} field`}
+            </div>
+          )}
+        </>
       )}
 
       {/* Document Viewer */}
       <div className="document-viewer">
-        {/* AI Summary + Chat Panel */}
-        <div style={{
-          background: '#eff6ff', border: '1px solid #bfdbfe', padding: '16px', borderRadius: 8,
-          fontSize: '0.875rem', position: 'relative', maxHeight: '50vh', display: 'flex', flexDirection: 'column',
-          maxWidth: 800, margin: '0 auto 16px', width: '100%',
-        }}>
-          <div style={{ marginBottom: 12 }}>
-            <strong style={{ color: '#1e40af' }}>AI Document Assistant</strong>
-          </div>
-
-          {aiSummaryLoading ? (
-            <div style={{ padding: 16, textAlign: 'center', color: '#6b7280' }}>
-              <div className="spinner" style={{ width: 20, height: 20, margin: '0 auto 8px' }} />
-              Analyzing document...
+        {/* Click-to-fill progress bar (sticky inside viewer) */}
+        {hasPreplacedFields && (
+          <div className="field-progress-bar">
+            <div style={{ flex: 1, background: '#e5e7eb', borderRadius: 4, height: 6 }}>
+              <div style={{
+                width: `${totalFields > 0 ? (completedCount / totalFields) * 100 : 0}%`,
+                background: allRequiredFilled ? 'var(--forest)' : 'var(--olive)',
+                height: '100%', borderRadius: 4, transition: 'width 0.3s ease',
+              }} />
             </div>
-          ) : (
-            <>
-              <div style={{ flex: 1, overflowY: 'auto', marginBottom: 12, maxHeight: '35vh' }}>
-                {chatMessages.map((msg, i) => (
-                  <div
-                    key={i}
-                    style={{
-                      padding: '8px 12px',
-                      margin: '4px 0',
-                      borderRadius: 8,
-                      background: msg.role === 'user' ? '#dbeafe' : 'white',
-                      borderLeft: msg.role === 'assistant' ? '3px solid #2563eb' : 'none',
-                      fontSize: '0.8125rem',
-                      lineHeight: 1.5,
-                      color: '#374151',
-                      whiteSpace: 'pre-wrap',
-                    }}
-                  >
-                    {msg.role === 'user' && <strong style={{ color: '#2563eb' }}>You: </strong>}
-                    {msg.content}
-                  </div>
-                ))}
-                {chatLoading && (
-                  <div style={{ padding: '8px 12px', color: '#6b7280', fontSize: '0.8125rem' }}>Thinking...</div>
-                )}
-                <div ref={chatEndRef} />
-              </div>
+            <span style={{ fontSize: '0.75rem', color: 'var(--gray-500)', whiteSpace: 'nowrap' }}>
+              {completedCount} of {totalFields} fields completed
+            </span>
+          </div>
+        )}
 
-              <form onSubmit={handleChatSubmit} style={{ display: 'flex', gap: 8 }}>
-                <input
-                  type="text"
-                  value={chatInput}
-                  onChange={(e) => setChatInput(e.target.value)}
-                  placeholder="Ask a question about this document..."
-                  style={{
-                    flex: 1, padding: '8px 12px', border: '1px solid #bfdbfe', borderRadius: 8,
-                    fontSize: '0.8125rem', outline: 'none', background: 'white',
-                  }}
-                />
+        {/* Guided flow top action bar — template mode only (sticky inside viewer) */}
+        {hasPreplacedFields && (
+          <div className="guided-action-bar">
+            {currentStepIndex === -1 ? (
+              <button
+                className="btn btn-primary btn-block"
+                onClick={() => setCurrentStepIndex(0)}
+              >
+                Start Signing
+              </button>
+            ) : currentStepIndex < fieldSteps.length ? (
+              /* In progress — step info + Next/Finish */
+              <>
+                <div style={{ fontSize: '0.8125rem', color: '#374151', marginBottom: 8, textAlign: 'center' }}>
+                  Step {currentStepIndex + 1} of {fieldSteps.length}:{' '}
+                  {fieldSteps[currentStepIndex].type === 'option-group'
+                    ? 'Select an option'
+                    : fieldSteps[currentStepIndex].items[0]?.type === 'signature'
+                      ? 'Place your signature'
+                      : fieldSteps[currentStepIndex].items[0]?.type === 'text'
+                        ? 'Enter text'
+                        : fieldSteps[currentStepIndex].items[0]?.type === 'date'
+                          ? 'Confirm date'
+                          : fieldSteps[currentStepIndex].items[0]?.type === 'checkbox'
+                            ? 'Check the box'
+                            : 'Complete this field'}
+                </div>
                 <button
-                  type="submit"
-                  disabled={!chatInput.trim() || chatLoading}
-                  style={{
-                    padding: '8px 14px', background: '#2563eb', color: 'white', border: 'none',
-                    borderRadius: 8, cursor: chatInput.trim() && !chatLoading ? 'pointer' : 'not-allowed',
-                    opacity: chatInput.trim() && !chatLoading ? 1 : 0.5, fontSize: '0.8125rem', fontWeight: 600,
+                  className="btn btn-primary btn-block"
+                  onClick={() => {
+                    if (allStepsComplete) {
+                      setCurrentStepIndex(fieldSteps.length); // show Finish & Agree
+                      return;
+                    }
+                    const next =
+                      incompleteStepIndices.find(i => i > currentStepIndex) ??
+                      incompleteStepIndices[0];
+                    setCurrentStepIndex(next);
                   }}
                 >
-                  Ask
+                  {allStepsComplete ? 'Finish' : 'Next'}
                 </button>
-              </form>
-            </>
-          )}
-        </div>
+              </>
+            ) : (
+              /* All steps done — Finish & Agree (consent already given at start) */
+              <button
+                className="btn btn-primary btn-block"
+                onClick={handleComplete}
+                disabled={isSubmitting}
+              >
+                {isSubmitting ? 'Completing...' : 'Finish & Agree'}
+              </button>
+            )}
+          </div>
+        )}
 
         <div className="document-container">
           <Suspense
@@ -614,7 +986,8 @@ export default function SigningPage() {
             }
           >
             <PDFViewer
-              url={getDocumentProxyUrl(token)}
+              url={getDocumentDirectUrl(token)}
+              fallbackUrl={getDocumentProxyUrl(token)}
               pageCount={session.document.pageCount}
               onPageClick={activeTool ? handlePdfClick : undefined}
               renderOverlay={(pageIndex) => (
@@ -669,17 +1042,26 @@ export default function SigningPage() {
                     .map((item) => (
                       <div
                         key={item.id}
-                        className={`placed-item ${item.completed ? 'completed' : 'pending'} type-${item.type}`}
+                        data-field-id={item.id}
+                        className={`placed-item ${item.completed ? 'completed' : 'pending'} type-${item.type}${
+                          hasPreplacedFields && consent && !item.completed ? ' field-clickable' : ''
+                        }${item.completed ? ' field-filled' : ''}${
+                          currentStepIndex >= 0 && currentStepIndex < fieldSteps.length && fieldSteps[currentStepIndex].items.some(i => i.id === item.id) ? ' field-active' : ''
+                        }`}
                         style={{
                           left: `${item.x * 100}%`,
                           top: `${item.y * 100}%`,
                           width: `${item.width * 100}%`,
                           height: `${item.height * 100}%`,
-                          cursor: item.completed ? 'grab' : undefined,
+                          cursor: hasPreplacedFields && consent && (!item.completed || item.type === 'checkbox' || item.type === 'option') ? 'pointer' : !hasPreplacedFields && item.completed ? 'grab' : undefined,
                         }}
-                        onMouseDown={(e) => item.completed && handleDragStart(e, item.id)}
-                        onTouchStart={(e) => item.completed && handleDragStart(e, item.id)}
+                        onClick={() => hasPreplacedFields && (
+                          !item.completed || item.type === 'checkbox' || item.type === 'option'
+                        ) && handleFieldClick(item)}
+                        onMouseDown={(e) => !hasPreplacedFields && item.completed && handleDragStart(e, item.id)}
+                        onTouchStart={(e) => !hasPreplacedFields && item.completed && handleDragStart(e, item.id)}
                       >
+                        {/* Filled state: show value */}
                         {item.type === 'signature' && item.value && (
                           <img
                             src={item.value}
@@ -694,15 +1076,62 @@ export default function SigningPage() {
                         {item.type === 'date' && item.value && (
                           <span style={{ fontSize: '10px', color: '#111' }}>{item.value}</span>
                         )}
-                        {item.type === 'checkbox' && item.value && (
-                          <span style={{ fontSize: '14px', color: '#111', fontWeight: 'bold' }}>✓</span>
+                        {/* Checkbox: show empty square or checked square */}
+                        {item.type === 'checkbox' && (
+                          <span style={{
+                            width: '60%', height: '60%', borderRadius: 2,
+                            border: '2px solid #111', display: 'inline-flex',
+                            alignItems: 'center', justifyContent: 'center',
+                            background: item.value === '✓' ? 'var(--forest)' : 'transparent',
+                            color: 'white', fontSize: '10px', fontWeight: 'bold',
+                          }}>
+                            {item.value === '✓' && '✓'}
+                          </span>
                         )}
-                        {!item.completed && !item.isLocal && (
+                        {/* Option: show empty or filled round circle */}
+                        {item.type === 'option' && (
+                          <span style={{
+                            width: '60%', height: '60%', borderRadius: '50%',
+                            border: '2px solid #111', display: 'inline-block',
+                            background: item.value === '●' ? 'var(--forest)' : 'transparent',
+                            boxShadow: item.value === '●' ? 'inset 0 0 0 2px white' : 'none',
+                          }} />
+                        )}
+
+                        {/* Click-to-fill: unfilled placeholder labels */}
+                        {hasPreplacedFields && !item.completed && item.type !== 'option' && item.type !== 'checkbox' && (
+                          <span className="field-placeholder-label">
+                            {item.type === 'signature' && '✍ Signature'}
+                            {item.type === 'text' && 'T Text'}
+                            {item.type === 'date' && '📅 Date'}
+                          </span>
+                        )}
+
+                        {/* Inline text input for click-to-fill */}
+                        {editingFieldId === item.id && item.type === 'text' && (
+                          <input
+                            type="text"
+                            className="field-inline-input"
+                            value={inlineTextValue}
+                            onChange={(e) => setInlineTextValue(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') handleInlineTextSubmit();
+                              if (e.key === 'Escape') { setEditingFieldId(null); setInlineTextValue(''); }
+                            }}
+                            onBlur={() => { if (inlineTextValue.trim()) handleInlineTextSubmit(); else { setEditingFieldId(null); } }}
+                            autoFocus
+                            onClick={(e) => e.stopPropagation()}
+                            placeholder="Type here..."
+                          />
+                        )}
+
+                        {/* Free-form mode: type label for unfilled, remove for filled */}
+                        {!hasPreplacedFields && !item.completed && !item.isLocal && (
                           <span style={{ fontSize: '9px', color: 'var(--primary)' }}>
                             {item.type}
                           </span>
                         )}
-                        {item.completed && (
+                        {!hasPreplacedFields && item.completed && (
                           <button
                             className="remove-item-btn"
                             onClick={(e) => { e.stopPropagation(); removeItem(item.id); }}
@@ -715,39 +1144,20 @@ export default function SigningPage() {
                     ))}
                 </>
               )}
-              onError={() => {
-                // PDF failed to load — show fallback
-                const container = document.querySelector('.document-container');
-                if (container) {
-                  container.innerHTML = '<div style="padding: 40px; text-align: center; color: #9ca3af;">Document Preview Unavailable</div>';
-                }
-              }}
             />
           </Suspense>
         </div>
       </div>
 
-      {/* Consent & Complete */}
-      {hasSignature && (
+      {/* Free-form mode: show Finish button once a signature is placed */}
+      {!hasPreplacedFields && hasSignature && (
         <div className="consent-banner">
-          <div className="consent-checkbox">
-            <input
-              type="checkbox"
-              id="consent"
-              checked={consent}
-              onChange={(e) => setConsent(e.target.checked)}
-            />
-            <label htmlFor="consent">
-              I agree to sign this document electronically. I understand that my electronic signature
-              has the same legal effect as a handwritten signature.
-            </label>
-          </div>
           <button
             className="btn btn-primary btn-block"
             onClick={handleComplete}
-            disabled={!consent || isSubmitting}
+            disabled={isSubmitting}
           >
-            {isSubmitting ? 'Completing...' : 'Finish & Agree'}
+            {isSubmitting ? 'Completing...' : 'Finish & Submit'}
           </button>
         </div>
       )}
@@ -755,8 +1165,12 @@ export default function SigningPage() {
       {/* Signature Modal */}
       {showSignatureModal && (
         <SignatureCanvas
-          onSave={handleSignatureSave}
-          onCancel={handleCancelModal}
+          onSave={hasPreplacedFields ? handlePreplacedSignatureSave : handleSignatureSave}
+          onCancel={() => {
+            setShowSignatureModal(false);
+            if (!hasPreplacedFields) handleCancelModal();
+            setActiveItemId(null);
+          }}
         />
       )}
 
@@ -799,39 +1213,7 @@ export default function SigningPage() {
         </div>
       )}
 
-      {/* Decline Modal */}
-      {showDeclineModal && (
-        <div className="modal-overlay" onClick={() => setShowDeclineModal(false)}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2>Decline to Sign</h2>
-              <button className="modal-close" onClick={() => setShowDeclineModal(false)}>&times;</button>
-            </div>
-            <p style={{ marginBottom: 12, color: 'var(--gray-500)' }}>
-              Are you sure? The sender will be notified.
-            </p>
-            <textarea
-              value={declineReason}
-              onChange={(e) => setDeclineReason(e.target.value)}
-              placeholder="Reason (optional)"
-              rows={3}
-              style={{
-                width: '100%', padding: 12,
-                border: '1px solid var(--gray-200)', borderRadius: 'var(--radius)',
-                marginBottom: 12, fontSize: '0.875rem', resize: 'vertical',
-              }}
-            />
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => setShowDeclineModal(false)}>
-                Cancel
-              </button>
-              <button className="btn btn-danger" style={{ flex: 1 }} onClick={handleDecline}>
-                Decline to Sign
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+
 
     </div>
   );

@@ -41,7 +41,10 @@ async function main() {
   }
 
   // Middleware
-  app.use(helmet());
+  app.use(helmet({
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
+    contentSecurityPolicy: false,
+  }));
   const allowedOrigins = [
     process.env.APP_URL,
     'http://localhost:3000',
@@ -106,6 +109,28 @@ async function main() {
     }
   }
 
+  // Contact form (no DB required)
+  app.post('/api/contact', async (req, res) => {
+    const { name, email, message } = req.body;
+    if (!name || !email || !message) {
+      return res.status(400).json({ error: 'All fields are required' });
+    }
+    try {
+      const { EmailService } = await import('./services/EmailService.js');
+      const emailService = new EmailService();
+      await emailService.sendEmail({
+        to: 'sign@lapen.ai',
+        subject: `Contact form: ${name}`,
+        text: `Name: ${name}\nEmail: ${email}\n\n${message}`,
+        html: `<p><strong>Name:</strong> ${name}</p><p><strong>Email:</strong> ${email}</p><p>${message.replace(/\n/g, '<br>')}</p>`,
+      });
+      res.json({ ok: true });
+    } catch (err) {
+      logger.error({ err }, 'Contact form failed');
+      res.status(500).json({ error: 'Failed to send message' });
+    }
+  });
+
   // Error handling
   app.use(errorHandler);
 
@@ -147,6 +172,23 @@ async function main() {
     }
   } else {
     logger.warn('IMAP not configured, email processor not started');
+  }
+
+  // Start reminder worker (requires DB + email, no Redis needed)
+  if (process.env.DATABASE_URL && (process.env.RESEND_API_KEY || process.env.SMTP_HOST)) {
+    try {
+      const { startReminderWorker } = await import('./workers/ReminderWorker.js');
+      startReminderWorker();
+    } catch (err) {
+      logger.error({ err }, 'Failed to start reminder worker');
+    }
+  }
+
+  // Configure S3 bucket CORS (fire-and-forget — never blocks server)
+  if (process.env.AWS_ACCESS_KEY_ID) {
+    import('./services/StorageService.js')
+      .then(({ StorageService }) => new StorageService().ensureBucketCors())
+      .catch((err) => logger.warn({ err }, 'Could not configure S3 bucket CORS'));
   }
 }
 
