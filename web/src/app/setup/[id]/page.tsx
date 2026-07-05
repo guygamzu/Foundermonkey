@@ -920,18 +920,8 @@ export default function SetupPage() {
         />
       </div>
 
-      {/* Signer Tabs — hidden in template mode (1 template signer, no real signers) */}
-      {signers.length === 1 && signers[0].email === 'template@lapen.ai' ? (
-        <div className="signer-tabs">
-          <div className="signer-tab active" style={{ '--signer-color': SIGNER_COLORS[0] } as React.CSSProperties}>
-            <span className="signer-tab-dot" style={{ background: SIGNER_COLORS[0] }} />
-            <span className="signer-tab-name">Template Fields</span>
-          </div>
-          <span style={{ fontSize: '0.75rem', color: 'var(--gray-400)', padding: '0 8px', alignSelf: 'center' }}>
-            These fields will be placed for every signer
-          </span>
-        </div>
-      ) : (
+      {/* Signer Tabs — hidden entirely in template mode */}
+      {!isTemplateMode && (
         <div className="signer-tabs">
           {signers.map((signer, idx) => (
             <div
