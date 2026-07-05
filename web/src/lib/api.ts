@@ -186,6 +186,7 @@ export interface SetupField {
   height: number;
   required: boolean;
   optionGroupId?: string | null;
+  groupId?: string | null;
   isTemplate?: boolean;
 }
 
@@ -216,7 +217,7 @@ export function getSetupDocumentProxyUrl(id: string): string {
 
 export async function createSetupField(
   id: string,
-  field: { signerId: string; type: string; page: number; x: number; y: number; width?: number; height?: number; optionGroupId?: string | null },
+  field: { signerId: string; type: string; page: number; x: number; y: number; width?: number; height?: number; optionGroupId?: string | null; groupId?: string | null },
 ): Promise<SetupField> {
   return apiFetch(`/api/setup/${id}/fields`, {
     method: 'POST',
@@ -234,6 +235,15 @@ export async function updateSetupFieldPosition(
   return apiFetch(`/api/setup/${id}/fields/${fieldId}`, {
     method: 'PATCH',
     body: JSON.stringify({ x, y }),
+  });
+}
+
+export async function updateSetupFieldGroup(
+  id: string, fieldIds: string[], groupId: string | null,
+): Promise<{ success: boolean; groupId: string | null; count: number }> {
+  return apiFetch(`/api/setup/${id}/fields/group`, {
+    method: 'POST',
+    body: JSON.stringify({ fieldIds, groupId }),
   });
 }
 

@@ -9,6 +9,7 @@ import {
   createSetupField,
   deleteSetupField,
   updateSetupFieldPosition,
+  updateSetupFieldGroup,
   addSetupSigner,
   removeSetupSigner,
   sendForSigning,
@@ -41,7 +42,8 @@ export default function SetupPage() {
   type UndoCmd =
     | { type: 'create'; ids: string[] }
     | { type: 'delete'; fields: SetupField[] }
-    | { type: 'move'; updates: Array<{ id: string; oldX: number; oldY: number }> };
+    | { type: 'move'; updates: Array<{ id: string; oldX: number; oldY: number }> }
+    | { type: 'group'; updates: Array<{ id: string; oldGroupId: string | null }> };
   const historyRef = useRef<UndoCmd[]>([]);
   const pushHistory = useCallback((cmd: UndoCmd) => {
     historyRef.current.push(cmd);
@@ -191,20 +193,64 @@ export default function SetupPage() {
     }
   }, [id, fields, pushHistory]);
 
-  // Selection: click on placed field
+  // Selection: click on placed field (auto-expands to the whole group if grouped)
   const handleSelectField = useCallback((fieldId: string, shift: boolean) => {
+    const field = fields.find(f => f.id === fieldId);
+    const groupMembers = field?.groupId
+      ? fields.filter(f => f.groupId === field.groupId).map(f => f.id)
+      : [fieldId];
+
     setSelectedFieldIds(prev => {
       if (shift) {
         const next = new Set(prev);
-        if (next.has(fieldId)) next.delete(fieldId);
-        else next.add(fieldId);
+        const allIn = groupMembers.every(id => next.has(id));
+        if (allIn) groupMembers.forEach(id => next.delete(id));
+        else groupMembers.forEach(id => next.add(id));
         return next;
       }
-      // Plain click on already-selected keeps it; plain click on unselected selects only it
-      if (prev.size === 1 && prev.has(fieldId)) return prev;
-      return new Set([fieldId]);
+      // Plain click: if already exactly the group is selected, keep as-is; else replace with group
+      const asSet = new Set(groupMembers);
+      if (prev.size === asSet.size && groupMembers.every(id => prev.has(id))) return prev;
+      return asSet;
     });
-  }, []);
+  }, [fields]);
+
+  // Group selected fields together (all share a new group_id)
+  const handleGroupSelection = useCallback(async () => {
+    if (selectedFieldIds.size < 2) return;
+    const ids = Array.from(selectedFieldIds);
+    const oldGroupIds = new Map(
+      fields.filter(f => selectedFieldIds.has(f.id))
+        .map(f => [f.id, f.groupId ?? null] as [string, string | null]),
+    );
+    const newGroupId = (typeof crypto !== 'undefined' && 'randomUUID' in crypto)
+      ? crypto.randomUUID()
+      : `grp-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+
+    setFields(prev => prev.map(f => selectedFieldIds.has(f.id) ? { ...f, groupId: newGroupId } : f));
+    try {
+      await updateSetupFieldGroup(id, ids, newGroupId);
+      pushHistory({ type: 'group', updates: ids.map(fid => ({ id: fid, oldGroupId: oldGroupIds.get(fid) ?? null })) });
+    } catch (err: any) {
+      setError(err.message);
+    }
+  }, [selectedFieldIds, fields, id, pushHistory]);
+
+  // Ungroup — remove group_id from all selected fields
+  const handleUngroupSelection = useCallback(async () => {
+    const affected = fields.filter(f => selectedFieldIds.has(f.id) && f.groupId);
+    if (affected.length === 0) return;
+    const ids = affected.map(f => f.id);
+    const oldGroupIds = new Map(affected.map(f => [f.id, f.groupId ?? null] as [string, string | null]));
+
+    setFields(prev => prev.map(f => selectedFieldIds.has(f.id) ? { ...f, groupId: null } : f));
+    try {
+      await updateSetupFieldGroup(id, ids, null);
+      pushHistory({ type: 'group', updates: ids.map(fid => ({ id: fid, oldGroupId: oldGroupIds.get(fid) ?? null })) });
+    } catch (err: any) {
+      setError(err.message);
+    }
+  }, [selectedFieldIds, fields, id, pushHistory]);
 
   // Delete selected fields
   const handleDeleteSelection = useCallback(async () => {
@@ -263,6 +309,21 @@ export default function SetupPage() {
         }));
         await Promise.all(
           cmd.updates.map(u => updateSetupFieldPosition(id, u.id, u.oldX, u.oldY).catch(() => null)),
+        );
+      } else if (cmd.type === 'group') {
+        const gById = new Map(cmd.updates.map(u => [u.id, u.oldGroupId]));
+        setFields(prev => prev.map(f => gById.has(f.id) ? { ...f, groupId: gById.get(f.id) ?? null } : f));
+        // Regroup fields by target groupId (null gets its own null bucket)
+        const buckets = new Map<string | null, string[]>();
+        cmd.updates.forEach(u => {
+          const arr = buckets.get(u.oldGroupId) ?? [];
+          arr.push(u.id);
+          buckets.set(u.oldGroupId, arr);
+        });
+        await Promise.all(
+          Array.from(buckets.entries()).map(([gid, fids]) =>
+            updateSetupFieldGroup(id, fids, gid).catch(() => null),
+          ),
         );
       }
     } finally {
@@ -374,10 +435,11 @@ export default function SetupPage() {
     const selected = fields.filter(f => selectedFieldIds.has(f.id));
     if (selected.length === 0) return;
 
-    // For option fields: each source group_id maps to a NEW group_id in the duplicate.
-    // Option fields without a group_id (legacy) get grouped by page instead.
+    // For option fields: each source option_group_id maps to a NEW id in the duplicate.
+    // For grouped fields: each source group_id maps to a NEW group_id.
+    const optionGroupIdMap = new Map<string, string>();
     const groupIdMap = new Map<string, string>();
-    const newGroupId = () => (typeof crypto !== 'undefined' && 'randomUUID' in crypto)
+    const newId = () => (typeof crypto !== 'undefined' && 'randomUUID' in crypto)
       ? crypto.randomUUID()
       : `grp-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 
@@ -390,12 +452,23 @@ export default function SetupPage() {
       let optionGroupId: string | null = null;
       if (src.type === 'option') {
         const srcKey = src.optionGroupId ?? `page-${src.page}`;
-        const mapped = groupIdMap.get(srcKey);
+        const mapped = optionGroupIdMap.get(srcKey);
         if (mapped) {
           optionGroupId = mapped;
         } else {
-          optionGroupId = newGroupId();
-          groupIdMap.set(srcKey, optionGroupId);
+          optionGroupId = newId();
+          optionGroupIdMap.set(srcKey, optionGroupId);
+        }
+      }
+
+      let groupId: string | null = null;
+      if (src.groupId) {
+        const mapped = groupIdMap.get(src.groupId);
+        if (mapped) {
+          groupId = mapped;
+        } else {
+          groupId = newId();
+          groupIdMap.set(src.groupId, groupId);
         }
       }
 
@@ -409,6 +482,7 @@ export default function SetupPage() {
           width: src.width,
           height: src.height,
           optionGroupId,
+          groupId,
         });
         newIds.push(created.id);
         setFields(prev => [...prev, created]);
@@ -1026,6 +1100,16 @@ export default function SetupPage() {
           </span>
           <AlignBtn title="Duplicate selection (⌘D)" onClick={handleDuplicateSelection}>⧉ Duplicate</AlignBtn>
           <AlignBtn
+            title="Group selected fields (they'll select together)"
+            onClick={handleGroupSelection}
+            disabled={selectedFieldIds.size < 2}
+          >🔗 Group</AlignBtn>
+          <AlignBtn
+            title="Ungroup selected fields"
+            onClick={handleUngroupSelection}
+            disabled={!fields.some(f => selectedFieldIds.has(f.id) && f.groupId)}
+          >⛓ Ungroup</AlignBtn>
+          <AlignBtn
             title="Undo (⌘Z)"
             onClick={handleUndo}
             disabled={undoBusy || historyRef.current.length === 0}
@@ -1163,6 +1247,30 @@ export default function SetupPage() {
                           >
                             &times;
                           </button>
+                          {f.groupId && (
+                            <span
+                              title="Grouped — clicking any member selects them all"
+                              style={{
+                                position: 'absolute',
+                                bottom: -6,
+                                right: -6,
+                                width: 12,
+                                height: 12,
+                                borderRadius: '50%',
+                                background: color,
+                                color: 'white',
+                                fontSize: 8,
+                                fontWeight: 700,
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                pointerEvents: 'none',
+                                lineHeight: 1,
+                              }}
+                            >
+                              🔗
+                            </span>
+                          )}
                         </div>
                       );
                     })}
