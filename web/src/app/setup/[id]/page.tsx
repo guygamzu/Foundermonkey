@@ -857,20 +857,33 @@ export default function SetupPage() {
           }}>
             <p style={{ fontWeight: 600, margin: '0 0 8px' }}>What to do next:</p>
             <ol style={{ margin: 0, paddingLeft: 20, lineHeight: 1.8 }}>
-              <li>Click <strong>&quot;Send via Email&quot;</strong> below to open your email with everything pre-filled</li>
-              <li>Attach the PDF <strong>&quot;{doc?.fileName}&quot;</strong> (download it below if needed)</li>
+              <li>Click <strong>&quot;Download PDF &amp; Open Email&quot;</strong> below — the PDF downloads and your email app opens with everything pre-filled</li>
+              <li>Attach the downloaded PDF <strong>&quot;{doc?.fileName}&quot;</strong> to the email (email apps can&apos;t auto-attach files for security reasons)</li>
               <li>Add your recipients and hit send</li>
               <li>Lapen will send each recipient a personalized signing link</li>
             </ol>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10, margin: '20px 0' }}>
-            <a
-              href={mailtoLink}
+            <button
+              type="button"
               className="btn btn-primary btn-block"
-              style={{ textDecoration: 'none', textAlign: 'center' }}
+              style={{ textAlign: 'center' }}
+              onClick={() => {
+                // 1. Trigger the PDF download (browsers can't attach via mailto, RFC 6068).
+                //    A hidden iframe is more reliable than window.open which some browsers
+                //    would treat as a popup on click chains.
+                const dlFrame = document.createElement('iframe');
+                dlFrame.style.display = 'none';
+                dlFrame.src = downloadUrl;
+                document.body.appendChild(dlFrame);
+                setTimeout(() => dlFrame.remove(), 30000);
+                // 2. Open mail compose. Short delay so the download starts before the OS
+                //    swaps focus to the mail app.
+                setTimeout(() => { window.location.href = mailtoLink; }, 300);
+              }}
             >
-              Send via Email
-            </a>
+              Download PDF & Open Email
+            </button>
             <a
               href={downloadUrl}
               className="btn btn-block"
@@ -879,11 +892,13 @@ export default function SetupPage() {
                 background: 'white', border: '1px solid var(--gray-300)', color: 'var(--gray-700)',
               }}
             >
-              Download PDF
+              Download PDF only
             </a>
           </div>
           <p style={{ fontSize: '0.8125rem', color: 'var(--gray-400)' }}>
-            Make sure <strong>sign@lapen.ai</strong> is in CC so we can send signing links to your recipients.
+            The button above will download the PDF and open your email app.
+            Attach the downloaded PDF to the message, keep <strong>sign@lapen.ai</strong> in CC,
+            add recipients, and hit send.
           </p>
         </div>
       </div>
