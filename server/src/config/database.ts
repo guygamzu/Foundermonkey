@@ -348,6 +348,21 @@ async function runIncrementalMigrations(database: Knex): Promise<void> {
     // Column may already exist
   }
 
+  // --- Field group id (for sender-side grouping) on document_fields (20260705000001) ---
+  try {
+    const hasGroupId = await database.raw(`
+      SELECT 1 FROM information_schema.columns
+      WHERE table_name = 'document_fields' AND column_name = 'group_id'
+    `);
+    if (hasGroupId.rows.length === 0) {
+      await database.schema.alterTable('document_fields', (table) => {
+        table.text('group_id');
+      });
+    }
+  } catch (err) {
+    // Column may already exist
+  }
+
   // --- Sender nudge tracking on document_requests (20260511000001) ---
   try {
     const hasSenderNudgeNotifiedAt = await database.raw(`

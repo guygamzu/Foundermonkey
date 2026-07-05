@@ -73,6 +73,7 @@ export function createSetupRouter(): Router {
           required: f.required,
           optionValues: safeJsonParse(f.option_values),
           optionGroupId: f.option_group_id,
+          groupId: f.group_id,
           isTemplate: f.is_template,
         })),
       });
@@ -133,7 +134,7 @@ export function createSetupRouter(): Router {
         return;
       }
 
-      const { signerId, type, page, x, y, width, height, optionGroupId } = req.body;
+      const { signerId, type, page, x, y, width, height, optionGroupId, groupId } = req.body;
       if (!signerId || !type || !page || x === undefined || y === undefined) {
         res.status(400).json({ error: 'signerId, type, page, x, y are required' });
         return;
@@ -159,6 +160,7 @@ export function createSetupRouter(): Router {
         height: height || dim.h,
         required: true,
         option_group_id: type === 'option' ? (optionGroupId || null) : null,
+        group_id: groupId || null,
       }]);
 
       const field = fields[0];
@@ -174,6 +176,7 @@ export function createSetupRouter(): Router {
         required: field.required,
         optionValues: safeJsonParse(field.option_values),
         optionGroupId: field.option_group_id,
+        groupId: field.group_id,
       });
     } catch (err) {
       logger.error({ err }, 'Error creating setup field');
@@ -221,6 +224,33 @@ export function createSetupRouter(): Router {
       });
     } catch (err) {
       logger.error({ err }, 'Error updating field position');
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  // Bulk update group_id — assign or clear a group across multiple fields
+  router.post('/:id/fields/group', async (req: Request<{ id: string }>, res: Response) => {
+    try {
+      const doc = await documentRepo.findById(req.params.id);
+      if (!doc || !editableStatuses.includes(doc.status)) {
+        res.status(400).json({ error: 'Document not in setup state' });
+        return;
+      }
+
+      const { fieldIds, groupId } = req.body as { fieldIds?: string[]; groupId?: string | null };
+      if (!Array.isArray(fieldIds) || fieldIds.length === 0) {
+        res.status(400).json({ error: 'fieldIds must be a non-empty array' });
+        return;
+      }
+
+      await db('document_fields')
+        .where({ document_request_id: doc.id })
+        .whereIn('id', fieldIds)
+        .update({ group_id: groupId ?? null });
+
+      res.json({ success: true, groupId: groupId ?? null, count: fieldIds.length });
+    } catch (err) {
+      logger.error({ err }, 'Error updating field group');
       res.status(500).json({ error: 'Internal server error' });
     }
   });
