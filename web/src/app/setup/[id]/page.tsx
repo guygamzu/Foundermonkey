@@ -136,6 +136,8 @@ export default function SetupPage() {
     } catch (err: any) {
       setError(err.message);
     }
+    // Deselect the tool after placing so blank-area clicks can drive selection/marquee
+    setActiveTool(null);
   }, [activeTool, selectedSigner, id, pushHistory]);
 
   // Done — mark template as ready (no signers needed)
