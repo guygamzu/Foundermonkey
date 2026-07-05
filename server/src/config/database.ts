@@ -348,6 +348,17 @@ async function runIncrementalMigrations(database: Knex): Promise<void> {
     // Column may already exist
   }
 
+  // --- Make existing checkboxes optional (20260706000001) ---
+  // Checkboxes should not block signer from completing; unchecked is a valid state.
+  try {
+    await database('document_fields')
+      .where({ type: 'checkbox', required: true })
+      .whereNull('completed_at')
+      .update({ required: false });
+  } catch (err) {
+    // Non-critical
+  }
+
   // --- Field group id (for sender-side grouping) on document_fields (20260705000001) ---
   try {
     const hasGroupId = await database.raw(`

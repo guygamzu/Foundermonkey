@@ -158,7 +158,9 @@ export function createSetupRouter(): Router {
         y,
         width: width || dim.w,
         height: height || dim.h,
-        required: true,
+        // Checkboxes are optional by default — signer can leave them unticked.
+        // Other field types (signature, text, date, option) remain required.
+        required: type !== 'checkbox',
         option_group_id: type === 'option' ? (optionGroupId || null) : null,
         group_id: groupId || null,
       }]);
