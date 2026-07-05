@@ -897,8 +897,8 @@ export default function SetupPage() {
 
       {/* Signing Mode Cards */}
       <div style={{
-        display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12,
-        padding: '12px 16px', maxWidth: 832, margin: '0 auto', width: '100%',
+        display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8,
+        padding: '6px 16px', maxWidth: 832, margin: '0 auto', width: '100%',
       }}>
         <SigningModeCard
           active={doc.signingMode === 'shared'}
@@ -1033,7 +1033,12 @@ export default function SetupPage() {
             {selectedFieldIds.size} selected
           </span>
           <AlignBtn title="Duplicate selection (⌘D)" onClick={handleDuplicateSelection}>⧉ Duplicate</AlignBtn>
-          <AlignBtn title="Delete selection (Del)" onClick={handleDeleteSelection}>✕ Delete</AlignBtn>
+          <AlignBtn
+            title="Undo (⌘Z)"
+            onClick={handleUndo}
+            disabled={undoBusy || historyRef.current.length === 0}
+          >↶ Undo</AlignBtn>
+          <AlignBtn title="Delete selection (Del)" onClick={handleDeleteSelection} danger>✕ Delete</AlignBtn>
           {selectedFieldIds.size >= 2 && (
             <>
               <span style={{ borderLeft: '1px solid #bbf7d0', height: 20, margin: '0 4px' }} />
@@ -1272,64 +1277,85 @@ function SigningModeCard({
   fields: string;
   limitation: string | null;
 }) {
+  const [hover, setHover] = useState(false);
+  const expanded = hover;
   return (
     <div
       onClick={onClick}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      onFocus={() => setHover(true)}
+      onBlur={() => setHover(false)}
       role="button"
       tabIndex={0}
       style={{
         cursor: active ? 'default' : 'pointer',
-        border: `2px solid ${active ? '#2c4a35' : 'var(--gray-200)'}`,
+        border: `1px solid ${active ? '#2c4a35' : 'var(--gray-200)'}`,
         background: active ? '#f0fdf4' : 'white',
-        borderRadius: 10,
-        padding: '14px 16px',
+        borderRadius: 8,
+        padding: '8px 12px',
         transition: 'border-color 120ms, background 120ms',
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <span
           aria-hidden
           style={{
-            width: 16, height: 16, borderRadius: '50%', flexShrink: 0,
+            width: 14, height: 14, borderRadius: '50%', flexShrink: 0,
             border: `2px solid ${active ? '#2c4a35' : 'var(--gray-400)'}`,
             display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
           }}
         >
           {active && (
-            <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#2c4a35' }} />
+            <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#2c4a35' }} />
           )}
         </span>
-        <div style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--ink)' }}>{title}</div>
-      </div>
-      <div style={{ fontSize: '0.85rem', color: 'var(--gray-700)', marginBottom: 8, lineHeight: 1.4 }}>
-        {subtitle}
-      </div>
-      <div style={{ fontSize: '0.75rem', color: 'var(--gray-500)', lineHeight: 1.5, marginBottom: 6 }}>
-        <strong style={{ color: 'var(--gray-700)' }}>Good for:</strong> {bestFor}
-      </div>
-      <div style={{ fontSize: '0.72rem', color: 'var(--gray-500)', lineHeight: 1.5 }}>
-        <strong style={{ color: 'var(--gray-700)' }}>Available fields:</strong> {fields}
-      </div>
-      {limitation && (
-        <div style={{
-          fontSize: '0.72rem', color: '#92400e', marginTop: 8, lineHeight: 1.5,
-          padding: '6px 10px', background: '#fef3c7', border: '1px solid #fbbf24', borderRadius: 6,
+        <div style={{ fontWeight: 600, fontSize: '0.85rem', color: 'var(--ink)' }}>{title}</div>
+        <span style={{
+          fontSize: '0.72rem', color: 'var(--gray-500)', marginLeft: 'auto',
+          opacity: expanded ? 0 : 1, transition: 'opacity 120ms',
         }}>
-          {limitation}
+          hover for details
+        </span>
+      </div>
+      <div style={{
+        overflow: 'hidden',
+        maxHeight: expanded ? 240 : 0,
+        transition: 'max-height 200ms ease',
+      }}>
+        <div style={{ fontSize: '0.8rem', color: 'var(--gray-700)', marginTop: 8, marginBottom: 6, lineHeight: 1.4 }}>
+          {subtitle}
         </div>
-      )}
+        <div style={{ fontSize: '0.72rem', color: 'var(--gray-500)', lineHeight: 1.5, marginBottom: 4 }}>
+          <strong style={{ color: 'var(--gray-700)' }}>Good for:</strong> {bestFor}
+        </div>
+        <div style={{ fontSize: '0.72rem', color: 'var(--gray-500)', lineHeight: 1.5 }}>
+          <strong style={{ color: 'var(--gray-700)' }}>Available fields:</strong> {fields}
+        </div>
+        {limitation && (
+          <div style={{
+            fontSize: '0.7rem', color: '#92400e', marginTop: 6, lineHeight: 1.4,
+            padding: '5px 8px', background: '#fef3c7', border: '1px solid #fbbf24', borderRadius: 6,
+          }}>
+            {limitation}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
 
 function AlignBtn({
-  children, title, onClick, disabled,
+  children, title, onClick, disabled, danger,
 }: {
   children: React.ReactNode;
   title: string;
   onClick: () => void;
   disabled?: boolean;
+  danger?: boolean;
 }) {
+  const borderColor = danger ? '#fecaca' : '#bbf7d0';
+  const textColor = disabled ? 'var(--gray-400)' : (danger ? '#b03826' : '#166534');
   return (
     <button
       title={title}
@@ -1340,11 +1366,11 @@ function AlignBtn({
         height: 28,
         padding: '0 6px',
         background: disabled ? '#f3f4f6' : 'white',
-        border: '1px solid #bbf7d0',
+        border: `1px solid ${borderColor}`,
         borderRadius: 6,
         cursor: disabled ? 'not-allowed' : 'pointer',
         fontSize: '0.85rem',
-        color: disabled ? 'var(--gray-400)' : '#166534',
+        color: textColor,
         fontWeight: 700,
         lineHeight: 1,
         display: 'inline-flex',
