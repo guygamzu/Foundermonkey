@@ -505,5 +505,57 @@ export function createDocumentsRouter(): Router {
     }
   });
 
+  // "My documents" — list all docs sent by a user, keyed by their access_token
+  router.get('/my/:token', async (req: Request<{ token: string }>, res: Response) => {
+    try {
+      const { UserRepository } = await import('../models/UserRepository.js');
+      const userRepo = new UserRepository(db);
+      const user = await userRepo.findByAccessToken(req.params.token);
+      if (!user) {
+        res.status(404).json({ error: 'Invalid or expired link' });
+        return;
+      }
+
+      const docs = await documentRepo.findBySenderId(user.id);
+      const docIds = docs.map(d => d.id);
+      const allSigners = docIds.length > 0
+        ? await db('signers').whereIn('document_request_id', docIds)
+        : [];
+      const signersByDoc = new Map<string, typeof allSigners>();
+      for (const s of allSigners) {
+        const arr = signersByDoc.get(s.document_request_id) ?? [];
+        arr.push(s);
+        signersByDoc.set(s.document_request_id, arr);
+      }
+
+      res.json({
+        user: { id: user.id, name: user.name, email: user.email, credits: user.credits },
+        documents: docs.map(d => {
+          const signers = (signersByDoc.get(d.id) ?? [])
+            .filter((s: any) => s.email !== 'template@lapen.ai');
+          const signedCount = signers.filter((s: any) => s.status === 'signed').length;
+          return {
+            id: d.id,
+            fileName: d.file_name,
+            status: d.status,
+            createdAt: d.created_at,
+            completedAt: d.completed_at,
+            signerCount: signers.length,
+            signedCount,
+            signers: signers.map((s: any) => ({
+              name: s.name,
+              email: s.email,
+              status: s.status,
+              signedAt: s.signed_at,
+            })),
+          };
+        }),
+      });
+    } catch (err) {
+      logger.error({ err, token: req.params.token }, 'Error fetching user documents');
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
   return router;
 }

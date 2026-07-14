@@ -536,7 +536,8 @@ export function createSetupRouter(): Router {
 
           const appUrl = process.env.APP_URL || 'https://app.lapen.ai';
           const purchaseUrl = `${appUrl}/credits?user=${sender.id}`;
-          const creditFooter = emailService.renderCreditBalanceHtml(sender.credits ?? 0, purchaseUrl);
+          const myDocsUrl = sender.access_token ? `${appUrl}/my/${sender.access_token}` : undefined;
+          const creditFooter = emailService.renderCreditBalanceHtml(sender.credits ?? 0, purchaseUrl, myDocsUrl);
 
           await emailService.sendEmail({
             to: sender.email,

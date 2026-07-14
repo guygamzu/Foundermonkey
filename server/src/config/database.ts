@@ -348,6 +348,28 @@ async function runIncrementalMigrations(database: Knex): Promise<void> {
     // Column may already exist
   }
 
+  // --- User access token (20260707000001) ---
+  // Stable random token per user for the "My documents" page (no auth needed).
+  try {
+    const hasAccessToken = await database.raw(`
+      SELECT 1 FROM information_schema.columns
+      WHERE table_name = 'users' AND column_name = 'access_token'
+    `);
+    if (hasAccessToken.rows.length === 0) {
+      await database.schema.alterTable('users', (table) => {
+        table.text('access_token').unique();
+      });
+    }
+    // Backfill: any users without a token get one
+    const usersMissingToken: Array<{ id: string }> = await database('users').whereNull('access_token').select('id');
+    for (const u of usersMissingToken) {
+      const { randomBytes } = await import('crypto');
+      await database('users').where({ id: u.id }).update({ access_token: randomBytes(32).toString('base64url') });
+    }
+  } catch (err) {
+    // Column may already exist
+  }
+
   // --- Make existing checkboxes optional (20260706000001) ---
   // Checkboxes should not block signer from completing; unchecked is a valid state.
   try {

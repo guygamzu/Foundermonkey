@@ -57,6 +57,24 @@ export interface DocumentStatus {
   signers: DocumentSigner[];
 }
 
+export interface MyDocumentsResponse {
+  user: { id: string; name: string | null; email: string; credits: number };
+  documents: Array<{
+    id: string;
+    fileName: string;
+    status: 'sent' | 'partially_signed' | 'completed' | 'declined' | 'expired' | 'pending_confirmation' | 'pending_setup' | 'template_ready';
+    createdAt: string;
+    completedAt: string | null;
+    signerCount: number;
+    signedCount: number;
+    signers: DocumentSigner[];
+  }>;
+}
+
+export async function getMyDocuments(token: string): Promise<MyDocumentsResponse> {
+  return apiFetch(`/api/documents/my/${token}`);
+}
+
 export interface QAResponse {
   answer: string;
   citations: Array<{ section: string; text: string }>;

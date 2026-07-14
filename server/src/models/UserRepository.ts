@@ -1,4 +1,5 @@
 import { Knex } from 'knex';
+import { randomBytes } from 'crypto';
 import { FREE_CREDITS, REFERRAL_BONUS, MONTHLY_REFERRAL_CAP } from '@lapen/shared';
 import { notifyAdmin } from '../routes/admin.js';
 
@@ -21,6 +22,7 @@ export interface UserRow {
   credits: number;
   is_provisional: boolean;
   referral_code: string | null;
+  access_token: string | null;
   created_at: Date;
   updated_at: Date;
 }
@@ -48,6 +50,7 @@ export class UserRepository {
     }
 
     const referralCode = this.generateReferralCode();
+    const accessToken = randomBytes(32).toString('base64url');
     const [user] = await this.db('users')
       .insert({
         email: email.toLowerCase(),
@@ -55,6 +58,7 @@ export class UserRepository {
         credits: FREE_CREDITS,
         is_provisional: true,
         referral_code: referralCode,
+        access_token: accessToken,
       })
       .returning('*');
 
@@ -66,6 +70,19 @@ export class UserRepository {
 
   async findByReferralCode(code: string): Promise<UserRow | undefined> {
     return this.db('users').where({ referral_code: code.toUpperCase() }).first();
+  }
+
+  async findByAccessToken(token: string): Promise<UserRow | undefined> {
+    return this.db('users').where({ access_token: token }).first();
+  }
+
+  async ensureAccessToken(userId: string): Promise<string> {
+    const user = await this.findById(userId);
+    if (!user) throw new Error('User not found');
+    if (user.access_token) return user.access_token;
+    const token = randomBytes(32).toString('base64url');
+    await this.db('users').where({ id: userId }).update({ access_token: token });
+    return token;
   }
 
   async autoRedeemReferralFromSigningHistory(
