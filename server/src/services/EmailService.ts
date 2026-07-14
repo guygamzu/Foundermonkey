@@ -587,18 +587,22 @@ export class EmailService {
           <p style="margin: 0 0 8px;">Attached you will find:</p>
           <ol style="margin: 0 0 16px; padding-left: 20px; line-height: 1.8; color: #374151;">
             <li>The fully executed document</li>
-            <li>The Certificate of Completion with the full audit trail</li>
+            ${isSender ? '<li>The Certificate of Completion with the full audit trail</li>' : ''}
           </ol>
-          <p style="margin: 0; font-size: 13px; color: #6b7280;">Please save the attached files for your records.</p>${sendYourOwnPrompt}
+          <p style="margin: 0; font-size: 13px; color: #6b7280;">Please save the attached ${isSender ? 'files' : 'file'} for your records.</p>${sendYourOwnPrompt}
         </div>
         ${creditFooter}
       </div>
     `;
 
+    const attachedText = isSender
+      ? 'Please find the fully executed document and Certificate of Completion attached.'
+      : 'Please find the fully executed document attached.';
+
     return this.sendEmail({
       to,
       subject: `Completed: ${fileName}`,
-      text: `Hi,\n\nThe document ${fileName} has been successfully signed by all parties.\n\nPlease find the fully executed document and Certificate of Completion attached.${creditText}${sendYourOwnText}\n\nPowered by La Pen. — a quieter way to get things signed`,
+      text: `Hi,\n\nThe document ${fileName} has been successfully signed by all parties.\n\n${attachedText}${creditText}${sendYourOwnText}\n\nPowered by La Pen. — a quieter way to get things signed`,
       html,
       attachments,
     });
