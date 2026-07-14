@@ -628,7 +628,8 @@ export class EmailProcessor {
     // Get updated credit balance after deduction
     const updatedUser = await this.userRepo.findById(user.id);
     const currentCredits = updatedUser?.credits ?? 0;
-    const creditFooter = this.emailService.renderCreditBalanceHtml(currentCredits, purchaseUrl);
+    const myDocsUrl = updatedUser?.access_token ? `${appUrl}/my/${updatedUser.access_token}` : undefined;
+    const creditFooter = this.emailService.renderCreditBalanceHtml(currentCredits, purchaseUrl, myDocsUrl);
     const creditText = this.emailService.renderCreditBalanceText(currentCredits);
 
     await this.trySendEmail({
@@ -870,7 +871,8 @@ export class EmailProcessor {
     const appUrl = process.env.APP_URL || 'https://app.lapen.ai';
     const setupUrl = `${appUrl}/setup/${documentId}`;
     const purchaseUrl = `${appUrl}/credits?user=${user.id}`;
-    const creditFooter = this.emailService.renderCreditBalanceHtml(user.credits, purchaseUrl);
+    const myDocsUrl = user.access_token ? `${appUrl}/my/${user.access_token}` : undefined;
+    const creditFooter = this.emailService.renderCreditBalanceHtml(user.credits, purchaseUrl, myDocsUrl);
     const creditText = this.emailService.renderCreditBalanceText(user.credits);
 
     await this.trySendEmail({
@@ -1099,7 +1101,8 @@ export class EmailProcessor {
 
     const updatedUser = await this.userRepo.findById(user.id);
     const currentCredits = updatedUser?.credits ?? 0;
-    const creditFooter = this.emailService.renderCreditBalanceHtml(currentCredits, purchaseUrl);
+    const myDocsUrl = updatedUser?.access_token ? `${appUrl}/my/${updatedUser.access_token}` : undefined;
+    const creditFooter = this.emailService.renderCreditBalanceHtml(currentCredits, purchaseUrl, myDocsUrl);
     const creditText = this.emailService.renderCreditBalanceText(currentCredits);
 
     await this.trySendEmail({
