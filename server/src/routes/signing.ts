@@ -575,7 +575,8 @@ export function createSigningRouter(): Router {
               const service = new emailService.EmailService();
               const appUrl = process.env.APP_URL || 'https://app.lapen.ai';
               const purchaseUrl = `${appUrl}/credits?user=${sender.id}`;
-              const creditFooter = service.renderCreditBalanceHtml(sender.credits, purchaseUrl);
+              const myDocsUrl = sender.access_token ? `${appUrl}/my/${sender.access_token}` : undefined;
+              const creditFooter = service.renderCreditBalanceHtml(sender.credits, purchaseUrl, myDocsUrl);
               const creditText = service.renderCreditBalanceText(sender.credits);
               await service.sendEmail({
                 to: sender.email,
