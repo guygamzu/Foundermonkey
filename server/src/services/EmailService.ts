@@ -113,9 +113,12 @@ export class EmailService {
    * Always prominent; escalates to a bold red banner with an explicit
    * top-up CTA button when the balance is <= 5.
    */
-  renderCreditBalanceHtml(credits: number, purchaseUrl: string): string {
+  renderCreditBalanceHtml(credits: number, purchaseUrl: string, myDocsUrl?: string): string {
     const isLow = credits <= 5;
     const plural = credits === 1 ? '' : 's';
+    const myDocsLink = myDocsUrl
+      ? `<a href="${myDocsUrl}" style="color: #2c4a35; text-decoration: none; font-weight: 600; font-size: 13px; border-bottom: 1px solid #2c4a35; padding-bottom: 1px; margin-left: 12px;">View my documents</a>`
+      : '';
 
     if (isLow) {
       return `
@@ -129,6 +132,7 @@ export class EmailService {
           <a href="${purchaseUrl}" style="display: inline-block; padding: 10px 22px; background: #dc2626; color: white; text-decoration: none; border-radius: 8px; font-weight: 700; font-size: 14px;">
             Top up credits
           </a>
+          ${myDocsUrl ? `<p style="margin: 12px 0 0;">${myDocsLink}</p>` : ''}
           <p style="margin: 14px 0 0; color: #9ca3af; font-size: 11px;">Powered by La Pen<span style="color: #2c4a35;">.</span> &mdash; a quieter way to get things signed</p>
         </div>
       `;
@@ -145,6 +149,7 @@ export class EmailService {
         <a href="${purchaseUrl}" style="display: inline-block; color: #2c4a35; text-decoration: none; font-weight: 600; font-size: 13px; border-bottom: 1px solid #2c4a35; padding-bottom: 1px;">
           Manage credits
         </a>
+        ${myDocsLink}
         <p style="margin: 12px 0 0; color: #9ca3af; font-size: 11px;">Powered by La Pen<span style="color: #2c4a35;">.</span> &mdash; a quieter way to get things signed</p>
       </div>
     `;
@@ -556,11 +561,11 @@ export class EmailService {
     fileName: string,
     archiveUrl: string,
     attachments: Array<{ filename: string; content: Buffer; contentType: string }>,
-    senderCredits?: { credits: number; purchaseUrl: string },
+    senderCredits?: { credits: number; purchaseUrl: string; myDocsUrl?: string },
   ): Promise<string> {
     const isSender = !!senderCredits;
     const creditFooter = senderCredits
-      ? this.renderCreditBalanceHtml(senderCredits.credits, senderCredits.purchaseUrl)
+      ? this.renderCreditBalanceHtml(senderCredits.credits, senderCredits.purchaseUrl, senderCredits.myDocsUrl)
       : `<div style="background: #f9fafb; padding: 12px 24px; border: 1px solid #e5e7eb; border-top: none; border-radius: 0 0 12px 12px; text-align: center;">
           <p style="margin: 0; color: #9ca3af; font-size: 11px;">Powered by La Pen<span style="color: #2c4a35;">.</span> &mdash; a quieter way to get things signed</p>
         </div>`;

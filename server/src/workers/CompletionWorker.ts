@@ -70,7 +70,13 @@ export function startCompletionWorker(): void {
 
     for (const email of allEmails) {
       const isSender = sender?.email && email === sender.email;
-      const senderCredits = isSender ? { credits: sender.credits, purchaseUrl: `${process.env.APP_URL}/credits?user=${sender.id}` } : undefined;
+      const senderCredits = isSender
+        ? {
+            credits: sender.credits,
+            purchaseUrl: `${process.env.APP_URL}/credits?user=${sender.id}`,
+            myDocsUrl: sender.access_token ? `${process.env.APP_URL}/my/${sender.access_token}` : undefined,
+          }
+        : undefined;
       const emailAttachments = isSender ? attachments : attachments.filter(a => !a.filename.startsWith('Certificate'));
       await emailService.sendCompletionNotification(email, doc.file_name, statusUrl, emailAttachments, senderCredits);
     }
