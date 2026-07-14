@@ -78,6 +78,7 @@ export default function SigningPage() {
             completed: !!f.completed,
             required: f.required,
           })));
+          setHasPreplacedFields(true);
         }
         if (data.otherFields && data.otherFields.length > 0) {
           setOtherFields(data.otherFields);
@@ -135,8 +136,11 @@ export default function SigningPage() {
 
   const hasSignature = placedItems.some(item => item.type === 'signature' && item.completed);
 
-  // Detect click-to-fill mode: pre-placed fields exist that haven't been filled yet
-  const hasPreplacedFields = placedItems.some(item => item.required && !item.isLocal);
+  // Detect click-to-fill mode: the document was loaded with server-placed
+  // fields. Checked against the initial load so subsequent free-form saves
+  // don't accidentally flip the mode (and so optional-only fields like
+  // checkboxes still count as pre-placed).
+  const [hasPreplacedFields, setHasPreplacedFields] = useState(false);
 
   // Group option fields by option_group_id (falls back to per-page for legacy data).
   // Each group counts as ONE field (mutually exclusive within the group).
