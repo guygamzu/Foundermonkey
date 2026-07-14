@@ -900,20 +900,23 @@ export default function SetupPage() {
 
     return (
       <div className="message-page">
-        <div className="message-card" style={{ textAlign: 'center' }}>
+        <div
+          className="message-card"
+          style={{ textAlign: 'center', maxWidth: 520, wordBreak: 'break-word', overflowWrap: 'anywhere' }}
+        >
           <div style={{ fontSize: '3rem', marginBottom: 16 }}>✓</div>
           <h2>Document Ready!</h2>
           <p style={{ margin: '12px 0', color: 'var(--gray-500)' }}>
-            Your fields for <strong>{doc?.fileName}</strong> are configured.
+            Your fields for <strong style={{ overflowWrap: 'anywhere' }}>{doc?.fileName}</strong> are configured.
           </p>
           <div style={{
             background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8,
-            padding: 16, margin: '16px 0', textAlign: 'left',
+            padding: 16, margin: '16px 0', textAlign: 'left', overflowWrap: 'anywhere',
           }}>
             <p style={{ fontWeight: 600, margin: '0 0 8px' }}>What to do next:</p>
             <ol style={{ margin: 0, paddingLeft: 20, lineHeight: 1.8 }}>
               <li>Click <strong>&quot;Download PDF &amp; Open Email&quot;</strong> below — the PDF downloads and your email app opens with everything pre-filled</li>
-              <li>Attach the downloaded PDF <strong>&quot;{doc?.fileName}&quot;</strong> to the email (email apps can&apos;t auto-attach files for security reasons)</li>
+              <li>Attach the downloaded PDF <strong style={{ overflowWrap: 'anywhere' }}>&quot;{doc?.fileName}&quot;</strong> to the email (email apps can&apos;t auto-attach files for security reasons)</li>
               <li>Add your recipients and hit send</li>
               <li>Lapen will send each recipient a personalized signing link</li>
             </ol>
