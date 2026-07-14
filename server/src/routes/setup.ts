@@ -601,11 +601,20 @@ export function createSetupRouter(): Router {
 
       const signers = await documentRepo.findSignersByDocumentId(doc.id);
 
-      // Void all signers
+      // Reset each signer: fresh signing token, clear signed/notified/viewed state.
+      // Preserve the signer records so the sender can re-place fields for the
+      // same people without re-adding them.
       for (const signer of signers) {
         await db('signers').where({ id: signer.id }).update({
-          status: 'voided',
-          signing_token: randomBytes(32).toString('base64url'), // invalidate old token
+          status: 'pending',
+          signing_token: randomBytes(32).toString('base64url'),
+          notified_at: null,
+          viewed_at: null,
+          signed_at: null,
+          declined_at: null,
+          decline_reason: null,
+          reminder_count: 0,
+          last_reminder_at: null,
         });
       }
 
@@ -614,15 +623,15 @@ export function createSetupRouter(): Router {
         .where({ document_request_id: doc.id, is_template: false })
         .del();
 
-      // Delete voided signers
-      await db('signers')
-        .where({ document_request_id: doc.id, status: 'voided' })
-        .del();
-
-      // Reset document status
+      // Reset document status and any nudge state
       await db('document_requests')
         .where({ id: doc.id })
-        .update({ status: 'pending_setup', updated_at: new Date() });
+        .update({
+          status: 'pending_setup',
+          updated_at: new Date(),
+          sender_nudge_notified_at: null,
+          last_nudge_sent_at: null,
+        });
 
       // Notify affected signers
       const notifiedSigners = signers.filter(s => s.email && ['notified', 'viewed', 'signed'].includes(s.status));

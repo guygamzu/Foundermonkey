@@ -50,6 +50,15 @@ export default function SetupPage() {
     // Cap history at 50 entries
     if (historyRef.current.length > 50) historyRef.current.shift();
   }, []);
+
+  // Step-and-repeat duplicate: after a duplicate + drag, the delta between the
+  // source and the moved copies becomes the offset for the next duplicate.
+  const stepDeltaRef = useRef<{ dx: number; dy: number } | null>(null);
+  const lastDupContextRef = useRef<{
+    sourceAnchor: { id: string; x: number; y: number };
+    resultIds: Set<string>;
+    idMap: Map<string, string>; // source id → result id (for computing new delta on drag)
+  } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
@@ -443,11 +452,25 @@ export default function SetupPage() {
       ? crypto.randomUUID()
       : `grp-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 
-    const OFFSET = 0.02;
+    const DEFAULT_OFFSET = 0.02;
+    // Step-and-repeat chain continues only if the current selection is EXACTLY
+    // the previous duplicate's result set. Otherwise reset the delta.
+    const prevCtx = lastDupContextRef.current;
+    const chainMatches = prevCtx
+      && selectedFieldIds.size === prevCtx.resultIds.size
+      && Array.from(selectedFieldIds).every(sid => prevCtx.resultIds.has(sid));
+    if (!chainMatches) stepDeltaRef.current = null;
+
+    const dx = stepDeltaRef.current?.dx ?? DEFAULT_OFFSET;
+    const dy = stepDeltaRef.current?.dy ?? DEFAULT_OFFSET;
     const newIds: string[] = [];
+    const idMap = new Map<string, string>();
+    // Anchor = the top-leftmost selected field, used to compute step delta on drag
+    const anchor = selected.reduce((best, f) =>
+      (f.y < best.y || (f.y === best.y && f.x < best.x)) ? f : best, selected[0]);
     for (const src of selected) {
-      const x = Math.max(0, Math.min(1 - src.width, src.x + OFFSET));
-      const y = Math.max(0, Math.min(1 - src.height, src.y + OFFSET));
+      const x = Math.max(0, Math.min(1 - src.width, src.x + dx));
+      const y = Math.max(0, Math.min(1 - src.height, src.y + dy));
 
       let optionGroupId: string | null = null;
       if (src.type === 'option') {
@@ -485,6 +508,7 @@ export default function SetupPage() {
           groupId,
         });
         newIds.push(created.id);
+        idMap.set(src.id, created.id);
         setFields(prev => [...prev, created]);
       } catch (err: any) {
         setError(err.message);
@@ -493,6 +517,13 @@ export default function SetupPage() {
     if (newIds.length > 0) {
       setSelectedFieldIds(new Set(newIds));
       pushHistory({ type: 'create', ids: newIds });
+      // Track this duplicate context so a subsequent drag of the copies updates
+      // stepDeltaRef for step-and-repeat placement on the next duplicate.
+      lastDupContextRef.current = {
+        sourceAnchor: { id: anchor.id, x: anchor.x, y: anchor.y },
+        resultIds: new Set(newIds),
+        idMap,
+      };
     }
   }, [fields, selectedFieldIds, id, pushHistory]);
 
@@ -720,6 +751,30 @@ export default function SetupPage() {
 
       await persistPositions(updates);
       if (undoUpdates.length > 0) pushHistory({ type: 'move', updates: undoUpdates });
+
+      // If the dragged items include the last-duplicate result set, refresh the
+      // step-and-repeat delta so the NEXT duplicate uses this new offset.
+      const ctx = lastDupContextRef.current;
+      if (ctx) {
+        const draggedIds = new Set(items.map(i => i.id));
+        const overlap = [...ctx.resultIds].every(rid => draggedIds.has(rid));
+        if (overlap) {
+          const movedAnchorId = ctx.idMap.get(ctx.sourceAnchor.id);
+          const movedAnchor = movedAnchorId ? currentById.get(movedAnchorId) : undefined;
+          if (movedAnchor) {
+            stepDeltaRef.current = {
+              dx: movedAnchor.x - ctx.sourceAnchor.x,
+              dy: movedAnchor.y - ctx.sourceAnchor.y,
+            };
+            // Chain: the moved copies are now the new anchor for the NEXT step.
+            lastDupContextRef.current = {
+              sourceAnchor: { id: movedAnchorId!, x: movedAnchor.x, y: movedAnchor.y },
+              resultIds: ctx.resultIds,
+              idMap: new Map([[movedAnchorId!, movedAnchorId!]]),
+            };
+          }
+        }
+      }
 
       dragRef.current = null;
     };
